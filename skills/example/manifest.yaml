@@ -1,0 +1,17 @@
+name: example
+version: 1.0.0
+display_name: 示例技能
+description: 这是一个示例 Level-1 Prompt Skill，展示了如何创建一个最简单的技能。
+author: GoPaw Team
+level: 1
+
+activation:
+  always: false
+  keywords:
+    - 示例
+    - example
+    - 帮助
+
+requires_tools: []
+
+config_schema: {}

@@ -1,0 +1,38 @@
+# Binaries
+gopaw
+gopaw.exe
+dist/
+
+# Build artifacts
+/web/dist/
+
+# Configuration (contains secrets)
+config.yaml
+.env
+
+# Data files
+data/
+logs/
+
+# Go toolchain
+*.test
+*.out
+coverage.html
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AI collaboration docs (local only, not for repo)
+ai/
+
+# Temporary files
+tmp/
+*.tmp

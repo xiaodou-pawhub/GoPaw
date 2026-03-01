@@ -1,0 +1,147 @@
+# ===========================================================================
+# GoPaw 完整配置示例
+# 复制此文件为 config.yaml，填入真实的 API Key 后启动服务
+# 敏感信息请使用 ${ENV_VAR} 形式引用环境变量（见 .env.example）
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 基础设置
+# ---------------------------------------------------------------------------
+app:
+  # Agent 的显示名称（会注入到系统提示中）
+  name: "GoPaw"
+  # 界面语言（目前支持 zh）
+  language: zh
+  # 时区（影响定时任务和日志时间戳）
+  timezone: Asia/Shanghai
+  # 调试模式（true 时 Gin 显示详细路由，日志更详细）
+  debug: false
+
+# ---------------------------------------------------------------------------
+# HTTP 服务器
+# ---------------------------------------------------------------------------
+server:
+  host: 0.0.0.0
+  port: 8088
+
+# ---------------------------------------------------------------------------
+# 数据存储
+# ---------------------------------------------------------------------------
+storage:
+  # 目前仅支持 sqlite
+  type: sqlite
+  # 数据库文件路径（相对于工作目录）
+  path: data/gopaw.db
+
+# ---------------------------------------------------------------------------
+# LLM 配置
+# ---------------------------------------------------------------------------
+llm:
+  # provider 选项：
+  #   openai_compatible — 兼容 OpenAI Chat Completions API（推荐）
+  #   custom            — 自定义接口（通过 request_template 和 response_path 适配）
+  provider: openai_compatible
+
+  # OpenAI 兼容模式配置
+  base_url: https://api.openai.com/v1
+  api_key: ${OPENAI_API_KEY}
+  model: gpt-4o-mini
+  # 单次调用超时（秒）
+  timeout: 60
+  # 最大输出 token 数
+  max_tokens: 4096
+
+  # ---- 自定义接口示例（仅当 provider: custom 时生效）----
+  # endpoint: https://your-llm-api.com/chat
+  # api_key: ${CUSTOM_API_KEY}
+  # response_path: "data.choices.0.message.content"
+
+# ---------------------------------------------------------------------------
+# Agent 配置
+# ---------------------------------------------------------------------------
+agent:
+  # 基础系统提示（Skills 的 prompt 片段会自动拼接在此之后）
+  system_prompt: |
+    你是一个智能助理，名字叫 GoPaw。
+    你会帮助用户完成各种任务，回答问题，处理文件。
+    请用中文回复，语气友好自然。
+    当你需要调用工具时，严格按照指定格式输出。
+
+  # ReAct 循环的最大步数（防止死循环）
+  max_steps: 20
+
+  memory:
+    # 当 Session 内消息的估算 token 数超过此值时触发上下文压缩
+    context_limit: 4000
+    # 每次调用时最多取最近多少条消息作为上下文
+    history_limit: 50
+
+# ---------------------------------------------------------------------------
+# 插件启用列表
+# 只有在此列表中的插件才会执行 Init() 和 Start()
+# 未启用的插件不消耗任何资源
+# ---------------------------------------------------------------------------
+plugins:
+  enabled:
+    - console      # Web Console（内置，建议始终启用）
+    # - feishu     # 飞书机器人（需填写下方 plugin.feishu 配置）
+    # - dingtalk   # 钉钉机器人（需填写下方 plugin.dingtalk 配置）
+    # - webhook    # 通用 Webhook（需填写下方 plugin.webhook 配置）
+
+# ---------------------------------------------------------------------------
+# 各插件独立配置
+# ---------------------------------------------------------------------------
+plugin:
+  feishu:
+    # 飞书开放平台 → 我的应用 → 凭证与基础信息
+    app_id: ${FEISHU_APP_ID}
+    app_secret: ${FEISHU_APP_SECRET}
+    # 飞书开放平台 → 事件订阅 → 验证令牌
+    verification_token: ${FEISHU_VERIFICATION_TOKEN}
+    # 飞书开放平台 → 事件订阅 → 加密密钥（可选，留空则不验签）
+    encrypt_key: ${FEISHU_ENCRYPT_KEY}
+
+  dingtalk:
+    # 钉钉开放平台 → 应用详情 → AppKey
+    client_id: ${DINGTALK_CLIENT_ID}
+    # 钉钉开放平台 → 应用详情 → AppSecret
+    client_secret: ${DINGTALK_CLIENT_SECRET}
+
+  webhook:
+    # 自定义随机 Token，用于鉴权
+    token: ${WEBHOOK_TOKEN}
+    # 回调 URL：GoPaw 处理完消息后主动 POST 到此地址
+    # 留空则外部系统通过 GET /webhook/{token}/messages 轮询
+    callback_url: ""
+
+# ---------------------------------------------------------------------------
+# Skills 配置
+# ---------------------------------------------------------------------------
+skills:
+  # 自定义 Skill 目录（相对于工作目录）
+  dir: skills/
+  # 要启用的 Skill 列表（留空则启用 dir 下所有已安装技能）
+  enabled:
+    - example
+    # - news
+    # - pdf
+
+  # 各 Skill 的用户配置（键名与 manifest.yaml 中的 name 对应）
+  config:
+    # news:
+    #   sources: [hacker_news, v2ex]
+    #   language: zh
+    #   daily_limit: 10
+
+# ---------------------------------------------------------------------------
+# 日志配置
+# ---------------------------------------------------------------------------
+log:
+  # 日志级别：debug / info / warn / error
+  level: info
+  # 格式：json（结构化）/ console（人类可读）
+  format: json
+  # 输出目标：stdout / file
+  output: stdout
+  # 当 output=file 时的日志文件路径
+  file: logs/gopaw.log
