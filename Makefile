@@ -4,7 +4,7 @@ LDFLAGS  := -ldflags "-X main.appVersion=$(VERSION)"
 GO       := go
 GOFLAGS  :=
 
-.PHONY: build run test clean lint docker-build docker-push
+.PHONY: build run test clean lint web-install web-build web-dev build-all docker-build docker-push help
 
 ## build: compile the gopaw binary
 build:
@@ -13,6 +13,21 @@ build:
 ## run: build and run the server (requires config.yaml)
 run: build
 	./$(BINARY) start --config config.yaml
+
+## web-install: install web frontend dependencies
+web-install:
+	cd web && pnpm install
+
+## web-dev: run web frontend in development mode
+web-dev:
+	cd web && pnpm run dev
+
+## web-build: build web frontend
+web-build:
+	cd web && pnpm run build
+
+## build-all: build both backend and frontend
+build-all: web-build build
 
 ## test: run all tests with race detector
 test:
@@ -30,6 +45,7 @@ lint:
 clean:
 	rm -f $(BINARY)
 	rm -f coverage.html
+	rm -rf web/dist
 
 ## tidy: tidy go modules
 tidy:
@@ -55,3 +71,9 @@ init-config:
 help:
 	@echo "Available targets:"
 	@grep -E '^## ' Makefile | sed 's/## /  /'
+	@echo ""
+	@echo "Web targets:"
+	@echo "  web-install   - Install web frontend dependencies"
+	@echo "  web-dev       - Run web frontend in dev mode"
+	@echo "  web-build     - Build web frontend"
+	@echo "  build-all     - Build both backend and frontend"

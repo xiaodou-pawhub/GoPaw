@@ -39,3 +39,6 @@ tmp/
 
 # Local scratch directory (personal notes, experiments, not shared)
 local/
+web/node_modules/
+web/dist/
+pnpm-lock.yaml
