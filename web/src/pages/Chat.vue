@@ -141,7 +141,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, onUnmounted } from 'vue'
+import { ref, onMounted, nextTick, onUnmounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import {
   NCard, NButton, NIcon, NInput, NList, NListItem, NScrollbar,
   NAvatar, NText, NEmpty, NSpin, NTooltip, useMessage, useDialog
@@ -167,10 +168,12 @@ const { t } = useI18n()
 const message = useMessage()
 const dialog = useDialog()
 const appStore = useAppStore()
+const router = useRouter()
+const route = useRoute()
 
-// 配置 Markdown 渲染引擎，显式禁用 HTML 以防范注入攻击
+// 配置 Markdown 渲染引擎，显式禁用 HTML
 const md = markdownIt({
-  html: false, // 禁用 HTML 标签
+  html: false,
   linkify: true,
   typographer: true,
   highlight: function (str, lang) {
@@ -195,7 +198,7 @@ const isStreaming = ref(false)
 const messagesRef = ref<HTMLElement | null>(null)
 let currentEventSource: EventSource | null = null
 
-// 加载所有会话
+// 加载会话列表
 async function loadSessions() {
   try {
     const list = await getSessions()
@@ -207,7 +210,7 @@ async function loadSessions() {
   }
 }
 
-// 安全关闭当前 SSE 连接
+// 安全关闭 SSE
 function closeCurrentSSE() {
   if (currentEventSource) {
     currentEventSource.close()
@@ -217,83 +220,14 @@ function closeCurrentSSE() {
   }
 }
 
-// 重置当前会话状态
-function resetCurrentSessionState() {
-  closeCurrentSSE()
-  currentSessionId.value = ''
-  messages.value = []
-  sessionStats.value = null
+// 切换会话（路由驱动）
+function selectSession(id: string) {
+  if (route.params.id === id) return
+  router.push({ name: 'Chat', params: { id } })
 }
 
-// 删除会话后的同步逻辑
-async function reloadSessionsAfterDelete(deletedId: string) {
-  const newList = await loadSessions()
-  // 如果删除的是当前会话，且列表不为空，自动切换到第一个
-  if (currentSessionId.value === '' && newList.length > 0) {
-    selectSession(newList[0].id)
-  }
-}
-
-// 删除会话
-async function handleDeleteSession(id: string, e: MouseEvent) {
-  e.stopPropagation()
-  dialog.warning({
-    title: t('common.confirm'),
-    content: t('chat.deleteConfirm'),
-    positiveText: t('common.delete'),
-    negativeText: t('common.cancel'),
-    onPositiveClick: async () => {
-      try {
-        if (currentSessionId.value === id) {
-          resetCurrentSessionState()
-        }
-        
-        await apiDeleteSession(id)
-        await reloadSessionsAfterDelete(id)
-        message.success(`${t('common.success')} (ID: ${id.substring(0, 8)})`)
-      } catch (error) {
-        message.error(t('common.error'))
-      }
-    }
-  })
-}
-
-// 加载会话统计
-async function loadStats(id: string) {
-  try {
-    sessionStats.value = await getSessionStats(id)
-  } catch (error) {
-    console.error('Failed to load stats:', error)
-    message.warning('无法加载 Token 统计信息 / Failed to load stats')
-  }
-}
-
-// 格式化 Token 数量
-function formatTokens(n: number): string {
-  if (!n) return '0'
-  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
-  return n.toString()
-}
-
-// 创建新会话
-function createNewSession() {
-  closeCurrentSSE()
-  const newId = crypto.randomUUID()
-  currentSessionId.value = newId
-  messages.value = []
-  sessionStats.value = null
-  // 添加欢迎语
-  messages.value.push({
-    id: 'welcome-' + Date.now(),
-    role: 'assistant',
-    content: t('chat.welcome'),
-    time: new Date().toLocaleTimeString()
-  })
-}
-
-// 选择会话并加载历史记录
-async function selectSession(id: string) {
+// 加载特定会话数据
+async function handleSessionSwitch(id: string) {
   if (currentSessionId.value === id && messages.value.length > 0) return
   
   closeCurrentSSE()
@@ -309,12 +243,78 @@ async function selectSession(id: string) {
   }
 }
 
+// 删除会话
+async function handleDeleteSession(id: string, e: MouseEvent) {
+  e.stopPropagation()
+  dialog.warning({
+    title: t('common.confirm'),
+    content: t('chat.deleteConfirm'),
+    positiveText: t('common.delete'),
+    negativeText: t('common.cancel'),
+    onPositiveClick: async () => {
+      try {
+        if (currentSessionId.value === id) {
+          closeCurrentSSE()
+          currentSessionId.value = ''
+          messages.value = []
+          sessionStats.value = null
+        }
+        
+        await apiDeleteSession(id)
+        const newList = await loadSessions()
+        message.success(`${t('common.success')} (ID: ${id.substring(0, 8)})`)
+        
+        // 如果删除了当前正在看的会话，回退到主路径
+        if (route.params.id === id) {
+          router.push({ name: 'Chat' })
+        }
+      } catch (error) {
+        message.error(t('common.error'))
+      }
+    }
+  })
+}
+
+// 加载统计
+async function loadStats(id: string) {
+  try {
+    sessionStats.value = await getSessionStats(id)
+  } catch (error) {
+    console.error('Failed to load stats:', error)
+    message.warning('无法加载 Token 统计信息')
+  }
+}
+
+// 格式化 Token
+function formatTokens(n: number): string {
+  if (!n) return '0'
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return n.toString()
+}
+
+// 创建新会话
+function createNewSession() {
+  closeCurrentSSE()
+  const newId = crypto.randomUUID()
+  router.push({ name: 'Chat', params: { id: newId } })
+  
+  messages.value = []
+  sessionStats.value = null
+  messages.value.push({
+    id: 'welcome-' + Date.now(),
+    role: 'assistant',
+    content: t('chat.welcome'),
+    time: new Date().toLocaleTimeString()
+  })
+}
+
 // 渲染 Markdown
 function renderMarkdown(content: string) {
   return md.render(content)
 }
 
-// 平滑滚动到底部
+// 滚动到底部
 async function scrollToBottom() {
   await nextTick()
   if (messagesRef.value) {
@@ -325,7 +325,7 @@ async function scrollToBottom() {
   }
 }
 
-// 键盘事件处理
+// 键盘处理
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
@@ -333,10 +333,9 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
-// 发送消息并处理流式响应
+// 发送消息
 async function handleSend() {
   if (!inputMessage.value.trim() || isStreaming.value) return
-  
   if (!appStore.isLLMConfigured) {
     message.warning(t('setup.description'))
     return
@@ -358,7 +357,6 @@ async function handleSend() {
   isThinking.value = true
   isStreaming.value = true
 
-  // 准备助手消息占位
   const assistantMsgId = 'msg-' + (Date.now() + 1)
   const assistantMsg: ChatMessage = {
     id: assistantMsgId,
@@ -373,23 +371,19 @@ async function handleSend() {
   currentEventSource.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data)
-      
       if (isThinking.value) {
         isThinking.value = false
         messages.value.push(assistantMsg)
       }
-
       if (data.delta) {
         assistantMsg.content += data.delta
         scrollToBottom()
       }
-
       if (data.done) {
         closeCurrentSSE()
-        loadSessions() // 刷新会话列表
-        loadStats(currentSessionId.value) // 刷新统计
+        loadSessions()
+        loadStats(currentSessionId.value)
       }
-
       if (data.error) {
         message.error(data.error)
         closeCurrentSSE()
@@ -406,11 +400,31 @@ async function handleSend() {
   }
 }
 
+// 监听 ID 变化实现刷新恢复
+watch(
+  () => route.params.id,
+  (newId) => {
+    if (newId) {
+      handleSessionSwitch(newId as string)
+    } else {
+      if (sessions.value.length > 0) {
+        selectSession(sessions.value[0].id)
+      } else {
+        createNewSession()
+      }
+    }
+  }
+)
+
 onMounted(async () => {
   const list = await loadSessions()
-  if (currentSessionId.value === '' && list.length > 0) {
+  const routeId = route.params.id as string
+  
+  if (routeId) {
+    handleSessionSwitch(routeId)
+  } else if (list.length > 0) {
     selectSession(list[0].id)
-  } else if (!currentSessionId.value) {
+  } else {
     createNewSession()
   }
 })
@@ -422,7 +436,7 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .chat-page {
-  height: calc(100vh - 112px); // Header + Content padding
+  height: calc(100vh - 112px);
 }
 
 .chat-layout {

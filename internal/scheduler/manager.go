@@ -252,10 +252,12 @@ func (m *Manager) runJob(ctx context.Context, job *CronJob) {
 		TriggeredAt: time.Now(),
 		Status:      "running",
 	}
-	runID, err := m.store.CreateRun(run)
-	if err != nil {
+	runID, createErr := m.store.CreateRun(run)
+	recordEnabled := (createErr == nil && runID != "")
+
+	if createErr != nil {
 		m.logger.Warn("scheduler: failed to create run record",
-			zap.String("job_id", job.ID), zap.Error(err))
+			zap.String("job_id", job.ID), zap.Error(createErr))
 	}
 
 	req := &types.Request{
@@ -267,14 +269,19 @@ func (m *Manager) runJob(ctx context.Context, job *CronJob) {
 	}
 
 	resp, err := m.process(ctx, req)
-	
+
 	// 中文：更新执行记录（完成状态）
 	// English: Update run record (finished status)
 	finishedAt := time.Now()
 	if err != nil {
 		m.logger.Error("scheduler: agent processing failed",
 			zap.String("job_id", job.ID), zap.Error(err))
-		m.store.UpdateRun(runID, finishedAt, "error", "", err.Error())
+		if recordEnabled {
+			if updateErr := m.store.UpdateRun(runID, finishedAt, "error", "", err.Error()); updateErr != nil {
+				m.logger.Warn("scheduler: failed to update run record",
+					zap.String("run_id", runID), zap.Error(updateErr))
+			}
+		}
 		return
 	}
 
@@ -287,11 +294,21 @@ func (m *Manager) runJob(ctx context.Context, job *CronJob) {
 	if err := m.send(msg); err != nil {
 		m.logger.Error("scheduler: send response failed",
 			zap.String("job_id", job.ID), zap.Error(err))
-		m.store.UpdateRun(runID, finishedAt, "error", "", err.Error())
+		if recordEnabled {
+			if updateErr := m.store.UpdateRun(runID, finishedAt, "error", "", err.Error()); updateErr != nil {
+				m.logger.Warn("scheduler: failed to update run record",
+					zap.String("run_id", runID), zap.Error(updateErr))
+			}
+		}
 		return
 	}
 
-	m.store.UpdateRun(runID, finishedAt, "success", resp.Content, "")
+	if recordEnabled {
+		if updateErr := m.store.UpdateRun(runID, finishedAt, "success", resp.Content, ""); updateErr != nil {
+			m.logger.Warn("scheduler: failed to update run record",
+				zap.String("run_id", runID), zap.Error(updateErr))
+		}
+	}
 
 	nextEntry := m.cron.Entry(m.entryMap[job.ID])
 	_ = m.store.UpdateLastRun(job.ID, time.Now(), nextEntry.Next)

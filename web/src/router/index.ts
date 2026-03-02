@@ -13,7 +13,7 @@ const router = createRouter({
           redirect: '/setup'
         },
         {
-          path: 'chat',
+          path: 'chat/:id?',
           name: 'Chat',
           component: () => import('@/pages/Chat.vue')
         },
