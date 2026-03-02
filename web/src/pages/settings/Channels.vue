@@ -3,11 +3,11 @@
     <n-space vertical :size="24">
       <div class="page-header">
         <n-h2>{{ t('settings.channels.title') }}</n-h2>
-        <n-text depth="3">配置各个接入频道的 API 密钥与回调参数 / Configure API keys and callback parameters for each channel</n-text>
+        <n-text depth="3">配置各个接入频道的 API 密钥与回调参数</n-text>
       </div>
 
       <n-grid :cols="1" :x-gap="12" :y-gap="24" responsive="screen" item-responsive>
-        <!-- ── 飞书配置 / Feishu Config ── -->
+        <!-- 飞书配置 -->
         <n-gi>
           <n-card bordered class="channel-card">
             <template #header>
@@ -31,7 +31,7 @@
                   v-model:value="feishuForm.app_secret"
                   type="password"
                   show-password-on="click"
-                  placeholder="请输入 App Secret / Enter App Secret"
+                  placeholder="请输入 App Secret"
                 />
               </n-form-item>
               
@@ -44,7 +44,7 @@
           </n-card>
         </n-gi>
 
-        <!-- ── 钉钉配置 / DingTalk Config ── -->
+        <!-- 钉钉配置 -->
         <n-gi>
           <n-card bordered class="channel-card">
             <template #header>
@@ -68,7 +68,7 @@
                   v-model:value="dingtalkForm.client_secret"
                   type="password"
                   show-password-on="click"
-                  placeholder="请输入 Secret / Enter Secret"
+                  placeholder="请输入 Secret"
                 />
               </n-form-item>
               
@@ -81,7 +81,7 @@
           </n-card>
         </n-gi>
 
-        <!-- ── Webhook 配置 / Webhook Config ── -->
+        <!-- Webhook 配置 -->
         <n-gi>
           <n-card bordered class="channel-card">
             <template #header>
@@ -98,10 +98,10 @@
 
             <n-form label-placement="left" label-width="120" :model="webhookForm">
               <n-form-item label="Auth Token">
-                <n-input v-model:value="webhookForm.token" placeholder="用于请求鉴权 / For auth" />
+                <n-input v-model:value="webhookForm.token" placeholder="用于请求鉴权" />
               </n-form-item>
               
-              <n-alert title="Webhook 地址 / Endpoint" type="info" :show-icon="false" class="webhook-alert">
+              <n-alert title="Webhook 地址" type="info" :show-icon="false" class="webhook-alert">
                 POST <n-code>http://your-server:8088/webhook/{{ webhookForm.token || '{token}' }}</n-code>
               </n-alert>
 
@@ -119,8 +119,6 @@
 </template>
 
 <script setup lang="ts">
-// 中文：导入必要的依赖
-// English: Import necessary dependencies
 import { ref, onMounted, onUnmounted, reactive } from 'vue'
 import {
   NCard, NSpace, NGrid, NGi, NForm, NFormItem, NInput,
@@ -152,8 +150,7 @@ const webhookForm = reactive({
   token: ''
 })
 
-// 中文：加载所有频道配置
-// English: Load all channel configs
+// 加载所有频道配置
 async function loadConfigs() {
   try {
     const [fs, dt, wh] = await Promise.all([
@@ -169,8 +166,7 @@ async function loadConfigs() {
   }
 }
 
-// 中文：加载健康状态
-// English: Load health status
+// 加载健康状态
 async function loadHealth() {
   try {
     healthData.value = await getChannelsHealth()
@@ -179,20 +175,18 @@ async function loadHealth() {
   }
 }
 
-// 中文：获取指定频道的健康状态
-// English: Get health status for a specific channel
+// 获取指定频道的健康状态
 function getChannelHealth(name: string): Partial<ChannelStatus> {
   return healthData.value.find(h => h.name === name) || { running: false }
 }
 
-// 中文：保存配置
-// English: Save configuration
+// 保存配置
 async function saveConfig(name: string, data: any) {
   try {
     saving.value = name
     await saveChannelConfig(name, data)
     message.success(t('common.success'))
-    loadHealth() // 中文：保存后刷新状态 / Refresh health after save
+    loadHealth() // 保存后刷新状态
   } catch (error) {
     message.error(t('common.error'))
   } finally {
@@ -203,12 +197,12 @@ async function saveConfig(name: string, data: any) {
 onMounted(() => {
   loadConfigs()
   loadHealth()
-  // 中文：每 10 秒刷新一次健康状态 / Poll health every 10s
+  // 每 10 秒刷新一次健康状态
   healthTimer = setInterval(loadHealth, 10000)
 })
 
 onUnmounted(() => {
-  // 中文：销毁组件时清理定时器 / Clear timer when unmounting
+  // 销毁组件时清理定时器
   if (healthTimer) {
     clearInterval(healthTimer)
   }

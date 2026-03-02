@@ -56,9 +56,10 @@ func (m *Manager) UpdateJob(ctx context.Context, id string, req UpdateJobRequest
     
     // 2. 合并更新字段（只更新非 nil 字段）
     if req.CronExpr != nil {
-        // 校验 cron 表达式
-        if _, err := m.cron.AddFunc(*req.CronExpr, func() {}); err != nil {
-            return fmt.Errorf("invalid cron expression: %w", err)
+        // 使用临时 cron 实例校验，避免副作用
+        tmpCron := cron.New()
+        if _, err := tmpCron.AddFunc(*req.CronExpr, func() {}); err != nil {
+            return fmt.Errorf("%w: %q: %v", ErrInvalidCronExpr, *req.CronExpr, err)
         }
         job.CronExpr = *req.CronExpr
     }
@@ -83,7 +84,10 @@ func (m *Manager) UpdateJob(ctx context.Context, id string, req UpdateJobRequest
 
 **审查要点**:
 - ✅ 只更新非 nil 字段，保持部分更新语义
-- ✅ Cron 表达式校验防止无效表达式
+- ✅ 使用临时 cron 实例校验，无副作用
+- ✅ 使用哨兵错误 `ErrInvalidCronExpr` 标识无效 cron
+- ✅ Handler 使用 `errors.Is()` 判断错误类型
+- ✅ Cron 表达式错误返回 400，其他错误返回 500
 - ✅ 自动重新调度确保 cron 状态正确
 
 ---
@@ -94,7 +98,7 @@ func (m *Manager) UpdateJob(ctx context.Context, id string, req UpdateJobRequest
 |------|---------|------|
 | `internal/scheduler/manager.go` | 修改 | 新增 UpdateJobRequest 和 UpdateJob 方法 |
 | `internal/server/handlers/cron.go` | 修改 | 新增 Update handler |
-| `internal/server/server.go` | 修改 | 新增 PUT 路由 |
+| `internal/server/server.go` | 修改 | 新增 PUT 路由 `cronG.PUT("/:id", cronH.Update)` |
 
 ---
 

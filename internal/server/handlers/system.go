@@ -49,9 +49,10 @@ func (h *SystemHandler) AdminAuth() gin.HandlerFunc {
 		// English: Read token auth from config.
 		adminToken := h.cfg.App.AdminToken
 		if adminToken == "" {
-			// 中文：如果未配置，默认一个安全随机值（或禁止访问）
-			// English: If not configured, use a fallback or deny access.
-			adminToken = "gopaw-admin-default-secret"
+			// 中文：如果未配置，出于安全考虑拒绝所有请求
+			// English: If not configured, deny all requests for security.
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "管理员 Token 未配置，请在 config.yaml 中设置 / Admin token not configured"})
+			return
 		}
 		
 		token := c.GetHeader("X-Admin-Token")

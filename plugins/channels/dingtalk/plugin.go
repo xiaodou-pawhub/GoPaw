@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,10 +45,15 @@ type Plugin struct {
 	cfg        dingtalkConfig
 	inbound    chan *types.Message
 	started    time.Time
-	token      string
-	configured bool // true when client_id and client_secret have been provided
 	logger     *zap.Logger
 	httpClient *http.Client
+	cancel     context.CancelFunc
+
+	// Token 缓存与并发保护
+	tokenMu     sync.RWMutex
+	cachedToken string
+	tokenExpiry time.Time
+	configured  bool // true when client_id and client_secret have been provided
 }
 
 func (p *Plugin) Name() string        { return "dingtalk" }
@@ -74,18 +80,124 @@ func (p *Plugin) Init(cfg json.RawMessage) error {
 	return nil
 }
 
-// Start fetches the initial access token.
-func (p *Plugin) Start(_ context.Context) error {
+// Start fetches the initial access token and starts the refresh loop.
+func (p *Plugin) Start(ctx context.Context) error {
 	p.started = time.Now()
-	if err := p.refreshToken(); err != nil {
-		p.logger.Warn("dingtalk: initial token fetch failed", zap.Error(err))
+
+	// 创建可取消的 context
+	ctx, p.cancel = context.WithCancel(ctx)
+
+	if p.configured {
+		if err := p.refreshAndCache(ctx); err != nil {
+			p.logger.Warn("dingtalk: initial token fetch failed", zap.Error(err))
+		}
+		// 启动后台 Token 刷新（钉钉 Token 有效期约 2 小时）
+		go p.tokenRefreshLoop(ctx)
 	}
+
 	p.logger.Info("dingtalk channel started")
 	return nil
 }
 
+// tokenRefreshLoop periodically refreshes the access token.
+// DingTalk tokens expire after ~2 hours, so we refresh every 90 minutes.
+func (p *Plugin) tokenRefreshLoop(ctx context.Context) {
+	ticker := time.NewTicker(90 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := p.refreshAndCache(ctx); err != nil {
+				p.logger.Error("dingtalk: token refresh failed", zap.Error(err))
+			}
+		}
+	}
+}
+
+// refreshAndCache fetches a new token and updates the cache.
+func (p *Plugin) refreshAndCache(ctx context.Context) error {
+	payload := map[string]string{
+		"clientId":     p.cfg.ClientID,
+		"clientSecret": p.cfg.ClientSecret,
+		"grantType":    "client_credentials",
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal token payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://api.dingtalk.com/v1.0/oauth2/accessToken",
+		bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("token http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		AccessToken string `json:"accessToken"`
+		ExpireIn    int64  `json:"expireIn"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("decode token response: %w", err)
+	}
+	if result.AccessToken == "" {
+		return fmt.Errorf("empty access token in response")
+	}
+
+	p.tokenMu.Lock()
+	p.cachedToken = result.AccessToken
+	// 默认 2 小时过期，使用返回值或默认值
+	expiry := time.Now().Add(2 * time.Hour)
+	if result.ExpireIn > 0 {
+		expiry = time.Now().Add(time.Duration(result.ExpireIn) * time.Second)
+	}
+	// 提前 5 分钟过期，避免临界时刻失效
+	p.tokenExpiry = expiry.Add(-5 * time.Minute)
+	p.tokenMu.Unlock()
+
+	p.logger.Debug("dingtalk: token refreshed")
+	return nil
+}
+
+// getToken returns the cached token, refreshing if necessary.
+func (p *Plugin) getToken() (string, error) {
+	p.tokenMu.RLock()
+	if p.cachedToken != "" && time.Now().Before(p.tokenExpiry) {
+		token := p.cachedToken
+		p.tokenMu.RUnlock()
+		return token, nil
+	}
+	p.tokenMu.RUnlock()
+
+	// Token 过期或不存在，需要刷新
+	// 使用 background context 因为这是在请求处理中
+	if err := p.refreshAndCache(context.Background()); err != nil {
+		return "", fmt.Errorf("refresh token: %w", err)
+	}
+
+	p.tokenMu.RLock()
+	defer p.tokenMu.RUnlock()
+	if p.cachedToken == "" {
+		return "", fmt.Errorf("token not available")
+	}
+	return p.cachedToken, nil
+}
+
 // Stop gracefully shuts down the plugin.
 func (p *Plugin) Stop() error {
+	if p.cancel != nil {
+		p.cancel()
+	}
 	p.logger.Info("dingtalk channel stopped")
 	return nil
 }
@@ -100,6 +212,12 @@ func (p *Plugin) Send(msg *types.Message) error {
 	if !p.configured {
 		return fmt.Errorf("dingtalk: channel not configured — add credentials via Web UI")
 	}
+
+	token, err := p.getToken()
+	if err != nil {
+		return fmt.Errorf("dingtalk: get token: %w", err)
+	}
+
 	payload := map[string]interface{}{
 		"robotCode": p.cfg.ClientID,
 		"userIds":   []string{msg.UserID},
@@ -117,7 +235,7 @@ func (p *Plugin) Send(msg *types.Message) error {
 	if err != nil {
 		return fmt.Errorf("dingtalk: build send request: %w", err)
 	}
-	req.Header.Set("x-acs-dingtalk-access-token", p.token)
+	req.Header.Set("x-acs-dingtalk-access-token", token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := p.httpClient.Do(req)
@@ -127,8 +245,6 @@ func (p *Plugin) Send(msg *types.Message) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// 中文：读取响应体用于调试日志（已移除透传）
-		// English: Read response body for debug logging (removed passthrough)
 		io.Copy(io.Discard, resp.Body)
 		return fmt.Errorf("dingtalk: send api error (status %d)", resp.StatusCode)
 	}
@@ -144,8 +260,11 @@ func (p *Plugin) Health() plugin.HealthStatus {
 			Since:   p.started,
 		}
 	}
+	p.tokenMu.RLock()
+	hasToken := p.cachedToken != ""
+	p.tokenMu.RUnlock()
 	return plugin.HealthStatus{
-		Running: p.token != "",
+		Running: hasToken,
 		Message: "ok",
 		Since:   p.started,
 	}
@@ -161,7 +280,7 @@ func (p *Plugin) Test(ctx context.Context) plugin.TestResult {
 	}
 
 	// 尝试获取 token
-	if err := p.refreshToken(); err != nil {
+	if err := p.refreshAndCache(ctx); err != nil {
 		return plugin.TestResult{
 			Success: false,
 			Message: "凭证验证失败，请检查 client_id 和 client_secret",
@@ -178,6 +297,12 @@ func (p *Plugin) Test(ctx context.Context) plugin.TestResult {
 // HandleWebhook processes an incoming DingTalk webhook event.
 // It should be registered as POST /dingtalk/event by the server.
 func (p *Plugin) HandleWebhook(w http.ResponseWriter, r *http.Request) {
+	p.HandleReceive(w, r, "")
+}
+
+// HandleReceive implements HTTPHandler interface for DingTalk.
+// The token parameter is ignored (DingTalk uses signature validation instead).
+func (p *Plugin) HandleReceive(w http.ResponseWriter, r *http.Request, _ string) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "read body", http.StatusBadRequest)
@@ -226,46 +351,17 @@ func (p *Plugin) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	select {
 	case p.inbound <- msg:
+		w.WriteHeader(http.StatusOK)
 	default:
-		p.logger.Warn("dingtalk: inbound queue full, dropping message")
+		// 队列满，返回 503
+		p.logger.Warn("dingtalk: inbound queue full, rejecting message")
+		w.WriteHeader(http.StatusServiceUnavailable)
 	}
-
-	w.WriteHeader(http.StatusOK)
 }
 
-// refreshToken fetches a DingTalk access token using client credentials.
-func (p *Plugin) refreshToken() error {
-	payload := map[string]string{
-		"clientId":     p.cfg.ClientID,
-		"clientSecret": p.cfg.ClientSecret,
-		"grantType":    "client_credentials",
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("dingtalk: marshal token payload: %w", err)
-	}
-
-	resp, err := p.httpClient.Post(
-		"https://api.dingtalk.com/v1.0/oauth2/accessToken",
-		"application/json",
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return fmt.Errorf("dingtalk token: http: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		AccessToken string `json:"accessToken"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("dingtalk token: decode: %w", err)
-	}
-	if result.AccessToken == "" {
-		return fmt.Errorf("dingtalk token: empty access token in response")
-	}
-	p.token = result.AccessToken
-	return nil
+// HandlePoll implements HTTPHandler interface (not used for DingTalk).
+func (p *Plugin) HandlePoll(w http.ResponseWriter, r *http.Request, _ string) {
+	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
 
 // verifySign validates the HMAC-SHA256 signature on a DingTalk webhook request.

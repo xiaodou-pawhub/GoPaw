@@ -1,7 +1,7 @@
 <template>
   <div class="chat-page">
     <div class="chat-layout">
-      <!-- 中文：左侧会话列表 / English: Left session list -->
+      <!-- 左侧会话列表 -->
       <div class="session-sidebar">
         <n-button type="primary" dashed block @click="createNewSession" class="new-chat-btn">
           <template #icon>
@@ -24,7 +24,7 @@
                   <n-icon :component="ChatbubbleOutline" />
                   <span class="session-name">{{ session.id.substring(0, 8) }}...</span>
                 </div>
-                <!-- 中文：会话删除按钮 / English: Session delete button -->
+                <!-- 会话删除按钮 -->
                 <n-button
                   class="delete-session-btn"
                   quaternary
@@ -43,7 +43,7 @@
         </n-scrollbar>
       </div>
 
-      <!-- 中文：右侧聊天窗口 / English: Right chat window -->
+      <!-- 右侧聊天窗口 -->
       <div class="chat-main">
         <n-card :bordered="false" class="chat-card" content-style="padding: 0; display: flex; flex-direction: column; height: 100%;">
           <template #header>
@@ -53,7 +53,7 @@
                 <n-text depth="3" small style="margin-left: 12px;">ID: {{ currentSessionId }}</n-text>
               </div>
               
-              <!-- 中文：Token 统计展示 / English: Token stats display -->
+              <!-- Token 统计展示 -->
               <div v-if="sessionStats" class="header-right stats-container">
                 <n-tooltip trigger="hover">
                   <template #trigger>
@@ -72,7 +72,7 @@
             </div>
           </template>
 
-          <!-- 中文：消息显示区 / English: Message display area -->
+          <!-- 消息显示区 -->
           <div ref="messagesRef" class="messages-area">
             <div v-if="messages.length === 0" class="empty-state">
               <n-empty :description="t('chat.welcome')" />
@@ -92,7 +92,7 @@
               </div>
             </div>
             
-            <!-- 中文：思考中动画 / English: Thinking animation -->
+            <!-- 思考中动画 -->
             <div v-if="isThinking" class="message-row assistant">
               <div class="avatar">
                 <n-avatar round :size="36" style="background-color: #1a1a2e">
@@ -108,7 +108,7 @@
             </div>
           </div>
 
-          <!-- 中文：底部输入区 / English: Bottom input area -->
+          <!-- 底部输入区 -->
           <div class="input-container">
             <div class="input-box">
               <n-input
@@ -141,8 +141,6 @@
 </template>
 
 <script setup lang="ts">
-// 中文：导入必要的依赖
-// English: Import necessary dependencies
 import { ref, onMounted, nextTick, onUnmounted } from 'vue'
 import {
   NCard, NButton, NIcon, NInput, NList, NListItem, NScrollbar,
@@ -170,10 +168,9 @@ const message = useMessage()
 const dialog = useDialog()
 const appStore = useAppStore()
 
-// 中文：配置 Markdown 渲染引擎，显式禁用 HTML 以防范注入攻击
-// English: Configure Markdown rendering engine, explicitly disable HTML to prevent injection
+// 配置 Markdown 渲染引擎，显式禁用 HTML 以防范注入攻击
 const md = markdownIt({
-  html: false, // 禁用 HTML 标签 / Disable HTML tags
+  html: false, // 禁用 HTML 标签
   linkify: true,
   typographer: true,
   highlight: function (str, lang) {
@@ -198,8 +195,7 @@ const isStreaming = ref(false)
 const messagesRef = ref<HTMLElement | null>(null)
 let currentEventSource: EventSource | null = null
 
-// 中文：加载所有会话
-// English: Load all sessions
+// 加载所有会话
 async function loadSessions() {
   try {
     const list = await getSessions()
@@ -211,8 +207,7 @@ async function loadSessions() {
   }
 }
 
-// 中文：安全关闭当前 SSE 连接
-// English: Safely close current SSE connection
+// 安全关闭当前 SSE 连接
 function closeCurrentSSE() {
   if (currentEventSource) {
     currentEventSource.close()
@@ -222,8 +217,7 @@ function closeCurrentSSE() {
   }
 }
 
-// 中文：删除会话
-// English: Delete session
+// 删除会话
 async function handleDeleteSession(id: string, e: MouseEvent) {
   e.stopPropagation()
   dialog.warning({
@@ -233,8 +227,7 @@ async function handleDeleteSession(id: string, e: MouseEvent) {
     negativeText: t('common.cancel'),
     onPositiveClick: async () => {
       try {
-        // 中文：如果要删除的是当前正在对话的会话，先关闭 SSE
-        // English: If deleting the currently active session, close SSE first
+        // 如果要删除的是当前正在对话的会话，先关闭 SSE
         if (currentSessionId.value === id) {
           closeCurrentSSE()
           currentSessionId.value = ''
@@ -246,8 +239,7 @@ async function handleDeleteSession(id: string, e: MouseEvent) {
         const newList = await loadSessions()
         message.success(t('common.success'))
         
-        // 中文：如果当前会话被删了，自动切换到第一个
-        // English: If current session deleted, switch to the first available one
+        // 如果当前会话被删了，自动切换到第一个
         if (currentSessionId.value === '' && newList.length > 0) {
           selectSession(newList[0].id)
         }
@@ -258,8 +250,7 @@ async function handleDeleteSession(id: string, e: MouseEvent) {
   })
 }
 
-// 中文：加载会话统计
-// English: Load session statistics
+// 加载会话统计
 async function loadStats(id: string) {
   try {
     sessionStats.value = await getSessionStats(id)
@@ -268,8 +259,7 @@ async function loadStats(id: string) {
   }
 }
 
-// 中文：格式化 Token 数量
-// English: Format token counts
+// 格式化 Token 数量
 function formatTokens(n: number): string {
   if (!n) return '0'
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`
@@ -277,16 +267,14 @@ function formatTokens(n: number): string {
   return n.toString()
 }
 
-// 中文：创建新会话
-// English: Create a new session
+// 创建新会话
 function createNewSession() {
   closeCurrentSSE()
   const newId = crypto.randomUUID()
   currentSessionId.value = newId
   messages.value = []
   sessionStats.value = null
-  // 中文：添加欢迎语
-  // English: Add welcome message
+  // 添加欢迎语
   messages.value.push({
     id: 'welcome-' + Date.now(),
     role: 'assistant',
@@ -295,8 +283,7 @@ function createNewSession() {
   })
 }
 
-// 中文：选择会话并加载历史记录
-// English: Select a session and load history
+// 选择会话并加载历史记录
 async function selectSession(id: string) {
   if (currentSessionId.value === id && messages.value.length > 0) return
   
@@ -309,18 +296,16 @@ async function selectSession(id: string) {
     scrollToBottom()
   } catch (error) {
     console.error('Failed to load session history:', error)
-    message.error('加载历史记录失败 / Failed to load history')
+    message.error('加载历史记录失败')
   }
 }
 
-// 中文：渲染 Markdown
-// English: Render Markdown
+// 渲染 Markdown
 function renderMarkdown(content: string) {
   return md.render(content)
 }
 
-// 中文：平滑滚动到底部
-// English: Smooth scroll to bottom
+// 平滑滚动到底部
 async function scrollToBottom() {
   await nextTick()
   if (messagesRef.value) {
@@ -331,8 +316,7 @@ async function scrollToBottom() {
   }
 }
 
-// 中文：键盘事件处理
-// English: Keyboard event handler
+// 键盘事件处理
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
@@ -340,8 +324,7 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
-// 中文：发送消息并处理流式响应
-// English: Send message and handle streaming response
+// 发送消息并处理流式响应
 async function handleSend() {
   if (!inputMessage.value.trim() || isStreaming.value) return
   
@@ -366,8 +349,7 @@ async function handleSend() {
   isThinking.value = true
   isStreaming.value = true
 
-  // 中文：准备助手消息占位
-  // English: Prepare assistant message placeholder
+  // 准备助手消息占位
   const assistantMsgId = 'msg-' + (Date.now() + 1)
   const assistantMsg: ChatMessage = {
     id: assistantMsgId,
@@ -395,8 +377,8 @@ async function handleSend() {
 
       if (data.done) {
         closeCurrentSSE()
-        loadSessions() // 中文：刷新会话列表 / Refresh session list
-        loadStats(currentSessionId.value) // 中文：刷新统计 / Refresh stats
+        loadSessions() // 刷新会话列表
+        loadStats(currentSessionId.value) // 刷新统计
       }
 
       if (data.error) {
@@ -634,7 +616,7 @@ onUnmounted(() => {
   margin-bottom: 4px;
 }
 
-/* 中文：Markdown 代码高亮样式适配 / English: Markdown code highlight styles */
+/* Markdown 代码高亮样式适配 */
 :deep(.hljs) {
   padding: 12px;
   border-radius: 8px;

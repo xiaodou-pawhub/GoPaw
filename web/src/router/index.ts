@@ -49,6 +49,11 @@ const router = createRouter({
               path: 'channels',
               name: 'SettingsChannels',
               component: () => import('@/pages/settings/Channels.vue')
+            },
+            {
+              path: 'skills',
+              name: 'SettingsSkills',
+              component: () => import('@/pages/settings/Skills.vue')
             }
           ]
         },

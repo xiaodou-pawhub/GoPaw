@@ -142,7 +142,7 @@ func (h *AgentHandler) DeleteSession(c *gin.Context) {
 	}
 	if err := h.mem.Clear(sessionID); err != nil {
 		h.logger.Error("failed to delete session", zap.String("id", sessionID), zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除会话失败 / Failed to delete session"})
 		return
 	}
 	h.agent.Sessions().Delete(sessionID)
@@ -160,7 +160,7 @@ func (h *AgentHandler) GetSessionStats(c *gin.Context) {
 	count, total, user, assist, err := h.mem.GetSessionStats(sessionID)
 	if err != nil {
 		h.logger.Error("failed to get session stats", zap.String("id", sessionID), zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取统计数据失败 / Failed to get stats: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取统计数据失败 / Failed to get stats"})
 		return
 	}
 

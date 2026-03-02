@@ -163,6 +163,10 @@ func (s *Server) registerRoutes(
 	s.engine.POST("/webhook/:token", webhookH.Receive)
 	s.engine.GET("/webhook/:token/messages", webhookH.Poll)
 
+	// DingTalk channel routes (no /api prefix).
+	dingTalkH := handlers.NewDingTalkHandler(channelMgr)
+	s.engine.POST("/dingtalk/event", dingTalkH.Event)
+
 	// SPA static file serving — must be registered last so API routes take priority.
 	if staticFS != nil {
 		s.engine.NoRoute(spaHandler(staticFS, s.logger))

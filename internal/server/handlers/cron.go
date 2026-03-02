@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -93,6 +94,12 @@ func (h *CronHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.manager.UpdateJob(c.Request.Context(), id, req); err != nil {
+		// 中文：使用 errors.Is 判断错误类型，cron 表达式无效返回 400
+		// English: Use errors.Is to distinguish error types, invalid cron returns 400
+		if errors.Is(err, scheduler.ErrInvalidCronExpr) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

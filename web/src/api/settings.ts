@@ -103,3 +103,30 @@ export async function saveAgentMD(content: string) {
 export async function getSetupStatus(): Promise<{ llm_configured: boolean, setup_required: boolean, hint: string }> {
   return await api.get('/settings/setup-status')
 }
+
+// ── 技能管理 / Skills ───────────────────────────────────────────────────────
+
+// 中文：技能信息接口
+// English: Skill information interface
+export interface Skill {
+  name: string
+  display_name: string
+  description: string
+  author: string
+  version: string
+  level: number
+  enabled: boolean
+}
+
+// 中文：获取所有技能
+// English: Get all skills
+export async function getSkills(): Promise<Skill[]> {
+  const res: any = await api.get('/skills')
+  return res.skills || []
+}
+
+// 中文：设置技能启用状态
+// English: Set skill enabled state
+export async function setSkillEnabled(name: string, enabled: boolean): Promise<{ ok: boolean }> {
+  return await api.put(`/skills/${name}/enabled`, { enabled })
+}

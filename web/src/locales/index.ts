@@ -22,6 +22,7 @@ const messages = {
       providers: 'LLM 提供商',
       channels: '频道',
       agent: 'Agent 设定',
+      skills: '技能管理',
       cron: '定时任务',
       logs: '系统日志'
     },
@@ -69,6 +70,12 @@ const messages = {
         health: '健康状态',
         running: '运行中',
         stopped: '已停止'
+      },
+      skills: {
+        title: '技能管理',
+        description: '启用或禁用 Agent 的内置技能',
+        noSkills: '暂无可用技能',
+        level: '级别'
       }
     },
     cron: {
@@ -123,6 +130,7 @@ const messages = {
       providers: 'LLM Providers',
       channels: 'Channels',
       agent: 'Agent',
+      skills: 'Skills',
       cron: 'Cron',
       logs: 'System Logs'
     },
@@ -170,6 +178,12 @@ const messages = {
         health: 'Health',
         running: 'Running',
         stopped: 'Stopped'
+      },
+      skills: {
+        title: 'Skills',
+        description: 'Enable or disable Agent built-in skills',
+        noSkills: 'No skills available',
+        level: 'Level'
       }
     },
     cron: {

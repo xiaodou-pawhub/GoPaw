@@ -3,6 +3,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,11 @@ import (
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 )
+
+// ErrInvalidCronExpr is returned when a cron expression is invalid.
+// 中文：Cron 表达式无效时返回的错误
+// English: Error returned when a cron expression is invalid
+var ErrInvalidCronExpr = errors.New("scheduler: invalid cron expression")
 
 // AgentProcessor is the function signature used to trigger the agent from a scheduled job.
 type AgentProcessor func(ctx context.Context, req *types.Request) (*types.Response, error)
@@ -143,10 +149,11 @@ func (m *Manager) UpdateJob(ctx context.Context, id string, req UpdateJobRequest
 		job.Description = *req.Description
 	}
 	if req.CronExpr != nil {
-		// 中文：校验 cron 表达式
-		// English: Validate cron expression
-		if _, err := m.cron.AddFunc(*req.CronExpr, func() {}); err != nil {
-			return fmt.Errorf("scheduler: invalid cron expression: %w", err)
+		// 中文：校验 cron 表达式（使用临时实例，避免副作用）
+		// English: Validate cron expression (use temporary instance to avoid side effects)
+		tmpCron := cron.New()
+		if _, err := tmpCron.AddFunc(*req.CronExpr, func() {}); err != nil {
+			return fmt.Errorf("%w: %q: %v", ErrInvalidCronExpr, *req.CronExpr, err)
 		}
 		job.CronExpr = *req.CronExpr
 	}

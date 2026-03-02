@@ -1,6 +1,6 @@
 <template>
   <n-layout has-sider class="layout">
-    <!-- 中文：深色侧边栏 / English: Dark sidebar -->
+    <!-- 深色侧边栏 -->
     <n-layout-sider
       bordered
       collapse-mode="width"
@@ -23,9 +23,9 @@
       />
     </n-layout-sider>
     
-    <!-- 中文：主内容区 / English: Main content -->
+    <!-- 主内容区 -->
     <n-layout>
-      <!-- 中文：顶部导航栏 / English: Top header -->
+      <!-- 顶部导航栏 -->
       <n-layout-header bordered class="header">
         <div class="header-left">
           <n-breadcrumb>
@@ -35,7 +35,7 @@
         </div>
         
         <div class="header-right">
-          <!-- 中文：LLM 配置状态指示器 / English: LLM Config status indicator -->
+          <!-- LLM 配置状态指示器 -->
           <n-tooltip trigger="hover">
             <template #trigger>
               <n-tag
@@ -50,7 +50,7 @@
                 {{ appStore.isLLMConfigured ? 'LLM OK' : 'LLM Missing' }}
               </n-tag>
             </template>
-            {{ appStore.isLLMConfigured ? 'LLM 已配置 / LLM Configured' : '请先配置 LLM / Please configure LLM' }}
+            {{ appStore.isLLMConfigured ? 'LLM 已配置' : '请先配置 LLM' }}
           </n-tooltip>
 
           <n-divider vertical />
@@ -73,8 +73,6 @@
 </template>
 
 <script setup lang="ts">
-// 中文：导入必要的依赖
-// English: Import necessary dependencies
 import { ref, h, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
@@ -93,7 +91,9 @@ import {
   AlertCircleOutline,
   RocketOutline,
   PersonOutline,
-  HardwareChipOutline
+  HardwareChipOutline,
+  DocumentTextOutline,
+  BulbOutline
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -105,30 +105,27 @@ const appStore = useAppStore()
 
 const collapsed = ref(false)
 
-// 中文：当前激活的菜单项
-// English: Current active menu item
+// 当前激活的菜单项
 const activeKey = computed(() => route.path)
 
-// 中文：当前路由名称用于面包屑
-// English: Current route name for breadcrumbs
+// 当前路由名称用于面包屑
 const currentRouteName = computed(() => {
   if (route.path === '/chat') return null
   if (route.path.includes('/settings/providers')) return t('nav.providers')
   if (route.path.includes('/settings/channels')) return t('nav.channels')
   if (route.path.includes('/settings/agent')) return t('nav.agent')
+  if (route.path.includes('/settings/skills')) return t('nav.skills')
   if (route.path.includes('/cron')) return t('nav.cron')
   if (route.path.includes('/logs')) return t('nav.logs')
   return null
 })
 
-// 中文：渲染图标函数
-// English: Render icon function
+// 渲染图标函数
 function renderIcon(icon: any) {
   return () => h(NIcon, null, { default: () => h(icon) })
 }
 
-// 中文：菜单选项
-// English: Menu options
+// 菜单选项
 const menuOptions = computed(() => [
   {
     label: t('nav.chat'),
@@ -164,13 +161,17 @@ const menuOptions = computed(() => [
         label: t('settings.channels.title'),
         key: '/settings/channels',
         icon: renderIcon(RocketOutline)
+      },
+      {
+        label: t('settings.skills.title'),
+        key: '/settings/skills',
+        icon: renderIcon(BulbOutline)
       }
     ]
   }
 ])
 
-// 中文：处理菜单选择
-// English: Handle menu select
+// 处理菜单选择
 function handleMenuSelect(key: string) {
   router.push(key)
 }
@@ -183,7 +184,7 @@ function handleMenuSelect(key: string) {
 }
 
 .sidebar {
-  background-color: #1a1a2e; // 中文：深色侧边栏 / English: Dark sidebar
+  background-color: #1a1a2e; // 深色侧边栏
   height: 100vh;
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
   
@@ -216,7 +217,7 @@ function handleMenuSelect(key: string) {
 .side-menu {
   margin-top: 12px;
   
-  // 中文：侧边栏菜单深色适配 / English: Sidebar menu dark adaptation
+  // 侧边栏菜单深色适配
   :deep(.n-menu-item-content-header) {
     color: rgba(255, 255, 255, 0.8) !important;
   }
