@@ -22,6 +22,12 @@ import (
 	"go.uber.org/zap"
 )
 
+// ── 常量定义 / Constants ───────────────────────────────────────────────────
+
+const (
+	defaultTimeout = 10 * time.Second
+)
+
 func init() {
 	channel.Register(&Plugin{
 		inbound: make(chan *types.Message, 256),
@@ -41,6 +47,7 @@ type Plugin struct {
 	token      string
 	configured bool // true when client_id and client_secret have been provided
 	logger     *zap.Logger
+	httpClient *http.Client
 }
 
 func (p *Plugin) Name() string        { return "dingtalk" }
@@ -51,6 +58,8 @@ func (p *Plugin) DisplayName() string { return "钉钉" }
 // Configure credentials via the Web UI → Settings → Channels.
 func (p *Plugin) Init(cfg json.RawMessage) error {
 	p.logger = zap.L().Named("channel.dingtalk")
+	p.httpClient = &http.Client{Timeout: defaultTimeout}
+	
 	if len(cfg) > 0 && string(cfg) != "{}" {
 		if err := json.Unmarshal(cfg, &p.cfg); err != nil {
 			p.logger.Warn("dingtalk: failed to parse config, running unconfigured", zap.Error(err))
@@ -97,7 +106,10 @@ func (p *Plugin) Send(msg *types.Message) error {
 		"msgKey":    "sampleText",
 		"msgParam":  fmt.Sprintf(`{"content":%q}`, msg.Content),
 	}
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("dingtalk: marshal payload: %w", err)
+	}
 
 	req, err := http.NewRequest(http.MethodPost,
 		"https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend",
@@ -108,15 +120,17 @@ func (p *Plugin) Send(msg *types.Message) error {
 	req.Header.Set("x-acs-dingtalk-access-token", p.token)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("dingtalk: send http: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("dingtalk: send api error: %s", string(b))
+		// 中文：读取响应体用于调试日志（已移除透传）
+		// English: Read response body for debug logging (removed passthrough)
+		io.Copy(io.Discard, resp.Body)
+		return fmt.Errorf("dingtalk: send api error (status %d)", resp.StatusCode)
 	}
 	return nil
 }
@@ -134,6 +148,30 @@ func (p *Plugin) Health() plugin.HealthStatus {
 		Running: p.token != "",
 		Message: "ok",
 		Since:   p.started,
+	}
+}
+
+// Test validates the DingTalk credentials by attempting to get an access token.
+func (p *Plugin) Test(ctx context.Context) plugin.TestResult {
+	if !p.configured || p.cfg.ClientID == "" || p.cfg.ClientSecret == "" {
+		return plugin.TestResult{
+			Success: false,
+			Message: "请先配置 client_id 和 client_secret",
+		}
+	}
+
+	// 尝试获取 token
+	if err := p.refreshToken(); err != nil {
+		return plugin.TestResult{
+			Success: false,
+			Message: "凭证验证失败，请检查 client_id 和 client_secret",
+			Details: err.Error(),
+		}
+	}
+
+	return plugin.TestResult{
+		Success: true,
+		Message: "连接正常，凭证有效",
 	}
 }
 
@@ -202,9 +240,12 @@ func (p *Plugin) refreshToken() error {
 		"clientSecret": p.cfg.ClientSecret,
 		"grantType":    "client_credentials",
 	}
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("dingtalk: marshal token payload: %w", err)
+	}
 
-	resp, err := http.Post(
+	resp, err := p.httpClient.Post(
 		"https://api.dingtalk.com/v1.0/oauth2/accessToken",
 		"application/json",
 		bytes.NewReader(body),
