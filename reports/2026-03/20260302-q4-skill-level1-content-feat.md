@@ -95,6 +95,50 @@ config_schema: {}
 - [x] `assistant` 技能设置 `always: true`（默认启用）
 - [x] 所有技能都有关键词配置
 - [x] 技能目录结构符合规范
+- [x] `config.yaml.example` 中默认只启用 `assistant`
+
+---
+
+## 功能验证
+
+### 验证步骤
+
+**1. 启动服务并查看技能列表**:
+```bash
+./gopaw start
+curl http://localhost:8088/api/skills | jq .
+```
+
+**预期输出**:
+```json
+{
+  "skills": [
+    {
+      "name": "assistant",
+      "display_name": "通用助手",
+      "enabled": true,
+      "level": 1
+    },
+    {
+      "name": "summarizer",
+      "display_name": "文本摘要",
+      "enabled": false,
+      "level": 1
+    },
+    ...
+  ]
+}
+```
+
+**2. 验证 assistant 技能默认启用**:
+- 查看 `config.yaml` 中 `skills.enabled: [assistant]`
+- 启动日志中应显示 `skill loaded` 包含所有 5 个技能
+- 只有 `assistant` 的 `enabled` 为 `true`
+
+**3. 验证 prompt 注入**:
+- 发送测试消息到 Agent
+- 查看日志中系统提示构建片段
+- 确认 `assistant` 的 prompt 被注入
 
 ---
 
