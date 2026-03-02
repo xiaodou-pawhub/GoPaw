@@ -22,7 +22,6 @@ const messages = {
       providers: 'LLM 提供商',
       channels: '频道',
       agent: 'Agent 设定',
-      skills: '技能管理',
       cron: '定时任务',
       logs: '系统日志'
     },
@@ -70,12 +69,6 @@ const messages = {
         health: '健康状态',
         running: '运行中',
         stopped: '已停止'
-      },
-      skills: {
-        title: '技能管理',
-        description: '启用或禁用 Agent 的内置技能',
-        noSkills: '暂无可用技能',
-        level: '级别'
       }
     },
     cron: {
@@ -83,32 +76,34 @@ const messages = {
       add: '新增任务',
       edit: '编辑任务',
       name: '任务名称',
+      description: '描述',
       expr: 'Cron 表达式',
       channel: '频道',
       prompt: '触发词',
       status: '状态',
       action: '操作',
       trigger: '立即触发',
-      window: '活跃窗口',
+      triggerConfirm: '确认立即执行任务 "{name}" 吗？',
+      deleteConfirm: '删除任务 "{name}" 后无法恢复，是否继续？',
+      window: '活跃时间窗口 (可选)',
+      windowStart: '开始',
+      windowEnd: '结束',
       noJobs: '暂无定时任务',
       history: '执行历史',
-      triggeredAt: '触发时间',
-      duration: '耗时',
-      output: '输出摘要',
-      success: '成功',
-      failed: '失败',
-      running: '进行中',
+      historyEmpty: '暂无执行记录',
       helper: {
         expr: '例如 "0 9 * * 1-5" 表示工作日 9 点'
       }
     },
     logs: {
       title: '系统日志',
+      description: '实时监控系统运行状态与错误日志',
       refresh: '刷新',
       autoRefresh: '自动刷新',
       level: '级别',
       message: '内容',
-      time: '时间'
+      time: '时间',
+      noLogs: '暂无日志数据'
     },
     setup: {
       title: '欢迎使用 GoPaw',
@@ -138,7 +133,6 @@ const messages = {
       providers: 'LLM Providers',
       channels: 'Channels',
       agent: 'Agent',
-      skills: 'Skills',
       cron: 'Cron',
       logs: 'System Logs'
     },
@@ -186,12 +180,6 @@ const messages = {
         health: 'Health',
         running: 'Running',
         stopped: 'Stopped'
-      },
-      skills: {
-        title: 'Skills',
-        description: 'Enable or disable Agent built-in skills',
-        noSkills: 'No skills available',
-        level: 'Level'
       }
     },
     cron: {
@@ -199,32 +187,34 @@ const messages = {
       add: 'Add Job',
       edit: 'Edit Job',
       name: 'Name',
+      description: 'Description',
       expr: 'Cron Expr',
       channel: 'Channel',
       prompt: 'Prompt',
       status: 'Status',
       action: 'Action',
       trigger: 'Trigger Now',
-      window: 'Active Window',
+      triggerConfirm: 'Run task "{name}" immediately?',
+      deleteConfirm: 'Delete task "{name}"? This action cannot be undone.',
+      window: 'Active Time Window (Optional)',
+      windowStart: 'Start',
+      windowEnd: 'End',
       noJobs: 'No cron jobs',
-      history: 'History',
-      triggeredAt: 'Triggered At',
-      duration: 'Duration',
-      output: 'Output',
-      success: 'Success',
-      failed: 'Failed',
-      running: 'Running',
+      history: 'Execution History',
+      historyEmpty: 'No execution records',
       helper: {
         expr: 'e.g., "0 9 * * 1-5" for weekdays at 9 AM'
       }
     },
     logs: {
       title: 'System Logs',
+      description: 'Real-time system monitoring and error logs',
       refresh: 'Refresh',
       autoRefresh: 'Auto Refresh',
       level: 'Level',
       message: 'Message',
-      time: 'Time'
+      time: 'Time',
+      noLogs: 'No logs available'
     },
     setup: {
       title: 'Welcome to GoPaw',

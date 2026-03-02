@@ -1,8 +1,7 @@
 // 中文：定义项目通用的 TypeScript 接口
 // English: Define common TypeScript interfaces for the project
 
-// 中文：LLM 提供商配置
-// English: LLM Provider configuration
+// LLM 提供商配置
 export interface Provider {
   id: string
   name: string
@@ -16,8 +15,7 @@ export interface Provider {
   updatedAt?: number
 }
 
-// 中文：后端返回的提供商结构（snake_case）
-// English: Provider structure returned by backend (snake_case)
+// 后端返回的提供商结构（snake_case）
 export interface BackendProvider {
   id: string
   name: string
@@ -31,8 +29,7 @@ export interface BackendProvider {
   updated_at: number
 }
 
-// 中文：频道健康状态
-// English: Channel health status
+// 频道健康状态
 export interface ChannelStatus {
   name: string
   running: boolean
@@ -40,8 +37,7 @@ export interface ChannelStatus {
   since: number
 }
 
-// 中文：定时任务（Cron）
-// English: Cron Job
+// 定时任务（Cron）
 export interface CronJob {
   id: string
   name: string
@@ -58,8 +54,18 @@ export interface CronJob {
   created_at?: number
 }
 
-// 中文：聊天消息
-// English: Chat Message
+// 定时任务执行历史
+export interface CronRun {
+  id: string
+  job_id: string
+  triggered_at: number
+  finished_at: number | null
+  status: 'success' | 'error' | 'running'
+  output: string
+  error_msg: string
+}
+
+// 聊天消息
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
@@ -67,8 +73,7 @@ export interface ChatMessage {
   time: string
 }
 
-// 中文：会话统计信息
-// English: Session statistics
+// 会话统计信息
 export interface SessionStats {
   session_id: string
   message_count: number
@@ -77,8 +82,7 @@ export interface SessionStats {
   assist_tokens: number
 }
 
-// 中文：会话信息
-// English: Session information
+// 会话信息
 export interface SessionInfo {
   id: string
   user_id: string

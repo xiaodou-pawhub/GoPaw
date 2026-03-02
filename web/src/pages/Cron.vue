@@ -4,9 +4,9 @@
       <div class="page-header">
         <div class="header-left">
           <n-h2>{{ t('cron.title') }}</n-h2>
-          <n-text depth="3">自动化定时触发 Agent 执行预设任务 / Automate Agent execution with scheduled tasks</n-text>
+          <n-text depth="3">自动化执行 Agent 任务，支持定时推送至不同频道</n-text>
         </div>
-        <n-button type="primary" @click="showAddModal">
+        <n-button type="primary" @click="openModal('create')">
           <template #icon>
             <n-icon :component="AddOutline" />
           </template>
@@ -14,427 +14,385 @@
         </n-button>
       </div>
 
-      <n-card bordered class="list-card">
+      <n-card bordered class="cron-card" content-style="padding: 0;">
         <n-data-table
           :columns="columns"
           :data="jobs"
           :loading="loading"
           :bordered="false"
-          remote
+          class="cron-table"
         />
       </n-card>
     </n-space>
 
-    <!-- 中文：新增/编辑任务对话框 / English: Add/Edit job modal -->
+    <!-- 编辑/创建弹窗 -->
     <n-modal
       v-model:show="showModal"
       preset="card"
-      :title="isEdit ? t('cron.edit') : t('cron.add')"
+      :title="modalType === 'create' ? t('cron.add') : t('cron.edit')"
       class="cron-modal"
       style="width: 600px"
     >
       <n-form
         ref="formRef"
-        :model="formData"
+        :model="formModel"
         :rules="rules"
         label-placement="left"
-        label-width="120"
+        label-width="100"
       >
         <n-form-item :label="t('cron.name')" path="name">
-          <n-input v-model:value="formData.name" placeholder="例如：每日早报" />
+          <n-input v-model:value="formModel.name" placeholder="请输入任务名称" />
         </n-form-item>
         
         <n-form-item :label="t('cron.expr')" path="cron_expr">
-          <n-input v-model:value="formData.cron_expr" :placeholder="t('cron.helper.expr')" />
+          <n-input v-model:value="formModel.cron_expr" placeholder="例如: 0 9 * * 1-5" />
+          <template #feedback>
+            {{ t('cron.helper.expr') }}
+          </template>
         </n-form-item>
 
         <n-form-item :label="t('cron.channel')" path="channel">
           <n-select
-            v-model:value="formData.channel"
+            v-model:value="formModel.channel"
             :options="channelOptions"
+            placeholder="请选择发送频道"
           />
         </n-form-item>
 
         <n-form-item :label="t('cron.prompt')" path="prompt">
           <n-input
-            v-model:value="formData.prompt"
+            v-model:value="formModel.prompt"
             type="textarea"
-            :placeholder="t('chat.placeholder')"
-            :autosize="{ minRows: 3 }"
+            :autosize="{ minRows: 3, maxRows: 6 }"
+            placeholder="触发时发给 Agent 的内容"
           />
         </n-form-item>
 
         <n-grid :cols="2" :x-gap="12">
           <n-gi>
-            <n-form-item label="Active From">
-              <n-time-picker v-model:formatted-value="formData.active_from" value-format="HH:mm" format="HH:mm" />
-            </n-form-item>
-          </n-gi>
-          <n-gi>
-            <n-form-item label="Active Until">
-              <n-time-picker v-model:formatted-value="formData.active_until" value-format="HH:mm" format="HH:mm" />
+            <n-form-item :label="t('cron.status')">
+              <n-switch v-model:value="formModel.enabled" />
             </n-form-item>
           </n-gi>
         </n-grid>
 
-        <n-form-item :label="t('cron.status')">
-          <n-switch v-model:value="formData.enabled" />
-        </n-form-item>
+        <div class="active-window-title">{{ t('cron.window') }}</div>
+        <n-grid :cols="2" :x-gap="12">
+          <n-gi>
+            <n-form-item :label="t('cron.windowStart')">
+              <n-time-picker v-model:formatted-value="formModel.active_from" value-format="HH:mm" format="HH:mm" clearable />
+            </n-form-item>
+          </n-gi>
+          <n-gi>
+            <n-form-item :label="t('cron.windowEnd')">
+              <n-time-picker v-model:formatted-value="formModel.active_until" value-format="HH:mm" format="HH:mm" clearable />
+            </n-form-item>
+          </n-gi>
+        </n-grid>
       </n-form>
 
       <template #footer>
-        <n-space justify="end">
+        <div class="modal-footer">
           <n-button @click="showModal = false">{{ t('common.cancel') }}</n-button>
-          <n-button type="primary" :loading="saving" @click="handleSubmit">
-            {{ t('common.save') }}
+          <n-button type="primary" :loading="submitting" @click="handleSubmit">
+            {{ t('common.confirm') }}
           </n-button>
-        </n-space>
+        </div>
       </template>
     </n-modal>
 
-    <!-- 中文：执行历史对话框 / English: Execution history modal -->
-    <n-modal
-      v-model:show="showHistoryModal"
-      preset="card"
-      :title="t('cron.history')"
-      class="history-modal"
-      style="width: 800px"
-    >
-      <n-data-table
-        :columns="historyColumns"
-        :data="historyRuns"
-        :loading="loadingHistory"
-        :bordered="false"
-        size="small"
-      />
-    </n-modal>
+    <!-- 执行历史侧边抽屉 -->
+    <n-drawer v-model:show="showHistory" :width="500" placement="right">
+      <n-drawer-content :title="`${t('cron.history')} - ${currentJob?.name}`" closable>
+        <div v-if="historyLoading" class="history-loading">
+          <n-spin size="large" />
+        </div>
+        <div v-else-if="runHistory.length === 0" class="history-empty">
+          <n-empty :description="t('cron.historyEmpty')" />
+        </div>
+        <div v-else class="history-list">
+          <n-card
+            v-for="run in runHistory"
+            :key="run.id"
+            size="small"
+            class="history-item"
+            :segmented="{ content: true }"
+          >
+            <template #header>
+              <div class="history-header">
+                <n-tag :type="getStatusType(run.status)" size="small">
+                  {{ run.status.toUpperCase() }}
+                </n-tag>
+                <span class="history-time">{{ formatTime(run.triggered_at) }}</span>
+              </div>
+            </template>
+            
+            <div class="history-content">
+              <div v-if="run.output" class="history-output">
+                <div class="label">输出:</div>
+                <div class="text">{{ run.output }}</div>
+              </div>
+              <div v-if="run.error_msg" class="history-error">
+                <div class="label">错误:</div>
+                <div class="text">{{ run.error_msg }}</div>
+              </div>
+            </div>
+          </n-card>
+        </div>
+      </n-drawer-content>
+    </n-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-// 中文：导入必要的依赖
-// English: Import necessary dependencies
-import { ref, onMounted, reactive, h } from 'vue'
+import { ref, onMounted, h, reactive } from 'vue'
 import {
-  NSpace, NH2, NText, NButton, NIcon, NCard, NDataTable,
-  NModal, NForm, NFormItem, NInput, NSelect, NSwitch,
-  NGrid, NGi, NTimePicker, NPopconfirm, useMessage, NTag, NTooltip
+  NSpace, NH2, NText, NButton, NIcon, NCard, NDataTable, NModal,
+  NForm, NFormItem, NInput, NSelect, NSwitch, NGrid, NGi, NTimePicker,
+  NDrawer, NDrawerContent, NTag, NEmpty, NSpin, useMessage, useDialog
 } from 'naive-ui'
-import type { DataTableColumns } from 'naive-ui'
-import { AddOutline, FlashOutline, TrashOutline, CreateOutline, TimeOutline } from '@vicons/ionicons5'
+import type { DataTableColumns, FormInst } from 'naive-ui'
+import {
+  AddOutline,
+  PlayOutline,
+  TrashOutline,
+  CreateOutline,
+  TimeOutline
+} from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
-import { getCronJobs, createCronJob, updateCronJob, deleteCronJob, triggerCronJob, getCronRuns, type CronRun } from '@/api/cron'
-import type { CronJob } from '@/types'
+import {
+  getCronJobs, createCronJob, updateCronJob,
+  deleteCronJob, triggerCronJob, getCronRunHistory
+} from '@/api/cron'
+import type { CronJob, CronRun } from '@/types'
 
 const { t } = useI18n()
 const message = useMessage()
+const dialog = useDialog()
 
-const loading = ref(false)
-const saving = ref(false)
 const jobs = ref<CronJob[]>([])
+const loading = ref(false)
+const submitting = ref(false)
 const showModal = ref(false)
-const isEdit = ref(false)
-const editingJobId = ref<string | null>(null)
-const formRef = ref<any>(null)
+const modalType = ref<'create' | 'edit'>('create')
+const editingId = ref<string | null>(null)
+const formRef = ref<FormInst | null>(null)
 
-// 中文：执行历史状态 / English: Execution history state
-const showHistoryModal = ref(false)
-const loadingHistory = ref(false)
-const historyRuns = ref<CronRun[]>([])
+const showHistory = ref(false)
+const currentJob = ref<CronJob | null>(null)
+const runHistory = ref<CronRun[]>([])
+const historyLoading = ref(false)
 
-const formData = reactive({
+const formModel = reactive<Partial<CronJob>>({
   name: '',
-  cron_expr: '0 9 * * *',
+  description: '',
+  cron_expr: '',
   channel: 'console',
   prompt: '',
   enabled: true,
-  active_from: '00:00',
-  active_until: '23:59'
+  active_from: null,
+  active_until: null
 })
 
 const rules = {
   name: { required: true, message: '请输入任务名称', trigger: 'blur' },
   cron_expr: { required: true, message: '请输入 Cron 表达式', trigger: 'blur' },
-  prompt: { required: true, message: '请输入触发词', trigger: 'blur' }
+  channel: { required: true, message: '请选择发送频道', trigger: 'change' },
+  prompt: { required: true, message: '请输入触发提示词', trigger: 'blur' }
 }
 
 const channelOptions = [
-  { label: 'Web Console', value: 'console' },
-  { label: '飞书 / Feishu', value: 'feishu' },
-  { label: '钉钉 / DingTalk', value: 'dingtalk' },
+  { label: '控制台 (Console)', value: 'console' },
+  { label: '飞书 (Feishu)', value: 'feishu' },
+  { label: '钉钉 (DingTalk)', value: 'dingtalk' },
   { label: 'Webhook', value: 'webhook' }
 ]
 
-// 中文：格式化时间戳 / English: Format timestamp
-function formatTimestamp(ts: number | null): string {
-  if (!ts) return '-'
-  const date = new Date(ts * 1000)
-  return date.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
-// 中文：计算耗时 / English: Calculate duration
-function calculateDuration(run: CronRun): string {
-  if (!run.finished_at) return t('cron.running')
-  const seconds = run.finished_at - run.triggered_at
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  const secs = seconds % 60
-  return `${minutes}m ${secs}s`
-}
-
-// 中文：截断输出 / English: Truncate output
-function truncateOutput(output: string, maxLen: number = 100): string {
-  if (!output) return '-'
-  return output.length > maxLen ? output.slice(0, maxLen) + '...' : output
-}
-
-// 中文：执行历史表格列 / English: Execution history table columns
-const historyColumns: DataTableColumns<CronRun> = [
-  {
-    title: t('cron.triggeredAt'),
-    key: 'triggered_at',
-    width: 120,
-    render(row) {
-      return formatTimestamp(row.triggered_at)
-    }
-  },
-  {
-    title: t('cron.status'),
-    key: 'status',
-    width: 100,
-    render(row) {
-      const statusMap: Record<string, { type: 'success' | 'error' | 'info', label: string }> = {
-        success: { type: 'success', label: '✅ ' + t('cron.success') },
-        error: { type: 'error', label: '❌ ' + t('cron.failed') },
-        running: { type: 'info', label: '⏳ ' + t('cron.running') }
-      }
-      const s = statusMap[row.status] || { type: 'info', label: row.status }
-      return h(NTag, { type: s.type, size: 'small', round: true }, { default: () => s.label })
-    }
-  },
-  {
-    title: t('cron.duration'),
-    key: 'duration',
-    width: 80,
-    render(row) {
-      return calculateDuration(row)
-    }
-  },
-  {
-    title: t('cron.output'),
-    key: 'output',
-    render(row) {
-      const output = row.status === 'error' ? row.error_msg : row.output
-      const truncated = truncateOutput(output)
-      if (truncated === '-') return truncated
-      return h(NTooltip, { trigger: 'hover' }, {
-        trigger: () => h('span', { class: 'output-cell' }, truncated),
-        default: () => output
-      })
-    }
-  }
-]
-
-// 中文：定义表格列 / English: Define table columns
 const columns: DataTableColumns<CronJob> = [
-  { title: t('cron.name'), key: 'name' },
-  { title: t('cron.expr'), key: 'cron_expr' },
+  { title: t('cron.name'), key: 'name', width: 150 },
   {
-    title: t('cron.channel'),
-    key: 'channel',
+    title: t('cron.expr'),
+    key: 'cron_expr',
     render(row) {
-      return h(NTag, { type: 'info', size: 'small', round: true }, { default: () => row.channel })
+      return h(NTag, { size: 'small', type: 'info', ghost: true }, { default: () => row.cron_expr })
     }
   },
+  { title: t('cron.channel'), key: 'channel', width: 100 },
   {
     title: t('cron.status'),
     key: 'enabled',
+    width: 80,
     render(row) {
-      return h(NTag, { type: row.enabled ? 'success' : 'default', size: 'small' }, { default: () => row.enabled ? 'Enabled' : 'Disabled' })
+      return h(NTag, { size: 'small', type: row.enabled ? 'success' : 'default' }, {
+        default: () => row.enabled ? '启用' : '禁用'
+      })
     }
   },
   {
     title: t('cron.action'),
     key: 'actions',
-    width: 180,
+    width: 240,
     render(row) {
-      return h(NSpace, { size: 'small' }, {
+      return h(NSpace, {}, {
         default: () => [
-          h(
-            NTooltip,
-            { trigger: 'hover' },
-            {
-              trigger: () => h(
-                NButton,
-                {
-                  size: 'small',
-                  quaternary: true,
-                  type: 'info',
-                  onClick: () => showJobHistory(row.id)
-                },
-                { icon: () => h(NIcon, null, { default: () => h(TimeOutline) }) }
-              ),
-              default: () => t('cron.history')
-            }
-          ),
-          h(
-            NTooltip,
-            { trigger: 'hover' },
-            {
-              trigger: () => h(
-                NButton,
-                {
-                  size: 'small',
-                  quaternary: true,
-                  type: 'primary',
-                  onClick: () => handleTrigger(row.id)
-                },
-                { icon: () => h(NIcon, null, { default: () => h(FlashOutline) }) }
-              ),
-              default: () => t('cron.trigger')
-            }
-          ),
-          h(
-            NTooltip,
-            { trigger: 'hover' },
-            {
-              trigger: () => h(
-                NButton,
-                {
-                  size: 'small',
-                  quaternary: true,
-                  type: 'warning',
-                  onClick: () => showEditModal(row)
-                },
-                { icon: () => h(NIcon, null, { default: () => h(CreateOutline) }) }
-              ),
-              default: () => t('common.edit')
-            }
-          ),
-          h(
-            NPopconfirm,
-            {
-              onPositiveClick: () => handleDelete(row.id)
-            },
-            {
-              trigger: () => h(
-                NButton,
-                { size: 'small', quaternary: true, type: 'error' },
-                { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) }
-              ),
-              default: () => '确认删除该任务吗？ / Delete this task?'
-            }
-          )
+          h(NButton, {
+            size: 'small',
+            quaternary: true,
+            circle: true,
+            onClick: () => handleTrigger(row)
+          }, { icon: () => h(NIcon, null, { default: () => h(PlayOutline) }) }),
+          h(NButton, {
+            size: 'small',
+            quaternary: true,
+            circle: true,
+            onClick: () => openHistory(row)
+          }, { icon: () => h(NIcon, null, { default: () => h(TimeOutline) }) }),
+          h(NButton, {
+            size: 'small',
+            quaternary: true,
+            circle: true,
+            onClick: () => openModal('edit', row)
+          }, { icon: () => h(NIcon, null, { default: () => h(CreateOutline) }) }),
+          h(NButton, {
+            size: 'small',
+            quaternary: true,
+            circle: true,
+            type: 'error',
+            onClick: () => handleDelete(row)
+          }, { icon: () => h(NIcon, null, { default: () => h(TrashOutline) }) })
         ]
       })
     }
   }
 ]
 
-// 中文：加载任务列表 / English: Load job list
 async function loadJobs() {
   loading.value = true
   try {
     jobs.value = await getCronJobs()
-  } catch (error) {
-    message.error(t('common.error'))
+  } catch (err) {
+    console.error(err)
   } finally {
     loading.value = false
   }
 }
 
-// 中文：显示添加对话框 / English: Show add modal
-function showAddModal() {
-  isEdit.value = false
-  editingJobId.value = null
-  Object.assign(formData, {
-    name: '',
-    cron_expr: '0 9 * * *',
-    channel: 'console',
-    prompt: '',
-    enabled: true,
-    active_from: '00:00',
-    active_until: '23:59'
-  })
-  showModal.value = true
-}
-
-// 中文：显示编辑对话框 / English: Show edit modal
-function showEditModal(job: CronJob) {
-  isEdit.value = true
-  editingJobId.value = job.id
-  Object.assign(formData, {
-    name: job.name,
-    cron_expr: job.cron_expr,
-    channel: job.channel,
-    prompt: job.prompt,
-    enabled: job.enabled,
-    active_from: job.active_from || '00:00',
-    active_until: job.active_until || '23:59'
-  })
-  showModal.value = true
-}
-
-// 中文：显示执行历史 / English: Show execution history
-async function showJobHistory(jobId: string) {
-  showHistoryModal.value = true
-  loadingHistory.value = true
-  try {
-    historyRuns.value = await getCronRuns(jobId, 20)
-  } catch (error) {
-    message.error(t('common.error'))
-    historyRuns.value = []
-  } finally {
-    loadingHistory.value = false
+function openModal(type: 'create' | 'edit', job?: CronJob) {
+  modalType.value = type
+  if (type === 'edit' && job) {
+    editingId.value = job.id
+    Object.assign(formModel, { 
+      ...job,
+      active_from: job.active_from || null,
+      active_until: job.active_until || null
+    })
+  } else {
+    editingId.value = null
+    Object.assign(formModel, {
+      name: '',
+      description: '',
+      cron_expr: '',
+      channel: 'console',
+      prompt: '',
+      enabled: true,
+      active_from: null,
+      active_until: null
+    })
   }
+  showModal.value = true
 }
 
-// 中文：提交表单 / English: Submit form
 async function handleSubmit() {
+  // 闭环 P1：执行表单显式校验
   try {
     await formRef.value?.validate()
-    saving.value = true
-    
-    if (isEdit.value && editingJobId.value) {
-      await updateCronJob(editingJobId.value, formData)
-    } else {
-      await createCronJob(formData)
+  } catch (err) {
+    return // 校验失败中断
+  }
+
+  submitting.value = true
+  try {
+    const payload = { ...formModel }
+    // 闭环 P1：若用户未显式选择时间，则不发送该字段，保持可选行为
+    if (!payload.active_from) payload.active_from = ''
+    if (!payload.active_until) payload.active_until = ''
+
+    if (modalType.value === 'create') {
+      await createCronJob(payload)
+    } else if (editingId.value) {
+      await updateCronJob(editingId.value, payload)
     }
-    
     message.success(t('common.success'))
     showModal.value = false
     loadJobs()
-  } catch (error) {
-    message.error(t('common.error'))
+  } catch (err: any) {
+    // 闭环 P1：透传后端错误信息，提升排障效率
+    const errorMsg = err.response?.data?.error || err.message || t('common.error')
+    message.error(errorMsg)
   } finally {
-    saving.value = false
+    submitting.value = false
   }
 }
 
-// 中文：立即触发 / English: Trigger now
-async function handleTrigger(id: string) {
+function handleTrigger(job: CronJob) {
+  dialog.info({
+    title: t('cron.trigger'),
+    content: t('cron.triggerConfirm', { name: job.name }),
+    positiveText: t('common.confirm'),
+    negativeText: t('common.cancel'),
+    onPositiveClick: async () => {
+      try {
+        await triggerCronJob(job.id)
+        message.success('已触发执行请求')
+      } catch (err) {
+        message.error('触发失败')
+      }
+    }
+  })
+}
+
+function handleDelete(job: CronJob) {
+  dialog.warning({
+    title: t('common.delete'),
+    content: t('cron.deleteConfirm', { name: job.name }),
+    positiveText: t('common.delete'),
+    negativeText: t('common.cancel'),
+    onPositiveClick: async () => {
+      try {
+        await deleteCronJob(job.id)
+        message.success('已删除')
+        loadJobs()
+      } catch (err) {
+        message.error('删除失败')
+      }
+    }
+  })
+}
+
+async function openHistory(job: CronJob) {
+  currentJob.value = job
+  showHistory.value = true
+  historyLoading.value = true
   try {
-    await triggerCronJob(id)
-    message.success('已触发执行 / Triggered successfully')
-  } catch (error) {
-    message.error(t('common.error'))
+    runHistory.value = await getCronRunHistory(job.id)
+  } catch (err) {
+    message.error('加载执行历史失败')
+  } finally {
+    historyLoading.value = false
   }
 }
 
-// 中文：删除任务 / English: Delete task
-async function handleDelete(id: string) {
-  try {
-    await deleteCronJob(id)
-    message.success(t('common.success'))
-    loadJobs()
-  } catch (error) {
-    message.error(t('common.error'))
+function getStatusType(status: string) {
+  switch (status) {
+    case 'success': return 'success'
+    case 'error': return 'error'
+    case 'running': return 'info'
+    default: return 'default'
   }
+}
+
+function formatTime(ts: number) {
+  return new Date(ts * 1000).toLocaleString()
 }
 
 onMounted(loadJobs)
@@ -452,18 +410,88 @@ onMounted(loadJobs)
   margin-bottom: 8px;
 }
 
-.list-card {
+.cron-card {
   border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
 }
 
-.cron-modal,
-.history-modal {
+.cron-table {
+  :deep(.n-data-table-td) {
+    padding: 12px 16px;
+  }
+}
+
+.cron-modal {
   border-radius: 12px;
 }
 
-.output-cell {
-  cursor: pointer;
-  color: #666;
+.active-window-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 16px 0 8px;
+  color: #333;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.history-loading, .history-empty {
+  height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.history-item {
+  border-radius: 8px;
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.history-time {
+  font-size: 12px;
+  color: #999;
+}
+
+.history-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history-output, .history-error {
+  .label {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: #666;
+  }
+  .text {
+    font-family: 'Fira Code', monospace;
+    font-size: 12px;
+    background: #f9fafb;
+    padding: 8px;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+}
+
+.history-error .text {
+  background: rgba(240, 68, 68, 0.05);
+  color: #f04444;
 }
 </style>

@@ -1,52 +1,36 @@
 import api from './index'
-import type { CronJob } from '@/types'
+import type { CronJob, CronRun } from '@/types'
 
-// 中文：获取所有定时任务
-// English: Get all cron jobs
+// 获取所有定时任务
 export async function getCronJobs(): Promise<CronJob[]> {
-  const res: any = await api.get('/cron') // 后端路由通常直接挂在 /api/cron 下
-  return res.jobs || []
+	const res = await api.get<{ jobs: CronJob[] }>('/cron')
+	return res.jobs || []
 }
 
-// 中文：创建新定时任务
-// English: Create a new cron job
-export async function createCronJob(job: Partial<CronJob>) {
-  return await api.post('/cron', job)
+// 创建定时任务
+export async function createCronJob(data: Partial<CronJob>): Promise<{ id: string }> {
+	return await api.post<{ id: string }>('/cron', data)
 }
 
-// 中文：更新定时任务
-// English: Update a cron job
-export async function updateCronJob(id: string, job: Partial<CronJob>) {
-  return await api.put(`/cron/${id}`, job)
+// 更新定时任务
+export async function updateCronJob(id: string, data: Partial<CronJob>): Promise<{ ok: boolean }> {
+	return await api.put<{ ok: boolean }>(`/cron/${id}`, data)
 }
 
-// 中文：删除定时任务
-// English: Delete a cron job
-export async function deleteCronJob(id: string) {
-  return await api.delete(`/cron/${id}`)
+// 删除定时任务
+export async function deleteCronJob(id: string): Promise<{ ok: boolean }> {
+	return await api.delete<{ ok: boolean }>(`/cron/${id}`)
 }
 
-// 中文：立即触发定时任务执行
-// English: Trigger a cron job immediately
-export async function triggerCronJob(id: string) {
-  return await api.post(`/cron/${id}/trigger`)
+// 立即触发任务
+export async function triggerCronJob(id: string): Promise<{ ok: boolean }> {
+	return await api.post<{ ok: boolean }>(`/cron/${id}/trigger`)
 }
 
-// 中文：执行历史记录
-// English: Cron run record
-export interface CronRun {
-  id: string
-  job_id: string
-  triggered_at: number
-  finished_at: number | null
-  status: 'success' | 'error' | 'running'
-  output: string
-  error_msg: string
-}
-
-// 中文：获取任务执行历史
-// English: Get job execution history
-export async function getCronRuns(id: string, limit: number = 20): Promise<CronRun[]> {
-  const res: any = await api.get(`/cron/${id}/runs?limit=${limit}`)
-  return res.runs || []
+// 获取任务执行历史
+export async function getCronRunHistory(id: string, limit: number = 20): Promise<CronRun[]> {
+	const res = await api.get<{ runs: CronRun[] }>(`/cron/${id}/runs`, {
+		params: { limit }
+	})
+	return res.runs || []
 }
