@@ -71,6 +71,14 @@ func (p *Plugin) Health() plugin.HealthStatus {
 	}
 }
 
+// Test validates the console channel (always succeeds as it's internal).
+func (p *Plugin) Test(ctx context.Context) plugin.TestResult {
+	return plugin.TestResult{
+		Success: true,
+		Message: "Web Console 通道正常",
+	}
+}
+
 // Push injects a message into the inbound queue from the HTTP layer.
 func (p *Plugin) Push(msg *types.Message) {
 	select {

@@ -19,6 +19,16 @@ type HealthStatus struct {
 	Since time.Time
 }
 
+// TestResult describes the result of a channel connection test.
+type TestResult struct {
+	// Success indicates whether the test passed.
+	Success bool `json:"success"`
+	// Message provides a human-readable result description.
+	Message string `json:"message"`
+	// Details contains optional error details for debugging.
+	Details string `json:"details,omitempty"`
+}
+
 // ChannelPlugin is the interface that every channel plugin must satisfy.
 // A channel plugin adapts a specific messaging platform (Feishu, DingTalk, Webhook …)
 // to the unified GoPaw message model.
@@ -48,4 +58,9 @@ type ChannelPlugin interface {
 
 	// Health returns the current operational status.
 	Health() HealthStatus
+
+	// Test validates the channel connection and credentials.
+	// It returns a TestResult indicating success/failure with a human-readable message.
+	// This is used by the Web UI to verify configuration before/after saving.
+	Test(ctx context.Context) TestResult
 }

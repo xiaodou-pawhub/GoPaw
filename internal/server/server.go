@@ -130,6 +130,7 @@ func (s *Server) registerRoutes(
 	channelsG := api.Group("/channels")
 	{
 		channelsG.GET("/health", channelsH.Health)
+		channelsG.POST("/:name/test", channelsH.Test)
 	}
 
 	// /api/cron

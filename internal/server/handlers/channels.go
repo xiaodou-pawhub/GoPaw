@@ -48,3 +48,34 @@ func (h *ChannelsHandler) Health(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"channels": out})
 }
+
+// Test handles POST /api/channels/:name/test.
+// It triggers a connection test for the specified channel plugin.
+func (h *ChannelsHandler) Test(c *gin.Context) {
+	name := c.Param("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "channel name is required"})
+		return
+	}
+
+	result, err := h.manager.Test(c.Request.Context(), name)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 中文：Details 包含敏感错误信息，只写日志不返回前端
+	// English: Details contains sensitive error info, log only, don't return to frontend
+	if result.Details != "" {
+		h.logger.Warn("channel test failed",
+			zap.String("channel", name),
+			zap.String("message", result.Message),
+			zap.String("details", result.Details),
+		)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": result.Success,
+		"message": result.Message,
+	})
+}

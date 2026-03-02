@@ -128,3 +128,12 @@ func (m *Manager) Health() map[string]plugin.HealthStatus {
 	}
 	return out
 }
+
+// Test triggers a connection test for the specified channel plugin.
+func (m *Manager) Test(ctx context.Context, name string) (plugin.TestResult, error) {
+	p, err := m.registry.Get(name)
+	if err != nil {
+		return plugin.TestResult{}, fmt.Errorf("channel manager: test: %w", err)
+	}
+	return p.Test(ctx), nil
+}

@@ -99,6 +99,68 @@ func (p *Plugin) Health() plugin.HealthStatus {
 	}
 }
 
+// Test validates the webhook configuration.
+// If callback_url is configured, it sends a test request to verify reachability.
+func (p *Plugin) Test(ctx context.Context) plugin.TestResult {
+	// 检查 token 配置
+	if p.cfg.Token == "" {
+		return plugin.TestResult{
+			Success: false,
+			Message: "请先配置 token",
+		}
+	}
+
+	// 如果配置了 callback_url，测试可达性
+	if p.cfg.CallbackURL != "" {
+		if err := p.testCallbackURL(ctx); err != nil {
+			return plugin.TestResult{
+				Success: false,
+				Message: "回调地址不可达",
+				Details: err.Error(),
+			}
+		}
+		return plugin.TestResult{
+			Success: true,
+			Message: "配置有效，回调地址可达",
+		}
+	}
+
+	// 没有配置 callback_url，使用轮询模式
+	return plugin.TestResult{
+		Success: true,
+		Message: "配置有效（轮询模式）",
+	}
+}
+
+// testCallbackURL sends a test request to the callback URL.
+func (p *Plugin) testCallbackURL(ctx context.Context) error {
+	testPayload := map[string]interface{}{
+		"test":     "connection",
+		"time":     time.Now().Format(time.RFC3339),
+		"channel":  p.Name(),
+	}
+	body, _ := json.Marshal(testPayload)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.CallbackURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// 接受 2xx 和 3xx 响应
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("server returned status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // HandleReceive processes POST /webhook/{token} requests.
 func (p *Plugin) HandleReceive(w http.ResponseWriter, r *http.Request, token string) {
 	if token != p.cfg.Token {
