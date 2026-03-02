@@ -26,7 +26,10 @@ import (
 // ── 常量定义 / Constants ───────────────────────────────────────────────────
 
 const (
-	defaultTimeout = 10 * time.Second
+	defaultTimeout         = 10 * time.Second
+	tokenRefreshInterval   = 90 * time.Minute  // Token 刷新间隔（钉钉 Token 有效期约 2 小时）
+	tokenExpirySkew        = 5 * time.Minute   // 提前过期时间，避免临界时刻失效
+	maxRequestBodySize     = 1 << 20           // 请求体最大 1MB
 )
 
 func init() {
@@ -50,10 +53,11 @@ type Plugin struct {
 	cancel     context.CancelFunc
 
 	// Token 缓存与并发保护
-	tokenMu     sync.RWMutex
-	cachedToken string
-	tokenExpiry time.Time
-	configured  bool // true when client_id and client_secret have been provided
+	tokenMu      sync.RWMutex
+	cachedToken  string
+	tokenExpiry  time.Time
+	configured   bool // true when client_id and client_secret have been provided
+	refreshMu    sync.Mutex // 防止并发刷新
 }
 
 func (p *Plugin) Name() string        { return "dingtalk" }
@@ -100,9 +104,9 @@ func (p *Plugin) Start(ctx context.Context) error {
 }
 
 // tokenRefreshLoop periodically refreshes the access token.
-// DingTalk tokens expire after ~2 hours, so we refresh every 90 minutes.
+// DingTalk tokens expire after ~2 hours, so we refresh every tokenRefreshInterval.
 func (p *Plugin) tokenRefreshLoop(ctx context.Context) {
-	ticker := time.NewTicker(90 * time.Minute)
+	ticker := time.NewTicker(tokenRefreshInterval)
 	defer ticker.Stop()
 
 	for {
@@ -143,6 +147,12 @@ func (p *Plugin) refreshAndCache(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 
+	// 先检查 HTTP 状态码
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("token api error (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
 	var result struct {
 		AccessToken string `json:"accessToken"`
 		ExpireIn    int64  `json:"expireIn"`
@@ -161,8 +171,8 @@ func (p *Plugin) refreshAndCache(ctx context.Context) error {
 	if result.ExpireIn > 0 {
 		expiry = time.Now().Add(time.Duration(result.ExpireIn) * time.Second)
 	}
-	// 提前 5 分钟过期，避免临界时刻失效
-	p.tokenExpiry = expiry.Add(-5 * time.Minute)
+	// 提前过期，避免临界时刻失效
+	p.tokenExpiry = expiry.Add(-tokenExpirySkew)
 	p.tokenMu.Unlock()
 
 	p.logger.Debug("dingtalk: token refreshed")
@@ -180,6 +190,19 @@ func (p *Plugin) getToken() (string, error) {
 	p.tokenMu.RUnlock()
 
 	// Token 过期或不存在，需要刷新
+	// 使用互斥锁避免并发刷新
+	p.refreshMu.Lock()
+	defer p.refreshMu.Unlock()
+
+	// 双重检查：可能在等待锁期间已被其他 goroutine 刷新
+	p.tokenMu.RLock()
+	if p.cachedToken != "" && time.Now().Before(p.tokenExpiry) {
+		token := p.cachedToken
+		p.tokenMu.RUnlock()
+		return token, nil
+	}
+	p.tokenMu.RUnlock()
+
 	// 使用 background context 因为这是在请求处理中
 	if err := p.refreshAndCache(context.Background()); err != nil {
 		return "", fmt.Errorf("refresh token: %w", err)
@@ -303,17 +326,27 @@ func (p *Plugin) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 // HandleReceive implements HTTPHandler interface for DingTalk.
 // The token parameter is ignored (DingTalk uses signature validation instead).
 func (p *Plugin) HandleReceive(w http.ResponseWriter, r *http.Request, _ string) {
-	body, err := io.ReadAll(r.Body)
+	// 限制请求体大小，防止内存攻击
+	// 读取 max+1 字节，如果超过 max 则拒绝请求
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodySize+1))
 	if err != nil {
 		http.Error(w, "read body", http.StatusBadRequest)
+		return
+	}
+	if len(body) > maxRequestBodySize {
+		http.Error(w, "request entity too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 
 	// Validate DingTalk request signature.
 	timestamp := r.Header.Get("timestamp")
 	sign := r.Header.Get("sign")
-	if !p.verifySign(timestamp, sign) {
-		http.Error(w, "invalid signature", http.StatusUnauthorized)
+	if valid, errMsg := p.verifySign(timestamp, sign); !valid {
+		p.logger.Warn("dingtalk: signature validation failed",
+			zap.String("error", errMsg),
+			zap.String("timestamp", timestamp),
+		)
+		http.Error(w, errMsg, http.StatusUnauthorized)
 		return
 	}
 
@@ -365,13 +398,21 @@ func (p *Plugin) HandlePoll(w http.ResponseWriter, r *http.Request, _ string) {
 }
 
 // verifySign validates the HMAC-SHA256 signature on a DingTalk webhook request.
-func (p *Plugin) verifySign(timestamp, sign string) bool {
+// Returns (valid, errorMsg) where errorMsg is empty if valid.
+func (p *Plugin) verifySign(timestamp, sign string) (bool, string) {
 	if p.cfg.ClientSecret == "" {
-		return true // no secret configured — skip validation
+		// 未配置密钥时拒绝请求，避免绕过签名校验
+		return false, "client_secret not configured"
+	}
+	if timestamp == "" || sign == "" {
+		return false, "missing timestamp or sign header"
 	}
 	stringToSign := timestamp + "\n" + p.cfg.ClientSecret
 	mac := hmac.New(sha256.New, []byte(p.cfg.ClientSecret))
 	mac.Write([]byte(stringToSign))
 	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
-	return sign == expected
+	if sign != expected {
+		return false, "invalid signature"
+	}
+	return true, ""
 }
