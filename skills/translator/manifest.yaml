@@ -1,0 +1,20 @@
+name: translator
+version: 1.0.0
+display_name: 翻译
+description: 中英互译，准确传达原文含义，保持语言自然流畅。
+author: GoPaw Team
+level: 1
+
+activation:
+  always: false
+  keywords:
+    - 翻译
+    - 译成
+    - 翻译成
+    - translate
+    - 中文
+    - 英文
+
+requires_tools: []
+
+config_schema: {}

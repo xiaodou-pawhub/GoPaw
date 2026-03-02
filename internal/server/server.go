@@ -90,14 +90,17 @@ func (s *Server) registerRoutes(
 
 	// /api/agent
 	agentH := handlers.NewAgentHandler(agentInstance, memMgr, s.logger)
+	uploadH := handlers.NewUploadHandler(s.logger)
 	agentG := api.Group("/agent")
 	{
 		agentG.POST("/chat", agentH.Chat)
 		agentG.GET("/chat/stream", agentH.ChatStream)
+		agentG.POST("/chat/stream", agentH.ChatStreamPost) // 中文：POST 流式对话，支持大内容 / English: POST streaming, supports large content
 		agentG.GET("/sessions", agentH.ListSessions)
 		agentG.GET("/sessions/:id/messages", agentH.GetSessionMessages)
 		agentG.DELETE("/sessions/:id", agentH.DeleteSession)
 		agentG.GET("/sessions/:id/stats", agentH.GetSessionStats)
+		agentG.POST("/upload", uploadH.Upload)
 	}
 
 	// /api/config — static startup configuration (read-only)

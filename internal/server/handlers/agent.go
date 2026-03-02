@@ -76,6 +76,9 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 }
 
 // ChatStream handles GET /api/agent/chat/stream using Server-Sent Events.
+// Deprecated: Use ChatStreamPost for large content support.
+// 中文：已废弃，请使用 ChatStreamPost 支持大内容
+// English: Deprecated, use ChatStreamPost for large content support
 func (h *AgentHandler) ChatStream(c *gin.Context) {
 	sessionID := c.Query("session_id")
 	content := c.Query("content")
@@ -84,6 +87,27 @@ func (h *AgentHandler) ChatStream(c *gin.Context) {
 		return
 	}
 
+	h.processStream(c, sessionID, content)
+}
+
+// ChatStreamPost handles POST /api/agent/chat/stream using Server-Sent Events.
+// Supports large content in request body (e.g., file attachments).
+// 中文：POST 流式对话，支持大内容（如文件附件）
+// English: POST streaming chat, supports large content (e.g., file attachments)
+func (h *AgentHandler) ChatStreamPost(c *gin.Context) {
+	var req chatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.processStream(c, req.SessionID, req.Content)
+}
+
+// processStream is the common logic for streaming responses.
+// 中文：流式响应的通用逻辑
+// English: Common logic for streaming responses
+func (h *AgentHandler) processStream(c *gin.Context, sessionID, content string) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")

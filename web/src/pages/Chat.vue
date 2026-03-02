@@ -110,7 +110,37 @@
 
           <!-- 底部输入区 -->
           <div class="input-container">
+            <!-- 待发送文件预览 -->
+            <div v-if="pendingFile" class="pending-file">
+              <n-tag closable @close="clearPendingFile" type="info">
+                <template #icon>
+                  <n-icon :component="AttachOutline" />
+                </template>
+                {{ pendingFile.filename }}
+              </n-tag>
+            </div>
             <div class="input-box">
+              <!-- 隐藏的文件输入 -->
+              <input
+                ref="fileInputRef"
+                type="file"
+                accept=".txt,.md,.csv,.json,.yaml,.yml,.png,.jpg,.jpeg,.gif"
+                style="display: none"
+                @change="handleFileUpload"
+              />
+              <!-- 文件上传按钮 -->
+              <n-button
+                quaternary
+                circle
+                :loading="uploadingFile"
+                :disabled="!appStore.isLLMConfigured || isStreaming"
+                @click="triggerFileUpload"
+                class="upload-btn"
+              >
+                <template #icon>
+                  <n-icon :component="AttachOutline" />
+                </template>
+              </n-button>
               <n-input
                 v-model:value="inputMessage"
                 type="textarea"
@@ -123,7 +153,7 @@
               <n-button
                 type="primary"
                 circle
-                :disabled="!inputMessage.trim() || !appStore.isLLMConfigured || isStreaming"
+                :disabled="(!inputMessage.trim() && !pendingFile) || !appStore.isLLMConfigured || isStreaming"
                 :loading="isStreaming"
                 @click="handleSend"
                 class="send-btn"
@@ -154,11 +184,12 @@ import {
   PawOutline,
   SendOutline,
   TrashOutline,
-  BarChartOutline
+  BarChartOutline,
+  AttachOutline
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { getSessions, getSessionMessages, getChatStreamUrl, deleteSession as apiDeleteSession, getSessionStats } from '@/api/agent'
+import { getSessions, getSessionMessages, sendChatStream, deleteSession as apiDeleteSession, getSessionStats } from '@/api/agent'
 import type { ChatMessage, SessionInfo, SessionStats } from '@/types'
 import markdownIt from 'markdown-it'
 import highlightjs from 'highlight.js'
@@ -196,7 +227,15 @@ const inputMessage = ref('')
 const isThinking = ref(false)
 const isStreaming = ref(false)
 const messagesRef = ref<HTMLElement | null>(null)
-let currentEventSource: EventSource | null = null
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const pendingFile = ref<{ filename: string; content: string; type: string } | null>(null)
+const uploadingFile = ref(false)
+// 中文：当前流式请求的控制器，用于取消请求
+// English: Current streaming request controller for cancellation
+const streamController = ref<AbortController | null>(null)
+
+// 用于标记当前是否正在执行新建会话过程，避免欢迎语被覆盖
+const isCreatingNew = ref(false)
 
 // 加载会话列表
 async function loadSessions() {
@@ -210,13 +249,16 @@ async function loadSessions() {
   }
 }
 
-// 安全关闭 SSE
-function closeCurrentSSE() {
-  if (currentEventSource) {
-    currentEventSource.close()
-    currentEventSource = null
-    isStreaming.value = false
-    isThinking.value = false
+// 中文：取消流式请求
+// English: Cancel streaming request
+function cancelStreaming() {
+  isStreaming.value = false
+  isThinking.value = false
+  
+  // 中断正在进行的流请求
+  if (streamController.value) {
+    streamController.value.abort('会话切换或取消')
+    streamController.value = null
   }
 }
 
@@ -230,9 +272,24 @@ function selectSession(id: string) {
 async function handleSessionSwitch(id: string) {
   if (currentSessionId.value === id && messages.value.length > 0) return
   
-  closeCurrentSSE()
+  // 校验 ID 合法性：如果 ID 不存在于会话列表且不是正在新建，则立即执行降级
+  const exists = sessions.value.some(s => s.id === id)
+  if (!exists && !isCreatingNew.value) {
+    console.warn('会话 ID 不存在，正在执行降级恢复...')
+    fallbackToValidSession()
+    return
+  }
+
+  // 如果是新建会话过程，保持当前生成的欢迎语，不进行后端同步
+  if (isCreatingNew.value && currentSessionId.value === id) {
+    isCreatingNew.value = false
+    return
+  }
+
+  cancelStreaming()
   currentSessionId.value = id
   loadStats(id)
+  
   try {
     const history = await getSessionMessages(id)
     messages.value = history
@@ -240,6 +297,15 @@ async function handleSessionSwitch(id: string) {
   } catch (error) {
     console.error('Failed to load session history:', error)
     message.error('加载历史记录失败')
+  }
+}
+
+// 降级恢复逻辑
+function fallbackToValidSession() {
+  if (sessions.value.length > 0) {
+    router.replace({ name: 'Chat', params: { id: sessions.value[0].id } })
+  } else {
+    createNewSession()
   }
 }
 
@@ -254,17 +320,16 @@ async function handleDeleteSession(id: string, e: MouseEvent) {
     onPositiveClick: async () => {
       try {
         if (currentSessionId.value === id) {
-          closeCurrentSSE()
+          cancelStreaming()
           currentSessionId.value = ''
           messages.value = []
           sessionStats.value = null
         }
         
         await apiDeleteSession(id)
-        const newList = await loadSessions()
+        await loadSessions()
         message.success(`${t('common.success')} (ID: ${id.substring(0, 8)})`)
         
-        // 如果删除了当前正在看的会话，回退到主路径
         if (route.params.id === id) {
           router.push({ name: 'Chat' })
         }
@@ -281,7 +346,10 @@ async function loadStats(id: string) {
     sessionStats.value = await getSessionStats(id)
   } catch (error) {
     console.error('Failed to load stats:', error)
-    message.warning('无法加载 Token 统计信息')
+    // 仅针对已知会话显示统计加载失败警告
+    if (sessions.value.some(s => s.id === id)) {
+      message.warning('无法加载 Token 统计信息')
+    }
   }
 }
 
@@ -295,18 +363,25 @@ function formatTokens(n: number): string {
 
 // 创建新会话
 function createNewSession() {
-  closeCurrentSSE()
+  cancelStreaming()
   const newId = crypto.randomUUID()
-  router.push({ name: 'Chat', params: { id: newId } })
   
+  // 设置状态标记
+  isCreatingNew.value = true
+  currentSessionId.value = newId
   messages.value = []
   sessionStats.value = null
+  
+  // 生成欢迎语
   messages.value.push({
     id: 'welcome-' + Date.now(),
     role: 'assistant',
     content: t('chat.welcome'),
     time: new Date().toLocaleTimeString()
   })
+
+  // 跳转路由（watcher 会触发，但会被 isCreatingNew 拦截同步逻辑）
+  router.push({ name: 'Chat', params: { id: newId } })
 }
 
 // 渲染 Markdown
@@ -333,21 +408,77 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
+// 触发文件选择
+function triggerFileUpload() {
+  fileInputRef.value?.click()
+}
+
+// 处理文件上传
+async function handleFileUpload(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files?.length) return
+
+  const file = input.files[0]
+  uploadingFile.value = true
+
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const res = await fetch('/api/agent/upload', {
+      method: 'POST',
+      body: formData
+    })
+
+    if (!res.ok) {
+      const errData = await res.json()
+      throw new Error(errData.error || 'Upload failed')
+    }
+
+    const data = await res.json()
+    pendingFile.value = {
+      filename: data.filename,
+      content: data.content,
+      type: data.type
+    }
+    message.success(`文件 "${data.filename}" 已准备，发送消息时将附带文件内容`)
+  } catch (error: any) {
+    message.error(error.message || t('common.error'))
+  } finally {
+    uploadingFile.value = false
+    // 重置 input，允许重复选择同一文件
+    input.value = ''
+  }
+}
+
+// 清除待发送文件
+function clearPendingFile() {
+  pendingFile.value = null
+}
+
 // 发送消息
 async function handleSend() {
-  if (!inputMessage.value.trim() || isStreaming.value) return
+  if (!inputMessage.value.trim() && !pendingFile.value) return
+  if (isStreaming.value) return
   if (!appStore.isLLMConfigured) {
     message.warning(t('setup.description'))
     return
   }
 
-  const content = inputMessage.value
+  // 构建消息内容，附加文件
+  let content = inputMessage.value
+  if (pendingFile.value) {
+    content = `[文件: ${pendingFile.value.filename}]\n${pendingFile.value.content}\n\n${content}`
+  }
+  
   inputMessage.value = ''
+  const fileToSend = pendingFile.value
+  pendingFile.value = null
   
   const userMsg: ChatMessage = {
     id: 'msg-' + Date.now(),
     role: 'user',
-    content: content,
+    content: fileToSend ? `[附件: ${fileToSend.filename}]\n${content.replace(/\[文件:.*?\]\n[\s\S]*?\n\n/, '')}` : content,
     time: new Date().toLocaleTimeString()
   }
   
@@ -365,37 +496,39 @@ async function handleSend() {
     time: new Date().toLocaleTimeString()
   }
   
-  const url = getChatStreamUrl(currentSessionId.value, content)
-  currentEventSource = new EventSource(url)
-
-  currentEventSource.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data)
-      if (isThinking.value) {
-        isThinking.value = false
-        messages.value.push(assistantMsg)
-      }
-      if (data.delta) {
-        assistantMsg.content += data.delta
+  // 中文：使用 POST 流式请求，支持大内容
+  // English: Use POST streaming request, supports large content
+  // 创建新的 AbortController 用于取消请求
+  const controller = new AbortController()
+  streamController.value = controller
+  
+  try {
+    await sendChatStream(currentSessionId.value, content, {
+      onDelta: (delta) => {
+        if (isThinking.value) {
+          isThinking.value = false
+          messages.value.push(assistantMsg)
+        }
+        assistantMsg.content += delta
         scrollToBottom()
-      }
-      if (data.done) {
-        closeCurrentSSE()
+      },
+      onDone: () => {
+        isStreaming.value = false
+        streamController.value = null
         loadSessions()
         loadStats(currentSessionId.value)
+      },
+      onError: (error) => {
+        isThinking.value = false
+        isStreaming.value = false
+        streamController.value = null
+        message.error(error)
       }
-      if (data.error) {
-        message.error(data.error)
-        closeCurrentSSE()
-      }
-    } catch (e) {
-      console.error('SSE parse error:', e)
-    }
-  }
-
-  currentEventSource.onerror = (err) => {
-    console.error('SSE error:', err)
-    closeCurrentSSE()
+    }, { signal: controller.signal })
+  } catch (error) {
+    isThinking.value = false
+    isStreaming.value = false
+    streamController.value = null
     message.error(t('common.error'))
   }
 }
@@ -430,7 +563,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  closeCurrentSSE()
+  cancelStreaming()
 })
 </script>
 
@@ -610,6 +743,11 @@ onUnmounted(() => {
   border-top: 1px solid #eee;
 }
 
+.pending-file {
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+
 .input-box {
   display: flex;
   align-items: flex-end;
@@ -624,6 +762,10 @@ onUnmounted(() => {
     border-color: #18a058;
     box-shadow: 0 0 0 2px rgba(24, 160, 88, 0.1);
   }
+}
+
+.upload-btn {
+  margin-bottom: 4px;
 }
 
 .chat-input {

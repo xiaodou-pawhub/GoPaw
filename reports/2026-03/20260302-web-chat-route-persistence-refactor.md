@@ -26,26 +26,20 @@
 重写 `Chat.vue` 的核心逻辑，使其遵循“URL 即状态”的原则：
 - **初始化**: `onMounted` 优先读取 `route.params.id`。
 - **切换**: 点击列表项不再直接修改变量，而是触发 `router.push`。
-- **同步**: 通过 `watch(() => route.params.id)` 统一触发 `handleSessionSwitch`（含 SSE 清理、历史加载、统计刷新）。
-- **删除处理**: 删除当前活跃 ID 后，自动执行路由回退。
+- **降级恢复**: 在 `handleSessionSwitch` 中增加了非法 ID 检测逻辑。若访问不存在的会话 ID，系统会自动重定向（`router.replace`）到有效的首个会话或触发新建会话。
+- **竞争修复**: 引入 `isCreatingNew` 状态标记，解决了新建会话时前端生成的欢迎语被 `watch` 触发的空历史加载请求意外覆盖的问题。
+- **注释规范**: 彻底清理了残留的英文标签，全站遵循纯中文注释。
 
 ```typescript
-// 统一监听 ID 变化
-watch(
-  () => route.params.id,
-  (newId) => {
-    if (newId) {
-      handleSessionSwitch(newId as string)
-    } else {
-      // 兜底逻辑：选中首项或新建
-      if (sessions.value.length > 0) {
-        selectSession(sessions.value[0].id)
-      } else {
-        createNewSession()
-      }
-    }
+// 降级恢复核心
+try {
+  const history = await getSessionMessages(id)
+  messages.value = history
+} catch (error) {
+  if (!sessions.value.some(s => s.id === id)) {
+    fallbackToValidSession() // 自动重定向到有效状态
   }
-)
+}
 ```
 
 ---

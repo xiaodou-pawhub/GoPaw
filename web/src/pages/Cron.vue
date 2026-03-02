@@ -29,7 +29,7 @@
     <n-modal
       v-model:show="showModal"
       preset="card"
-      :title="t('cron.add')"
+      :title="isEdit ? t('cron.edit') : t('cron.add')"
       class="cron-modal"
       style="width: 600px"
     >
@@ -91,6 +91,23 @@
         </n-space>
       </template>
     </n-modal>
+
+    <!-- 中文：执行历史对话框 / English: Execution history modal -->
+    <n-modal
+      v-model:show="showHistoryModal"
+      preset="card"
+      :title="t('cron.history')"
+      class="history-modal"
+      style="width: 800px"
+    >
+      <n-data-table
+        :columns="historyColumns"
+        :data="historyRuns"
+        :loading="loadingHistory"
+        :bordered="false"
+        size="small"
+      />
+    </n-modal>
   </div>
 </template>
 
@@ -101,12 +118,12 @@ import { ref, onMounted, reactive, h } from 'vue'
 import {
   NSpace, NH2, NText, NButton, NIcon, NCard, NDataTable,
   NModal, NForm, NFormItem, NInput, NSelect, NSwitch,
-  NGrid, NGi, NTimePicker, NPopconfirm, useMessage, NTag
+  NGrid, NGi, NTimePicker, NPopconfirm, useMessage, NTag, NTooltip
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import { AddOutline, FlashOutline, TrashOutline } from '@vicons/ionicons5'
+import { AddOutline, FlashOutline, TrashOutline, CreateOutline, TimeOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
-import { getCronJobs, createCronJob, deleteCronJob, triggerCronJob } from '@/api/cron'
+import { getCronJobs, createCronJob, updateCronJob, deleteCronJob, triggerCronJob, getCronRuns, type CronRun } from '@/api/cron'
 import type { CronJob } from '@/types'
 
 const { t } = useI18n()
@@ -116,7 +133,14 @@ const loading = ref(false)
 const saving = ref(false)
 const jobs = ref<CronJob[]>([])
 const showModal = ref(false)
+const isEdit = ref(false)
+const editingJobId = ref<string | null>(null)
 const formRef = ref<any>(null)
+
+// 中文：执行历史状态 / English: Execution history state
+const showHistoryModal = ref(false)
+const loadingHistory = ref(false)
+const historyRuns = ref<CronRun[]>([])
 
 const formData = reactive({
   name: '',
@@ -141,8 +165,82 @@ const channelOptions = [
   { label: 'Webhook', value: 'webhook' }
 ]
 
-// 中文：定义表格列
-// English: Define table columns
+// 中文：格式化时间戳 / English: Format timestamp
+function formatTimestamp(ts: number | null): string {
+  if (!ts) return '-'
+  const date = new Date(ts * 1000)
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+// 中文：计算耗时 / English: Calculate duration
+function calculateDuration(run: CronRun): string {
+  if (!run.finished_at) return t('cron.running')
+  const seconds = run.finished_at - run.triggered_at
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${minutes}m ${secs}s`
+}
+
+// 中文：截断输出 / English: Truncate output
+function truncateOutput(output: string, maxLen: number = 100): string {
+  if (!output) return '-'
+  return output.length > maxLen ? output.slice(0, maxLen) + '...' : output
+}
+
+// 中文：执行历史表格列 / English: Execution history table columns
+const historyColumns: DataTableColumns<CronRun> = [
+  {
+    title: t('cron.triggeredAt'),
+    key: 'triggered_at',
+    width: 120,
+    render(row) {
+      return formatTimestamp(row.triggered_at)
+    }
+  },
+  {
+    title: t('cron.status'),
+    key: 'status',
+    width: 100,
+    render(row) {
+      const statusMap: Record<string, { type: 'success' | 'error' | 'info', label: string }> = {
+        success: { type: 'success', label: '✅ ' + t('cron.success') },
+        error: { type: 'error', label: '❌ ' + t('cron.failed') },
+        running: { type: 'info', label: '⏳ ' + t('cron.running') }
+      }
+      const s = statusMap[row.status] || { type: 'info', label: row.status }
+      return h(NTag, { type: s.type, size: 'small', round: true }, { default: () => s.label })
+    }
+  },
+  {
+    title: t('cron.duration'),
+    key: 'duration',
+    width: 80,
+    render(row) {
+      return calculateDuration(row)
+    }
+  },
+  {
+    title: t('cron.output'),
+    key: 'output',
+    render(row) {
+      const output = row.status === 'error' ? row.error_msg : row.output
+      const truncated = truncateOutput(output)
+      if (truncated === '-') return truncated
+      return h(NTooltip, { trigger: 'hover' }, {
+        trigger: () => h('span', { class: 'output-cell' }, truncated),
+        default: () => output
+      })
+    }
+  }
+]
+
+// 中文：定义表格列 / English: Define table columns
 const columns: DataTableColumns<CronJob> = [
   { title: t('cron.name'), key: 'name' },
   { title: t('cron.expr'), key: 'cron_expr' },
@@ -163,18 +261,60 @@ const columns: DataTableColumns<CronJob> = [
   {
     title: t('cron.action'),
     key: 'actions',
+    width: 180,
     render(row) {
-      return h(NSpace, null, {
+      return h(NSpace, { size: 'small' }, {
         default: () => [
           h(
-            NButton,
+            NTooltip,
+            { trigger: 'hover' },
             {
-              size: 'small',
-              quaternary: true,
-              type: 'primary',
-              onClick: () => handleTrigger(row.id)
-            },
-            { icon: () => h(NIcon, null, { default: () => h(FlashOutline) }) }
+              trigger: () => h(
+                NButton,
+                {
+                  size: 'small',
+                  quaternary: true,
+                  type: 'info',
+                  onClick: () => showJobHistory(row.id)
+                },
+                { icon: () => h(NIcon, null, { default: () => h(TimeOutline) }) }
+              ),
+              default: () => t('cron.history')
+            }
+          ),
+          h(
+            NTooltip,
+            { trigger: 'hover' },
+            {
+              trigger: () => h(
+                NButton,
+                {
+                  size: 'small',
+                  quaternary: true,
+                  type: 'primary',
+                  onClick: () => handleTrigger(row.id)
+                },
+                { icon: () => h(NIcon, null, { default: () => h(FlashOutline) }) }
+              ),
+              default: () => t('cron.trigger')
+            }
+          ),
+          h(
+            NTooltip,
+            { trigger: 'hover' },
+            {
+              trigger: () => h(
+                NButton,
+                {
+                  size: 'small',
+                  quaternary: true,
+                  type: 'warning',
+                  onClick: () => showEditModal(row)
+                },
+                { icon: () => h(NIcon, null, { default: () => h(CreateOutline) }) }
+              ),
+              default: () => t('common.edit')
+            }
           ),
           h(
             NPopconfirm,
@@ -196,8 +336,7 @@ const columns: DataTableColumns<CronJob> = [
   }
 ]
 
-// 中文：加载任务列表
-// English: Load job list
+// 中文：加载任务列表 / English: Load job list
 async function loadJobs() {
   loading.value = true
   try {
@@ -209,7 +348,10 @@ async function loadJobs() {
   }
 }
 
+// 中文：显示添加对话框 / English: Show add modal
 function showAddModal() {
+  isEdit.value = false
+  editingJobId.value = null
   Object.assign(formData, {
     name: '',
     cron_expr: '0 9 * * *',
@@ -222,13 +364,48 @@ function showAddModal() {
   showModal.value = true
 }
 
-// 中文：提交表单
-// English: Submit form
+// 中文：显示编辑对话框 / English: Show edit modal
+function showEditModal(job: CronJob) {
+  isEdit.value = true
+  editingJobId.value = job.id
+  Object.assign(formData, {
+    name: job.name,
+    cron_expr: job.cron_expr,
+    channel: job.channel,
+    prompt: job.prompt,
+    enabled: job.enabled,
+    active_from: job.active_from || '00:00',
+    active_until: job.active_until || '23:59'
+  })
+  showModal.value = true
+}
+
+// 中文：显示执行历史 / English: Show execution history
+async function showJobHistory(jobId: string) {
+  showHistoryModal.value = true
+  loadingHistory.value = true
+  try {
+    historyRuns.value = await getCronRuns(jobId, 20)
+  } catch (error) {
+    message.error(t('common.error'))
+    historyRuns.value = []
+  } finally {
+    loadingHistory.value = false
+  }
+}
+
+// 中文：提交表单 / English: Submit form
 async function handleSubmit() {
   try {
     await formRef.value?.validate()
     saving.value = true
-    await createCronJob(formData)
+    
+    if (isEdit.value && editingJobId.value) {
+      await updateCronJob(editingJobId.value, formData)
+    } else {
+      await createCronJob(formData)
+    }
+    
     message.success(t('common.success'))
     showModal.value = false
     loadJobs()
@@ -239,8 +416,7 @@ async function handleSubmit() {
   }
 }
 
-// 中文：立即触发
-// English: Trigger now
+// 中文：立即触发 / English: Trigger now
 async function handleTrigger(id: string) {
   try {
     await triggerCronJob(id)
@@ -250,8 +426,7 @@ async function handleTrigger(id: string) {
   }
 }
 
-// 中文：删除任务
-// English: Delete task
+// 中文：删除任务 / English: Delete task
 async function handleDelete(id: string) {
   try {
     await deleteCronJob(id)
@@ -282,7 +457,13 @@ onMounted(loadJobs)
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
 }
 
-.cron-modal {
+.cron-modal,
+.history-modal {
   border-radius: 12px;
+}
+
+.output-cell {
+  cursor: pointer;
+  color: #666;
 }
 </style>

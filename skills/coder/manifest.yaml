@@ -1,0 +1,21 @@
+name: coder
+version: 1.0.0
+display_name: 代码助手
+description: 代码生成、解释、调试和优化，支持多种编程语言。
+author: GoPaw Team
+level: 1
+
+activation:
+  always: false
+  keywords:
+    - 代码
+    - 编程
+    - 写代码
+    - 调试
+    - 优化
+    - code
+    - programming
+
+requires_tools: []
+
+config_schema: {}

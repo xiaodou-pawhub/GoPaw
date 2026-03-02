@@ -81,6 +81,7 @@ const messages = {
     cron: {
       title: '定时任务',
       add: '新增任务',
+      edit: '编辑任务',
       name: '任务名称',
       expr: 'Cron 表达式',
       channel: '频道',
@@ -90,6 +91,13 @@ const messages = {
       trigger: '立即触发',
       window: '活跃窗口',
       noJobs: '暂无定时任务',
+      history: '执行历史',
+      triggeredAt: '触发时间',
+      duration: '耗时',
+      output: '输出摘要',
+      success: '成功',
+      failed: '失败',
+      running: '进行中',
       helper: {
         expr: '例如 "0 9 * * 1-5" 表示工作日 9 点'
       }
@@ -189,6 +197,7 @@ const messages = {
     cron: {
       title: 'Cron Jobs',
       add: 'Add Job',
+      edit: 'Edit Job',
       name: 'Name',
       expr: 'Cron Expr',
       channel: 'Channel',
@@ -198,6 +207,13 @@ const messages = {
       trigger: 'Trigger Now',
       window: 'Active Window',
       noJobs: 'No cron jobs',
+      history: 'History',
+      triggeredAt: 'Triggered At',
+      duration: 'Duration',
+      output: 'Output',
+      success: 'Success',
+      failed: 'Failed',
+      running: 'Running',
       helper: {
         expr: 'e.g., "0 9 * * 1-5" for weekdays at 9 AM'
       }
