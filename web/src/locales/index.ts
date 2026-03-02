@@ -66,7 +66,8 @@ const messages = {
         webhook: 'Webhook',
         health: '健康状态',
         running: '运行中',
-        stopped: '已停止'
+        stopped: '已停止',
+        test: '测试连接'
       }
     },
     cron: {
@@ -157,7 +158,8 @@ const messages = {
         webhook: 'Webhook',
         health: 'Health',
         running: 'Running',
-        stopped: 'Stopped'
+        stopped: 'Stopped',
+        test: 'Test Connection'
       }
     },
     cron: {

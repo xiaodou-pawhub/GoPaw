@@ -82,6 +82,12 @@ export async function getChannelsHealth(): Promise<any[]> {
   return res.channels || []
 }
 
+// 中文：测试频道连接
+// English: Test channel connection
+export async function testChannel(name: string): Promise<{ success: boolean; message: string; details?: string }> {
+  return await api.post(`/channels/${name}/test`)
+}
+
 // ── Agent 设定 / Agent Persona ───────────────────────────────────────────────
 
 export async function getAgentMD(): Promise<{ content: string }> {
