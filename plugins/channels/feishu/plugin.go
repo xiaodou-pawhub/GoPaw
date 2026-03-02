@@ -1,27 +1,35 @@
 // Package feishu implements the Feishu (Lark) channel plugin for GoPaw.
-// It receives events via the Feishu Event Subscription mechanism (HTTP callback)
-// and sends messages using the Feishu Open Platform messaging API.
+// It uses Feishu Stream Mode (WebSocket) to receive events, eliminating the need
+// for public IP or reverse proxy.
 package feishu
 
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gopaw/gopaw/internal/channel"
 	"github.com/gopaw/gopaw/pkg/plugin"
 	"github.com/gopaw/gopaw/pkg/types"
+	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
+	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
+	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 	"go.uber.org/zap"
+)
+
+// ── 常量定义 / Constants ───────────────────────────────────────────────────
+
+const (
+	tokenEndpoint   = "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal"
+	sendEndpoint    = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
+	tokenRefreshSkew = 5 * time.Minute // 提前 5 分钟刷新
+	defaultTimeout  = 10 * time.Second
 )
 
 func init() {
@@ -31,56 +39,26 @@ func init() {
 }
 
 type feishuConfig struct {
-	AppID             string `json:"app_id"`
-	AppSecret         string `json:"app_secret"`
-	VerificationToken string `json:"verification_token"`
-	EncryptKey        string `json:"encrypt_key"`
+	AppID     string `json:"app_id"`
+	AppSecret string `json:"app_secret"`
 }
 
-// feishuErrors 定义了飞书 API 错误码及用户友好的错误信息
-var feishuErrors = map[int]string{
-	99991663: "app_id 或 app_secret 错误",
-	99991664: "access_token 无效或已过期",
-	99991665: "access_token 缺少权限",
-	99991403: "请求频率超限",
-	99991404: "资源不存在",
-	99999999: "服务内部错误",
-}
-
-// FeishuError 封装飞书 API 错误，提供用户友好的错误信息
-type FeishuError struct {
-	Code       int
-	Msg        string
-	InternalMsg string
-}
-
-func (e *FeishuError) Error() string {
-	return e.Msg
-}
-
-// newFeishuError 根据飞书返回的 code 创建错误实例
-func newFeishuError(code int, internalMsg string) *FeishuError {
-	msg, ok := feishuErrors[code]
-	if !ok {
-		msg = fmt.Sprintf("飞书 API 错误 (%d)", code)
-	}
-	return &FeishuError{
-		Code:        code,
-		Msg:         msg,
-		InternalMsg: internalMsg,
-	}
-}
-
-// Plugin implements the Feishu channel.
+// Plugin implements the Feishu channel using Stream Mode (WebSocket).
 type Plugin struct {
 	cfg        feishuConfig
 	inbound    chan *types.Message
 	started    time.Time
-	configured bool   // true when app_id and app_secret have been provided
+	configured bool
 	logger     *zap.Logger
-	httpClient *http.Client // 带超时的 HTTP 客户端
+	httpClient *http.Client
+	
+	// 状态控制 / State Control
+	ctx        context.Context
+	cancelFunc context.CancelFunc
+	connected  bool
+	mu         sync.RWMutex
 
-	// Token 缓存（替换原来的裸 token 字段）
+	// Token 缓存 / Token Cache
 	tokenMu      sync.RWMutex
 	cachedToken  string
 	tokenExpiry  time.Time
@@ -90,41 +68,86 @@ func (p *Plugin) Name() string        { return "feishu" }
 func (p *Plugin) DisplayName() string { return "飞书" }
 
 // Init parses Feishu credentials.
-// An empty or missing config is accepted — the plugin starts in unconfigured mode
-// and will log a warning. Configure credentials via the Web UI → Settings → Channels.
 func (p *Plugin) Init(cfg json.RawMessage) error {
 	p.logger = zap.L().Named("channel.feishu")
-	// 初始化带超时配置的 HTTP 客户端
-	p.httpClient = &http.Client{
-		Timeout: 10 * time.Second,
-	}
+	p.httpClient = &http.Client{Timeout: defaultTimeout}
+	
 	if len(cfg) > 0 && string(cfg) != "{}" {
 		if err := json.Unmarshal(cfg, &p.cfg); err != nil {
-			p.logger.Warn("feishu: failed to parse config, running unconfigured", zap.Error(err))
+			p.logger.Warn("feishu: failed to parse config", zap.Error(err))
 			return nil
 		}
 	}
 	if p.cfg.AppID == "" || p.cfg.AppSecret == "" {
-		p.logger.Warn("feishu: app_id / app_secret not set — configure via Web UI → Settings → Channels")
+		p.logger.Warn("feishu: app_id / app_secret not set")
 		return nil
 	}
 	p.configured = true
 	return nil
 }
 
-// Start fetches the initial app access token.
-func (p *Plugin) Start(_ context.Context) error {
-	p.started = time.Now()
-	if err := p.refreshToken(); err != nil {
-		p.logger.Warn("feishu: initial token fetch failed, will retry", zap.Error(err))
+// Start establishes the WebSocket connection to Feishu.
+func (p *Plugin) Start(ctx context.Context) error {
+	if !p.configured {
+		return nil
 	}
-	p.logger.Info("feishu channel started")
+	p.started = time.Now()
+	
+	// 中文：绑定生命周期上下文
+	// English: Bind lifecycle context
+	p.ctx, p.cancelFunc = context.WithCancel(ctx)
+
+	// 中文：创建事件处理器
+	// English: Create event dispatcher
+	eventHandler := dispatcher.NewEventDispatcher("", "")
+	eventHandler.OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
+		p.handleIncomingMessage(event)
+		return nil
+	})
+
+	// 中文：初始化 WebSocket 客户端
+	// English: Initialize WebSocket client
+	wsClient := larkws.NewClient(p.cfg.AppID, p.cfg.AppSecret,
+		larkws.WithEventHandler(eventHandler),
+		larkws.WithLogLevel(larkcore.LogLevelInfo),
+	)
+
+	// 中文：启动长连接
+	// English: Start long connection
+	go func() {
+		// 中文：启动时先标记为已连接，SDK Start 会阻塞直到连接断开
+		// English: Mark as connected on start, SDK Start blocks until disconnected
+		p.mu.Lock()
+		p.connected = true
+		p.mu.Unlock()
+		
+		p.logger.Info("feishu stream mode connecting")
+		
+		err := wsClient.Start(p.ctx)
+		
+		// 中文：连接断开，标记状态
+		// English: Connection closed, update status
+		p.mu.Lock()
+		p.connected = false
+		p.mu.Unlock()
+		
+		if err != nil && p.ctx.Err() == nil {
+			p.logger.Error("feishu ws client failed", zap.Error(err))
+		} else {
+			p.logger.Info("feishu ws client stopped")
+		}
+	}()
+
+	p.logger.Info("feishu stream mode started")
 	return nil
 }
 
-// Stop is a no-op for the Feishu channel.
+// Stop closes the WebSocket connection.
 func (p *Plugin) Stop() error {
-	p.logger.Info("feishu channel stopped")
+	p.logger.Info("feishu channel stopping")
+	if p.cancelFunc != nil {
+		p.cancelFunc()
+	}
 	return nil
 }
 
@@ -133,161 +156,45 @@ func (p *Plugin) Receive() <-chan *types.Message {
 	return p.inbound
 }
 
-// Send delivers a message to a Feishu chat via the open API.
-func (p *Plugin) Send(msg *types.Message) error {
-	if !p.configured {
-		return fmt.Errorf("feishu: channel not configured — add credentials via Web UI")
+// handleIncomingMessage converts a Feishu event to GoPaw Message.
+func (p *Plugin) handleIncomingMessage(event *larkim.P2MessageReceiveV1) {
+	// 中文：严格的 nil 检查，防止 SDK 字段解引用 panic
+	// English: Strict nil checks to prevent SDK field dereference panic
+	if event == nil || event.Event == nil || event.Event.Message == nil {
+		return
 	}
-	receiveID := msg.SessionID
-	if receiveID == "" {
-		receiveID = msg.UserID
-	}
-
-	// 获取 token（自动刷新）
-	token, err := p.getToken()
-	if err != nil {
-		return fmt.Errorf("feishu: get token: %w", err)
+	
+	msgData := event.Event.Message
+	if msgData.MessageType == nil || *msgData.MessageType != "text" {
+		return
 	}
 
-	payload := map[string]interface{}{
-		"receive_id": receiveID,
-		"msg_type":   "text",
-		"content":    fmt.Sprintf(`{"text":%q}`, msg.Content),
-	}
-	body, _ := json.Marshal(payload)
-
-	req, err := http.NewRequest(http.MethodPost,
-		"https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
-		bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("feishu: build send request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return &FeishuError{Msg: fmt.Sprintf("网络请求失败: %v", err)}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return newFeishuError(resp.StatusCode, string(b))
-	}
-	return nil
-}
-
-// Health returns the plugin's operational status.
-func (p *Plugin) Health() plugin.HealthStatus {
-	if !p.configured {
-		return plugin.HealthStatus{
-			Running: false,
-			Message: "not configured — add credentials via Web UI → Settings → Channels",
-			Since:   p.started,
-		}
-	}
-	// 检查 token 是否有效
-	p.tokenMu.RLock()
-	hasToken := p.cachedToken != "" && time.Now().Before(p.tokenExpiry)
-	p.tokenMu.RUnlock()
-	return plugin.HealthStatus{
-		Running: hasToken,
-		Message: "ok",
-		Since:   p.started,
-	}
-}
-
-// HandleEventRequest processes a raw HTTP request from the Feishu event subscription.
-// Returns the response body to write and the HTTP status code.
-// If encrypt_key is configured, it validates the request signature and timestamp (anti-replay).
-// If encrypt_key is not configured, it skips signature validation.
-func (p *Plugin) HandleEventRequest(r *http.Request) (interface{}, int) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return map[string]string{"error": "read body"}, http.StatusBadRequest
+	if msgData.Content == nil {
+		return
 	}
 
-	// 可选的签名校验：如果配置了 encrypt_key，则验证请求
-	if p.cfg.EncryptKey != "" {
-		timestamp := r.Header.Get("X-Lark-Request-Timestamp")
-		signature := r.Header.Get("X-Lark-Signature")
-
-		if timestamp == "" || signature == "" {
-			p.logger.Warn("feishu: missing signature headers, rejecting request")
-			return map[string]string{"error": "missing signature"}, http.StatusUnauthorized
-		}
-
-		// 检查时间戳是否在 5 分钟内（防重放）
-		ts, err := strconv.ParseInt(timestamp, 10, 64)
-		if err != nil {
-			return map[string]string{"error": "invalid timestamp"}, http.StatusBadRequest
-		}
-		reqTime := time.Unix(ts, 0)
-		if time.Since(reqTime) > 5*time.Minute {
-			p.logger.Warn("feishu: request timestamp expired, possible replay attack")
-			return map[string]string{"error": "request expired"}, http.StatusUnauthorized
-		}
-
-		// 计算签名：HMAC-SHA256(timestamp + body)
-		expectedSig := signFeishu(timestamp, p.cfg.EncryptKey, string(body))
-		if expectedSig != signature {
-			p.logger.Warn("feishu: signature mismatch, rejecting request")
-			return map[string]string{"error": "invalid signature"}, http.StatusUnauthorized
-		}
-	}
-
-	var event map[string]interface{}
-	if err := json.Unmarshal(body, &event); err != nil {
-		return map[string]string{"error": "invalid json"}, http.StatusBadRequest
-	}
-
-	// Handle URL verification challenge.
-	if challenge, ok := event["challenge"].(string); ok {
-		if p.cfg.VerificationToken != "" {
-			token, _ := event["token"].(string)
-			if token != p.cfg.VerificationToken {
-				return map[string]string{"error": "invalid token"}, http.StatusUnauthorized
-			}
-		}
-		return map[string]string{"challenge": challenge}, http.StatusOK
-	}
-
-	// Extract message from the event envelope.
-	header, _ := event["header"].(map[string]interface{})
-	if header == nil {
-		return nil, http.StatusOK
-	}
-	eventType, _ := header["event_type"].(string)
-	if eventType != "im.message.receive_v1" {
-		return nil, http.StatusOK
-	}
-
-	eventData, _ := event["event"].(map[string]interface{})
-	if eventData == nil {
-		return nil, http.StatusOK
-	}
-
-	msgData, _ := eventData["message"].(map[string]interface{})
-	sender, _ := eventData["sender"].(map[string]interface{})
-	if msgData == nil || sender == nil {
-		return nil, http.StatusOK
-	}
-
-	contentStr, _ := msgData["content"].(string)
 	var content map[string]string
-	json.Unmarshal([]byte(contentStr), &content) //nolint:errcheck
+	if err := json.Unmarshal([]byte(*msgData.Content), &content); err != nil {
+		p.logger.Error("feishu: failed to unmarshal message content", zap.Error(err))
+		return
+	}
 	text := content["text"]
 
-	senderID, _ := sender["sender_id"].(map[string]interface{})
-	userID, _ := senderID["open_id"].(string)
-	chatID, _ := msgData["chat_id"].(string)
-	msgID, _ := msgData["message_id"].(string)
-	if msgID == "" {
-		msgID = uuid.New().String()
+	if event.Event.Sender == nil || event.Event.Sender.SenderId == nil || event.Event.Sender.SenderId.OpenId == nil {
+		return
 	}
 
-	inMsg := &types.Message{
+	userID := *event.Event.Sender.SenderId.OpenId
+	chatID := ""
+	if msgData.ChatId != nil {
+		chatID = *msgData.ChatId
+	}
+	msgID := ""
+	if msgData.MessageId != nil {
+		msgID = *msgData.MessageId
+	}
+
+	msg := &types.Message{
 		ID:        msgID,
 		SessionID: chatID,
 		UserID:    userID,
@@ -299,15 +206,135 @@ func (p *Plugin) HandleEventRequest(r *http.Request) (interface{}, int) {
 	}
 
 	select {
-	case p.inbound <- inMsg:
+	case p.inbound <- msg:
 	default:
 		p.logger.Warn("feishu: inbound queue full, dropping message")
 	}
-
-	return nil, http.StatusOK
 }
 
-// refreshToken fetches a new app_access_token from Feishu.
+// Send delivers a message via the Feishu REST API.
+func (p *Plugin) Send(msg *types.Message) error {
+	if !p.configured {
+		return fmt.Errorf("feishu: channel not configured")
+	}
+	receiveID := msg.SessionID
+	if receiveID == "" {
+		receiveID = msg.UserID
+	}
+
+	token, err := p.getToken()
+	if err != nil {
+		return fmt.Errorf("feishu: get token: %w", err)
+	}
+
+	payload := map[string]interface{}{
+		"receive_id": receiveID,
+		"msg_type":   "text",
+		"content":    fmt.Sprintf(`{"text":%q}`, msg.Content),
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("feishu: marshal payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
+		sendEndpoint, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("feishu: create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("feishu: http send: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("feishu api error (status %d): %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
+// Health returns the current operational status.
+func (p *Plugin) Health() plugin.HealthStatus {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	
+	if !p.configured {
+		return plugin.HealthStatus{Running: false, Message: "未配置", Since: p.started}
+	}
+	if !p.connected {
+		return plugin.HealthStatus{Running: false, Message: "长连接未建立或已断开", Since: p.started}
+	}
+	return plugin.HealthStatus{Running: true, Message: "长连接运行中", Since: p.started}
+}
+
+// Test validates the Feishu connection and credentials.
+// It checks: 1) configuration completeness, 2) token validity, 3) WebSocket connection status.
+func (p *Plugin) Test(ctx context.Context) plugin.TestResult {
+	// 检查配置是否完整
+	if !p.configured || p.cfg.AppID == "" || p.cfg.AppSecret == "" {
+		return plugin.TestResult{
+			Success: false,
+			Message: "请先配置 app_id 和 app_secret",
+		}
+	}
+
+	// 尝试获取 token（验证凭证有效性）
+	_, err := p.getToken()
+	if err != nil {
+		return plugin.TestResult{
+			Success: false,
+			Message: "凭证验证失败，请检查 app_id 和 app_secret",
+			Details: err.Error(),
+		}
+	}
+
+	// 检查 WebSocket 连接状态
+	p.mu.RLock()
+	connected := p.connected
+	p.mu.RUnlock()
+
+	if !connected {
+		return plugin.TestResult{
+			Success: false,
+			Message: "长连接未建立，请稍后重试或检查网络",
+		}
+	}
+
+	return plugin.TestResult{
+		Success: true,
+		Message: "连接正常，凭证有效",
+	}
+}
+
+// getToken handles thread-safe token retrieval and lazy refreshing.
+func (p *Plugin) getToken() (string, error) {
+	p.tokenMu.RLock()
+	if p.cachedToken != "" && time.Now().Before(p.tokenExpiry.Add(-tokenRefreshSkew)) {
+		token := p.cachedToken
+		p.tokenMu.RUnlock()
+		return token, nil
+	}
+	p.tokenMu.RUnlock()
+
+	p.tokenMu.Lock()
+	defer p.tokenMu.Unlock()
+
+	// Double-check after acquiring write lock
+	if p.cachedToken != "" && time.Now().Before(p.tokenExpiry.Add(-tokenRefreshSkew)) {
+		return p.cachedToken, nil
+	}
+
+	if err := p.refreshToken(); err != nil {
+		return "", err
+	}
+	return p.cachedToken, nil
+}
+
 func (p *Plugin) refreshToken() error {
 	payload := map[string]string{
 		"app_id":     p.cfg.AppID,
@@ -315,79 +342,26 @@ func (p *Plugin) refreshToken() error {
 	}
 	body, _ := json.Marshal(payload)
 
-	resp, err := p.httpClient.Post(
-		"https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal",
-		"application/json",
-		bytes.NewReader(body),
-	)
+	resp, err := p.httpClient.Post(tokenEndpoint, "application/json", bytes.NewReader(body))
 	if err != nil {
-		return &FeishuError{Msg: fmt.Sprintf("获取 token 失败: %v", err)}
+		return fmt.Errorf("feishu: token http post: %w", err)
 	}
 	defer resp.Body.Close()
 
 	var result struct {
 		Code           int    `json:"code"`
 		AppAccessToken string `json:"app_access_token"`
-		Expire         int    `json:"expire"` // token 有效期（秒），飞书通常返回 7200
+		Expire         int    `json:"expire"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return &FeishuError{Msg: "解析 token 响应失败"}
+		return fmt.Errorf("feishu: decode token response: %w", err)
 	}
+
 	if result.Code != 0 {
-		return newFeishuError(result.Code, "")
+		return fmt.Errorf("feishu: token error code %d", result.Code)
 	}
 
-	// 保存 token 和过期时间
-	p.tokenMu.Lock()
 	p.cachedToken = result.AppAccessToken
-	if result.Expire > 0 {
-		p.tokenExpiry = time.Now().Add(time.Duration(result.Expire) * time.Second)
-	} else {
-		// 默认 2 小时
-		p.tokenExpiry = time.Now().Add(2 * time.Hour)
-	}
-	p.tokenMu.Unlock()
-
+	p.tokenExpiry = time.Now().Add(time.Duration(result.Expire) * time.Second)
 	return nil
-}
-
-// getToken returns the cached token, refreshing if expired or about to expire.
-// It uses double-check locking pattern under write lock to avoid concurrent refreshes.
-func (p *Plugin) getToken() (string, error) {
-	p.tokenMu.RLock()
-	// 第一次检查：快速路径
-	if p.cachedToken != "" && time.Now().Before(p.tokenExpiry.Add(-5*time.Minute)) {
-		token := p.cachedToken
-		p.tokenMu.RUnlock()
-		return token, nil
-	}
-	p.tokenMu.RUnlock()
-
-	// 需要刷新：加写锁，进入临界区
-	p.tokenMu.Lock()
-	// 第二次检查：确保其他协程没有已经刷新
-	if p.cachedToken != "" && time.Now().Before(p.tokenExpiry.Add(-5*time.Minute)) {
-		token := p.cachedToken
-		p.tokenMu.Unlock()
-		return token, nil
-	}
-
-	// 确实需要刷新
-	if err := p.refreshToken(); err != nil {
-		p.tokenMu.Unlock()
-		return "", err
-	}
-
-	token := p.cachedToken
-	p.tokenMu.Unlock()
-	return token, nil
-}
-
-// signFeishu computes the Feishu signature for event callback verification.
-// The signature is HMAC-SHA256(timestamp + body), encoded as hex string.
-// encrypt_key is configured in Feishu Open Platform → Event Subscription → Callback URL.
-func signFeishu(timestamp, encryptKey, body string) string {
-	h := hmac.New(sha256.New, []byte(encryptKey))
-	h.Write([]byte(timestamp + body))
-	return hex.EncodeToString(h.Sum(nil))
 }

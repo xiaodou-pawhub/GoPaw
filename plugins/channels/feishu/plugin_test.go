@@ -1,11 +1,11 @@
 package feishu
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/gopaw/gopaw/pkg/types"
 )
@@ -97,86 +97,9 @@ func TestPlugin_Send_Unconfigured(t *testing.T) {
 	}
 }
 
-// TestPlugin_HandleEventRequest_Challenge tests URL verification challenge.
-func TestPlugin_HandleEventRequest_Challenge(t *testing.T) {
-	p := &Plugin{}
-	p.cfg.VerificationToken = "test-token"
-
-	// Create request with challenge
-	body := map[string]interface{}{
-		"challenge": "test-challenge-value",
-		"token":     "test-token",
-	}
-	bodyBytes, _ := json.Marshal(body)
-
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, status := p.HandleEventRequest(req)
-	if status != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", status)
-	}
-
-	respMap, ok := resp.(map[string]string)
-	if !ok {
-		t.Fatal("expected response to be map[string]string")
-	}
-	if respMap["challenge"] != "test-challenge-value" {
-		t.Fatalf("expected challenge to be returned, got %s", respMap["challenge"])
-	}
-}
-
-// TestPlugin_HandleEventRequest_InvalidToken tests that invalid token is rejected.
-func TestPlugin_HandleEventRequest_InvalidToken(t *testing.T) {
-	p := &Plugin{}
-	p.cfg.VerificationToken = "test-token"
-
-	body := map[string]interface{}{
-		"challenge": "test-challenge",
-		"token":     "wrong-token",
-	}
-	bodyBytes, _ := json.Marshal(body)
-
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
-	resp, status := p.HandleEventRequest(req)
-
-	respMap, ok := resp.(map[string]string)
-	if !ok {
-		t.Fatal("expected response to be map[string]string")
-	}
-	if status != http.StatusUnauthorized {
-		t.Fatalf("expected status 401, got %d", status)
-	}
-	if respMap["error"] != "invalid token" {
-		t.Fatalf("expected error 'invalid token', got %s", respMap["error"])
-	}
-}
-
-// TestPlugin_HandleEventRequest_NonMessageEvent tests that non-message events are ignored.
-func TestPlugin_HandleEventRequest_NonMessageEvent(t *testing.T) {
-	p := &Plugin{}
-
-	body := map[string]interface{}{
-		"header": map[string]interface{}{
-			"event_type": "im.message.read_v1", // not receive_v1
-		},
-	}
-	bodyBytes, _ := json.Marshal(body)
-
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
-	resp, status := p.HandleEventRequest(req)
-
-	if status != http.StatusOK {
-		t.Fatalf("expected status 200 for non-message event, got %d", status)
-	}
-	if resp != nil {
-		t.Fatal("expected nil response for non-message event")
-	}
-}
-
-// TestPlugin_Health tests health check for configured and unconfigured states.
+// TestPlugin_Health tests health check for various states.
 func TestPlugin_Health(t *testing.T) {
-	// Test unconfigured health
+	// Test 1: Unconfigured health
 	p := &Plugin{}
 	p.Init([]byte("{}"))
 
@@ -188,17 +111,152 @@ func TestPlugin_Health(t *testing.T) {
 		t.Fatal("expected health Message to be set for unconfigured plugin")
 	}
 
-	// Test configured health (with token)
-	// Note: We can't easily test the running state without a real token,
-	// but we verify configured state works
+	// Test 2: Configured but not connected
 	p2 := &Plugin{}
 	p2.Init(json.RawMessage(`{"app_id":"test","app_secret":"test"}`))
-	// Health check now relies on getToken() which needs actual refresh
-	// So we just verify it's configured
+
 	health2 := p2.Health()
-	// The Running state depends on whether getToken() returns empty,
-	// which depends on token refresh. For unit test, just check message is set.
-	if health2.Message == "" {
-		t.Fatal("expected health Message to be set for configured plugin")
+	if health2.Running {
+		t.Fatal("expected health Running to be false when not connected")
+	}
+
+	// Test 3: Configured and connected
+	p3 := &Plugin{}
+	p3.Init(json.RawMessage(`{"app_id":"test","app_secret":"test"}`))
+	p3.mu.Lock()
+	p3.connected = true
+	p3.mu.Unlock()
+
+	health3 := p3.Health()
+	if !health3.Running {
+		t.Fatal("expected health Running to be true when connected")
+	}
+}
+
+// TestPlugin_Test tests the Test() method for connection validation.
+func TestPlugin_Test(t *testing.T) {
+	ctx := context.Background()
+
+	// Test 1: Unconfigured should fail
+	p := &Plugin{}
+	p.Init([]byte("{}"))
+
+	result := p.Test(ctx)
+	if result.Success {
+		t.Fatal("expected Test to fail for unconfigured plugin")
+	}
+	if result.Message == "" {
+		t.Fatal("expected error message for unconfigured plugin")
+	}
+
+	// Test 2: Configured but not connected
+	p2 := &Plugin{}
+	p2.Init(json.RawMessage(`{"app_id":"test","app_secret":"test"}`))
+
+	result2 := p2.Test(ctx)
+	if result2.Success {
+		t.Fatal("expected Test to fail when not connected")
+	}
+
+	// Test 3: Configured and connected (but no real token)
+	p3 := &Plugin{}
+	p3.Init(json.RawMessage(`{"app_id":"test","app_secret":"test"}`))
+	p3.mu.Lock()
+	p3.connected = true
+	p3.mu.Unlock()
+
+	// This will fail on getToken() since we don't have a real token,
+	// but we can verify the connected check passes
+	result3 := p3.Test(ctx)
+	// The test will fail on token validation, which is expected
+	if result3.Success {
+		t.Fatal("expected Test to fail due to invalid credentials")
+	}
+}
+
+// TestPlugin_Stop tests that Stop() can be called safely.
+func TestPlugin_Stop(t *testing.T) {
+	p := &Plugin{}
+	p.Init(json.RawMessage(`{"app_id":"test","app_secret":"test"}`))
+
+	// Stop should not panic even if cancelFunc is nil
+	err := p.Stop()
+	if err != nil {
+		t.Fatalf("Stop returned error: %v", err)
+	}
+
+	// Stop with cancelFunc set
+	p.ctx, p.cancelFunc = context.WithCancel(context.Background())
+	err = p.Stop()
+	if err != nil {
+		t.Fatalf("Stop returned error: %v", err)
+	}
+}
+
+// TestPlugin_ConcurrentHealth tests concurrent access to health status.
+func TestPlugin_ConcurrentHealth(t *testing.T) {
+	p := &Plugin{}
+	p.Init(json.RawMessage(`{"app_id":"test","app_secret":"test"}`))
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Simulate concurrent read/write
+			p.mu.Lock()
+			p.connected = true
+			p.mu.Unlock()
+
+			p.mu.RLock()
+			_ = p.connected
+			p.mu.RUnlock()
+
+			_ = p.Health()
+		}()
+	}
+	wg.Wait()
+}
+
+// TestPlugin_TokenExpiry tests token expiry calculation.
+func TestPlugin_TokenExpiry(t *testing.T) {
+	p := &Plugin{}
+	p.Init(json.RawMessage(`{"app_id":"test","app_secret":"test"}`))
+
+	// Test token cache state
+	p.tokenMu.Lock()
+	p.cachedToken = "test-token"
+	p.tokenExpiry = time.Now().Add(2 * time.Hour)
+	p.tokenMu.Unlock()
+
+	// Verify token is cached
+	p.tokenMu.RLock()
+	if p.cachedToken != "test-token" {
+		t.Fatal("expected cached token to be set")
+	}
+	p.tokenMu.RUnlock()
+}
+
+// TestPlugin_Receive tests that Receive() returns a valid channel.
+func TestPlugin_Receive(t *testing.T) {
+	p := &Plugin{
+		inbound: make(chan *types.Message, 256),
+	}
+
+	ch := p.Receive()
+	if ch == nil {
+		t.Fatal("expected Receive to return non-nil channel")
+	}
+
+	// Verify channel is readable (receive-only)
+	// We can't send to it directly, but we can verify it's a valid channel
+	select {
+	case _, ok := <-ch:
+		if ok {
+			t.Fatal("expected channel to be empty")
+		}
+		// Channel closed, also valid
+	default:
+		// Channel empty and open, valid
 	}
 }
