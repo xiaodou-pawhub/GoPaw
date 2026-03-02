@@ -146,7 +146,7 @@ func (s *Server) registerRoutes(
 	}
 
 	// /api/system
-	sysH := handlers.NewSystemHandler()
+	sysH := handlers.NewSystemHandler(s.cfg)
 	sysG := api.Group("/system")
 	{
 		sysG.GET("/health", sysH.Health)

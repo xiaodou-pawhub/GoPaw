@@ -36,9 +36,6 @@
               </n-form-item>
               
               <div class="form-actions">
-                <n-button :loading="testing === 'feishu'" @click="handleTest('feishu')">
-                  {{ t('settings.channels.test') }}
-                </n-button>
                 <n-button type="primary" :loading="saving === 'feishu'" @click="saveConfig('feishu', feishuForm)">
                   {{ t('common.save') }}
                 </n-button>
@@ -76,9 +73,6 @@
               </n-form-item>
               
               <div class="form-actions">
-                <n-button :loading="testing === 'dingtalk'" @click="handleTest('dingtalk')">
-                  {{ t('settings.channels.test') }}
-                </n-button>
                 <n-button type="primary" :loading="saving === 'dingtalk'" @click="saveConfig('dingtalk', dingtalkForm)">
                   {{ t('common.save') }}
                 </n-button>
@@ -112,9 +106,6 @@
               </n-alert>
 
               <div class="form-actions">
-                <n-button :loading="testing === 'webhook'" @click="handleTest('webhook')">
-                  {{ t('settings.channels.test') }}
-                </n-button>
                 <n-button type="primary" :loading="saving === 'webhook'" @click="saveConfig('webhook', webhookForm)">
                   {{ t('common.save') }}
                 </n-button>
@@ -137,14 +128,13 @@ import {
 } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { BusinessOutline, RocketOutline, LinkOutline } from '@vicons/ionicons5'
-import { getChannelConfig, saveChannelConfig, getChannelsHealth, testChannel } from '@/api/settings'
+import { getChannelConfig, saveChannelConfig, getChannelsHealth } from '@/api/settings'
 import type { ChannelStatus } from '@/types'
 
 const { t } = useI18n()
 const message = useMessage()
 
 const saving = ref<string | null>(null)
-const testing = ref<string | null>(null)
 const healthData = ref<ChannelStatus[]>([])
 let healthTimer: ReturnType<typeof setInterval>
 
@@ -210,24 +200,6 @@ async function saveConfig(name: string, data: any) {
   }
 }
 
-// 中文：测试连接
-// English: Test connection
-async function handleTest(name: string) {
-  try {
-    testing.value = name
-    const result = await testChannel(name)
-    if (result.success) {
-      message.success(result.message || t('common.success'))
-    } else {
-      message.error(result.message || t('common.error'))
-    }
-  } catch (error: any) {
-    message.error(error.message || t('common.error'))
-  } finally {
-    testing.value = null
-  }
-}
-
 onMounted(() => {
   loadConfigs()
   loadHealth()
@@ -236,7 +208,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  // 中文：销毁组件时清除定时器 / Clear timer when unmounting
+  // 中文：销毁组件时清理定时器 / Clear timer when unmounting
   if (healthTimer) {
     clearInterval(healthTimer)
   }

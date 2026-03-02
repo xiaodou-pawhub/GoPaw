@@ -202,12 +202,12 @@ let currentEventSource: EventSource | null = null
 // English: Load all sessions
 async function loadSessions() {
   try {
-    sessions.value = await getSessions()
-    if (sessions.value.length > 0 && !currentSessionId.value) {
-      selectSession(sessions.value[0].id)
-    }
+    const list = await getSessions()
+    sessions.value = list
+    return list
   } catch (error) {
     console.error('Failed to load sessions:', error)
+    return []
   }
 }
 
@@ -243,8 +243,14 @@ async function handleDeleteSession(id: string, e: MouseEvent) {
         }
         
         await apiDeleteSession(id)
-        await loadSessions()
+        const newList = await loadSessions()
         message.success(t('common.success'))
+        
+        // 中文：如果当前会话被删了，自动切换到第一个
+        // English: If current session deleted, switch to the first available one
+        if (currentSessionId.value === '' && newList.length > 0) {
+          selectSession(newList[0].id)
+        }
       } catch (error) {
         message.error(t('common.error'))
       }
@@ -266,6 +272,7 @@ async function loadStats(id: string) {
 // English: Format token counts
 function formatTokens(n: number): string {
   if (!n) return '0'
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
   return n.toString()
 }
@@ -409,8 +416,10 @@ async function handleSend() {
 }
 
 onMounted(async () => {
-  await loadSessions()
-  if (!currentSessionId.value) {
+  const list = await loadSessions()
+  if (currentSessionId.value === '' && list.length > 0) {
+    selectSession(list[0].id)
+  } else if (!currentSessionId.value) {
     createNewSession()
   }
 })

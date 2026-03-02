@@ -17,8 +17,9 @@ type LogEntry struct {
 
 // ListLogs handles GET /api/system/logs.
 // It reads the last N lines from the log file efficiently.
+// Optional query param: limit (default 100, max 500).
 func ListLogs(c *gin.Context) {
-	// TODO: Get log path from config
+	// TODO: Get log path from config. Defaulting to logs/gopaw.log
 	logPath := "logs/gopaw.log"
 
 	limit := 100
@@ -31,13 +32,13 @@ func ListLogs(c *gin.Context) {
 
 	file, err := os.Open(logPath)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"logs": []LogEntry{{Raw: "无法打开日志文件: " + err.Error()}}})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法打开日志文件: " + err.Error()})
 		return
 	}
 	defer file.Close()
 
-	// 中文：使用 Scanner 流式读取，仅在内存中保留最近 limit 行（类似环形缓冲区）
-	// English: Use Scanner to stream lines, keeping only the last 'limit' lines in memory.
+	// 中文：流式读取最后 N 行
+	// English: Stream read last N lines
 	var lastLines []string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -52,9 +53,9 @@ func ListLogs(c *gin.Context) {
 		return
 	}
 
-	// 中文：逆序排列并进行敏感信息脱敏
-	// English: Reverse order and desensitize sensitive info.
-	sensitiveKeys := []string{"api_key", "api-key", "secret", "token", "password", "sk-", "bearer"}
+	// 中文：逆序排列并脱敏
+	// English: Reverse and desensitize
+	sensitiveKeys := []string{"api_key", "secret", "token", "password", "sk-", "bearer"}
 	result := make([]LogEntry, 0, len(lastLines))
 	for i := len(lastLines) - 1; i >= 0; i-- {
 		raw := lastLines[i]
@@ -62,8 +63,6 @@ func ListLogs(c *gin.Context) {
 		masked := false
 		for _, key := range sensitiveKeys {
 			if strings.Contains(lower, key) {
-				// 中文：检测到敏感词，进行掩码处理
-				// English: Mask data if sensitive keys are detected.
 				result = append(result, LogEntry{Raw: "[SENSITIVE DATA MASKED]"})
 				masked = true
 				break
@@ -76,6 +75,3 @@ func ListLogs(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"logs": result})
 }
-
-
-

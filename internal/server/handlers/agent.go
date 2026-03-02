@@ -160,7 +160,7 @@ func (h *AgentHandler) GetSessionStats(c *gin.Context) {
 	count, total, user, assist, err := h.mem.GetSessionStats(sessionID)
 	if err != nil {
 		h.logger.Error("failed to get session stats", zap.String("id", sessionID), zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取统计数据失败 / Failed to get stats: " + err.Error()})
 		return
 	}
 
@@ -172,7 +172,6 @@ func (h *AgentHandler) GetSessionStats(c *gin.Context) {
 		"assist_tokens": assist,
 	})
 }
-
 
 
 // GetSessionMessages handles GET /api/agent/sessions/:id/messages.

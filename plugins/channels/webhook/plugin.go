@@ -62,7 +62,9 @@ func (p *Plugin) Init(cfg json.RawMessage) error {
 // Start activates the webhook channel.
 func (p *Plugin) Start(_ context.Context) error {
 	p.started = time.Now()
-	p.logger.Info("webhook channel started", zap.String("token", p.cfg.Token))
+	// Token 脱敏：只显示前后各 4 个字符
+	maskedToken := maskToken(p.cfg.Token)
+	p.logger.Info("webhook channel started", zap.String("token", maskedToken))
 	return nil
 }
 
@@ -210,12 +212,15 @@ func (p *Plugin) HandleReceive(w http.ResponseWriter, r *http.Request, token str
 
 	select {
 	case p.inbound <- msg:
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"id": msg.ID, "status": "queued"}) //nolint:errcheck
 	default:
-		p.logger.Warn("webhook: inbound queue full, dropping message")
+		// 队列满，返回 503 Service Unavailable
+		p.logger.Warn("webhook: inbound queue full, rejecting message")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"id": msg.ID, "status": "rejected", "error": "queue full"}) //nolint:errcheck
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"id": msg.ID, "status": "queued"}) //nolint:errcheck
 }
 
 // HandlePoll serves GET /webhook/{token}/messages — returns queued outbound messages.
@@ -254,4 +259,13 @@ func (p *Plugin) pushCallback(msg *types.Message) error {
 		return fmt.Errorf("webhook: callback returned status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// maskToken returns a masked version of the token for logging.
+// Shows first 4 and last 4 characters, with *** in between.
+func maskToken(token string) string {
+	if len(token) <= 8 {
+		return "****"
+	}
+	return token[:4] + "****" + token[len(token)-4:]
 }

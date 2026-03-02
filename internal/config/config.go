@@ -17,10 +17,11 @@ import (
 
 // AppConfig holds top-level application identity settings.
 type AppConfig struct {
-	Name     string `mapstructure:"name"`
-	Language string `mapstructure:"language"`
-	Timezone string `mapstructure:"timezone"`
-	Debug    bool   `mapstructure:"debug"`
+	Name       string `mapstructure:"name"`
+	Language   string `mapstructure:"language"`
+	Timezone   string `mapstructure:"timezone"`
+	Debug      bool   `mapstructure:"debug"`
+	AdminToken string `mapstructure:"admin_token"`
 }
 
 // ServerConfig holds HTTP server bind settings.

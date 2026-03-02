@@ -108,6 +108,94 @@ func (m *Manager) ListJobs() ([]CronJob, error) {
 	return m.store.List()
 }
 
+// UpdateJobRequest contains the updatable fields for a CronJob.
+// 中文：包含 CronJob 可更新字段的请求结构
+// English: Request structure containing updatable fields for CronJob
+type UpdateJobRequest struct {
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
+	CronExpr    *string `json:"cron_expr"`
+	Channel     *string `json:"channel"`
+	SessionID   *string `json:"session_id"`
+	Prompt      *string `json:"prompt"`
+	Enabled     *bool   `json:"enabled"`
+	ActiveFrom  *string `json:"active_from"`
+	ActiveUntil *string `json:"active_until"`
+}
+
+// UpdateJob updates the specified fields of an existing job.
+// 中文：更新现有任务的指定字段
+// English: Update specified fields of an existing job
+func (m *Manager) UpdateJob(ctx context.Context, id string, req UpdateJobRequest) error {
+	// 中文：从数据库读取当前值
+	// English: Get current job from database
+	job, err := m.store.Get(id)
+	if err != nil {
+		return fmt.Errorf("scheduler: get job %q: %w", id, err)
+	}
+
+	// 中文：合并更新字段（只更新非 nil 字段）
+	// English: Merge updated fields (only update non-nil fields)
+	if req.Name != nil {
+		job.Name = *req.Name
+	}
+	if req.Description != nil {
+		job.Description = *req.Description
+	}
+	if req.CronExpr != nil {
+		// 中文：校验 cron 表达式
+		// English: Validate cron expression
+		if _, err := m.cron.AddFunc(*req.CronExpr, func() {}); err != nil {
+			return fmt.Errorf("scheduler: invalid cron expression: %w", err)
+		}
+		job.CronExpr = *req.CronExpr
+	}
+	if req.Channel != nil {
+		job.Channel = *req.Channel
+	}
+	if req.SessionID != nil {
+		job.SessionID = *req.SessionID
+	}
+	if req.Prompt != nil {
+		job.Prompt = *req.Prompt
+	}
+	if req.Enabled != nil {
+		job.Enabled = *req.Enabled
+	}
+	if req.ActiveFrom != nil {
+		job.ActiveFrom = *req.ActiveFrom
+	}
+	if req.ActiveUntil != nil {
+		job.ActiveUntil = *req.ActiveUntil
+	}
+
+	// 中文：写回数据库
+	// English: Write back to database
+	if err := m.store.Update(job); err != nil {
+		return fmt.Errorf("scheduler: update job: %w", err)
+	}
+
+	// 中文：如果 cron 表达式变了或启用状态变了，需要重新调度
+	// English: Reschedule if cron expr or enabled state changed
+	if req.CronExpr != nil || req.Enabled != nil {
+		// 中文：先从 cron 中移除
+		// English: Remove from cron first
+		if entryID, ok := m.entryMap[id]; ok {
+			m.cron.Remove(entryID)
+			delete(m.entryMap, id)
+		}
+		// 中文：如果启用则重新添加
+		// English: Re-add if enabled
+		if job.Enabled {
+			if err := m.scheduleJob(ctx, job); err != nil {
+				return fmt.Errorf("scheduler: reschedule job: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // scheduleJob registers a job with the cron engine.
 func (m *Manager) scheduleJob(ctx context.Context, job *CronJob) error {
 	jobCopy := *job

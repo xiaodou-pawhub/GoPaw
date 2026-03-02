@@ -83,6 +83,24 @@ func (h *CronHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// Update handles PUT /api/cron/:id.
+func (h *CronHandler) Update(c *gin.Context) {
+	id := c.Param("id")
+	var req scheduler.UpdateJobRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.manager.UpdateJob(c.Request.Context(), id, req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.logger.Info("cron job updated", zap.String("id", id))
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 // Trigger handles POST /api/cron/:id/trigger — runs the job immediately.
 func (h *CronHandler) Trigger(c *gin.Context) {
 	id := c.Param("id")

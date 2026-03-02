@@ -138,8 +138,29 @@ func (m *Manager) Test(ctx context.Context, name string) (plugin.TestResult, err
 	return p.Test(ctx), nil
 }
 
-// GetPlugin returns the plugin with the given name.
-// This is a wrapper around the registry's Get method for use by HTTP handlers.
+// GetPlugin returns the plugin with the given name from the registry.
+// Note: This returns registered plugins regardless of whether they are started.
+// Use GetActivePlugin for HTTP handlers that require a running plugin.
 func (m *Manager) GetPlugin(name string) (plugin.ChannelPlugin, error) {
 	return m.registry.Get(name)
+}
+
+// GetActivePlugin returns an active (initialized and started) plugin by name.
+// Returns error if the plugin is not registered or not in the active list.
+func (m *Manager) GetActivePlugin(name string) (plugin.ChannelPlugin, error) {
+	// First check if plugin is registered
+	_, err := m.registry.Get(name)
+	if err != nil {
+		return nil, err
+	}
+
+	// Then check if it's in the active list
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, ap := range m.active {
+		if ap.Name() == name {
+			return ap, nil
+		}
+	}
+	return nil, fmt.Errorf("channel: plugin %q not active", name)
 }

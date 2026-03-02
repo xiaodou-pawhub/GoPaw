@@ -56,10 +56,13 @@ import { RefreshOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { getSystemLogs } from '@/api/system'
 
-const { t } = useI18n()
-const message = useMessage()
+interface LogEntry {
+  raw: string
+}
 
-const logs = ref<any[]>([])
+const { t } = useI18n()
+
+const logs = ref<LogEntry[]>([])
 const loading = ref(false)
 const autoRefresh = ref(true)
 let refreshTimer: ReturnType<typeof setInterval> | null = null

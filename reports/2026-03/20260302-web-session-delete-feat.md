@@ -9,7 +9,7 @@
 
 ## 功能概述
 
-为用户提供删除历史会话的能力。实现了从前端入口、二次确认、后端 API 调用到数据库级联删除的全链路功能。
+为用户提供物理删除历史会话的能力。实现了从前端入口、二次确认风险提示、后端 API 调用到数据库级联清理的全链路闭环。
 
 ---
 
@@ -17,25 +17,25 @@
 
 ### 核心逻辑
 
-1. **后端 API**: 在 `AgentHandler` 中新增 `DeleteSession` 方法，调用 `memory.Manager.Clear` 清理 SQLite 数据，并同步更新内存中的 `SessionManager`。
+1. **后端 API**: 在 `internal/server/handlers/agent.go` 中新增 `DeleteSession` 方法，调用 `memory.Manager.Clear` 清理 SQLite 中的消息与会话记录，并同步移除内存中的会话对象。
 2. **前端交互**: 
-   - 采用列表项悬浮（Hover）显示删除图标的设计，减少视觉干扰。
-   - 集成 `naive-ui` 的 `useDialog` 进行风险提示。
-   - 删除当前正在对话的会话时，自动重置聊天区域。
+   - 在会话列表项采用悬浮（Hover）触发删除按钮的设计，保持界面简洁。
+   - 集成 `naive-ui` 的 `useDialog` 进行风险确认。
+   - 删除当前正在对话的会话时，自动调用 `closeCurrentSSE()` 并重置 UI。
 
 ```go
-// 后端删除核心实现
+// 后端删除实现片段
 func (h *AgentHandler) DeleteSession(c *gin.Context) {
     sessionID := c.Param("id")
-    h.mem.Clear(sessionID) // 清理数据库
-    h.agent.Sessions().Delete(sessionID) // 清理内存
-    c.JSON(http.StatusOK, gin.H{"ok": true})
+    h.mem.Clear(sessionID)
+    h.agent.Sessions().Delete(sessionID)
+    c.JSON(http.StatusOK, gin.H{"ok": true, "deleted_id": sessionID})
 }
 ```
 
 **审查要点**：
-- ✅ 实现了内存与数据库的双重清理。
-- ✅ 前端增加了防误点二次确认逻辑。
+- ✅ 确保了内存与持久化存储的一致性清理。
+- ✅ 实现了 SSE 连接的主动切断，防止残留回调干扰。
 
 ---
 
@@ -51,9 +51,9 @@ func (h *AgentHandler) DeleteSession(c *gin.Context) {
 
 ## 验收标准完成情况
 
-- [x] 后端 API 支持 DELETE 方法。
-- [x] 前端列表实时反映删除结果。
-- [x] 删除当前会话不导致界面崩溃。
+- [x] 后端 API 响应正确。
+- [x] 前端列表实时刷新。
+- [x] 删除当前会话逻辑严密（含 SSE 关闭）。
 
 ---
 

@@ -84,7 +84,6 @@ import {
 } from 'naive-ui'
 import {
   PawOutline,
-  ChatbubbleOutline,
   ChatboxEllipsesOutline,
   SettingsOutline,
   TimeOutline,
@@ -94,8 +93,7 @@ import {
   AlertCircleOutline,
   RocketOutline,
   PersonOutline,
-  HardwareChipOutline,
-  DocumentTextOutline
+  HardwareChipOutline
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

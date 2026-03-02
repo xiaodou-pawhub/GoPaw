@@ -6,8 +6,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/channel"
-	"github.com/gopaw/gopaw/plugins/channels/webhook"
 )
+
+// HTTPHandler is the interface for channel plugins that handle HTTP requests directly.
+// This provides interface isolation - handlers depend on an interface, not concrete types.
+type HTTPHandler interface {
+	Name() string
+	HandleReceive(w http.ResponseWriter, r *http.Request, token string)
+	HandlePoll(w http.ResponseWriter, r *http.Request, token string)
+}
 
 // WebhookHandler handles Webhook channel HTTP requests.
 type WebhookHandler struct {
@@ -22,31 +29,39 @@ func NewWebhookHandler(m *channel.Manager) *WebhookHandler {
 // Receive handles POST /webhook/:token — external systems push messages to Agent.
 func (h *WebhookHandler) Receive(c *gin.Context) {
 	token := c.Param("token")
-	p, err := h.channelMgr.GetPlugin("webhook")
+
+	// Use GetActivePlugin to ensure plugin is started
+	p, err := h.channelMgr.GetActivePlugin("webhook")
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "webhook channel not available"})
 		return
 	}
-	wp, ok := p.(*webhook.Plugin)
+
+	// Interface assertion instead of concrete type
+	handler, ok := p.(HTTPHandler)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid plugin type"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "plugin does not support HTTP handling"})
 		return
 	}
-	wp.HandleReceive(c.Writer, c.Request, token)
+	handler.HandleReceive(c.Writer, c.Request, token)
 }
 
 // Poll handles GET /webhook/:token/messages — external systems poll for Agent responses.
 func (h *WebhookHandler) Poll(c *gin.Context) {
 	token := c.Param("token")
-	p, err := h.channelMgr.GetPlugin("webhook")
+
+	// Use GetActivePlugin to ensure plugin is started
+	p, err := h.channelMgr.GetActivePlugin("webhook")
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "webhook channel not available"})
 		return
 	}
-	wp, ok := p.(*webhook.Plugin)
+
+	// Interface assertion instead of concrete type
+	handler, ok := p.(HTTPHandler)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid plugin type"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "plugin does not support HTTP handling"})
 		return
 	}
-	wp.HandlePoll(c.Writer, c.Request, token)
+	handler.HandlePoll(c.Writer, c.Request, token)
 }
