@@ -30,7 +30,14 @@ api.interceptors.response.use(
     return response.data
   },
   (error) => {
-    console.error('API Error:', error)
+    // 中文：脱敏日志，只记录必要信息
+    // English: Desensitized log, only record necessary information
+    console.error('API Error:', {
+      url: error.config?.url,
+      method: error.config?.method,
+      status: error.response?.status,
+      message: error.message
+    })
     return Promise.reject(error)
   }
 )

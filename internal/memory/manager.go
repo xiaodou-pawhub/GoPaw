@@ -109,6 +109,44 @@ func (m *Manager) GetContext(sessionID string, limit int) ([]MemoryMessage, erro
 	return result, nil
 }
 
+// MaybeCompress checks if the current session's token count exceeds the context limit.
+// If it does, it triggers compression to reduce context size.
+// This should be called by the Agent before processing each user message.
+func (m *Manager) MaybeCompress(ctx context.Context, sessionID string) error {
+	// Get messages to check token count
+	msgs, err := m.store.GetRecentMessages(sessionID, m.historyLimit)
+	if err != nil {
+		return fmt.Errorf("memory: maybe compress: get messages: %w", err)
+	}
+
+	tokenCount := CountTokens(convertToMemoryMessages(msgs))
+
+	if tokenCount < m.contextLimit {
+		return nil // 未超限，跳过压缩
+	}
+
+	m.logger.Info("context token limit reached, compressing",
+		zap.String("session_id", sessionID),
+		zap.Int("token_count", tokenCount),
+		zap.Int("limit", m.contextLimit),
+	)
+
+	return m.Compress(ctx, sessionID)
+}
+
+// convertToMemoryMessages converts StoredMessage slice to MemoryMessage slice for token counting.
+func convertToMemoryMessages(stored []StoredMessage) []MemoryMessage {
+	result := make([]MemoryMessage, len(stored))
+	for i, sm := range stored {
+		result[i] = MemoryMessage{
+			Role:      sm.Role,
+			Content:   sm.Content,
+			CreatedAt: time.UnixMilli(sm.CreatedAt),
+		}
+	}
+	return result
+}
+
 // Search performs FTS5 full-text search within the session's history.
 func (m *Manager) Search(sessionID, query string, limit int) ([]MemorySnippet, error) {
 	msgs, err := m.store.SearchMessages(sessionID, query, limit)
@@ -184,11 +222,8 @@ func (m *Manager) Clear(sessionID string) error {
 	return nil
 }
 
-// EstimateTokens returns a rough token estimate for the messages (4 chars ≈ 1 token).
+// EstimateTokens returns the precise token count for the messages.
+// Deprecated: Use CountTokens from tokenizer.go instead.
 func EstimateTokens(msgs []MemoryMessage) int {
-	total := 0
-	for _, m := range msgs {
-		total += len([]rune(m.Content)) / 4
-	}
-	return total
+	return CountTokens(msgs)
 }

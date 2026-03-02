@@ -183,15 +183,13 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 		history = nil
 	}
 
-	// Optionally compress memory if context is getting long.
-	if memory.EstimateTokens(history) > 3000 {
-		if cErr := a.memoryManager.Compress(ctx, req.SessionID); cErr != nil {
-			a.logger.Warn("agent: memory compression failed", zap.Error(cErr))
-		} else {
-			// Reload after compression.
-			history, _ = a.memoryManager.GetContext(req.SessionID, 0)
-		}
+	// 尝试压缩内存（如果上下文过长）
+	// MaybeCompress 内部会检查 token 数量，超过限制才压缩
+	if err := a.memoryManager.MaybeCompress(ctx, req.SessionID); err != nil {
+		a.logger.Warn("agent: memory compression failed", zap.Error(err))
 	}
+	// 重新加载上下文
+	history, _ = a.memoryManager.GetContext(req.SessionID, 0)
 
 	// Build system prompt (reads from AGENT.md on each call for hot-reload).
 	tools := a.toolRegistry.All()

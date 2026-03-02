@@ -60,6 +60,26 @@ func (s *Store) GetActiveProvider() (*ProviderConfig, error) {
 	return p, nil
 }
 
+// GetProvider returns a single provider by ID with the real (unmasked) API key.
+func (s *Store) GetProvider(id string) (*ProviderConfig, error) {
+	row := s.db.QueryRow(
+		`SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, created_at, updated_at
+		 FROM providers WHERE id = ?`, id,
+	)
+	p := &ProviderConfig{}
+	var isActive int
+	err := row.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKey, &p.Model,
+		&p.MaxTokens, &p.TimeoutSec, &isActive, &p.CreatedAt, &p.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("settings: get provider: %w", err)
+	}
+	p.IsActive = isActive == 1
+	return p, nil
+}
+
 // ListProviders returns all configured LLM providers. APIKey is masked for safety.
 func (s *Store) ListProviders() ([]ProviderConfig, error) {
 	rows, err := s.db.Query(
@@ -93,6 +113,7 @@ func (s *Store) ListProviders() ([]ProviderConfig, error) {
 
 // SaveProvider inserts or updates an LLM provider (upsert by ID).
 // If p.ID is empty, a new UUID is assigned.
+// If p.APIKey is empty or masked ("****"), the old API key is preserved.
 func (s *Store) SaveProvider(p *ProviderConfig) error {
 	if p.ID == "" {
 		p.ID = uuid.New().String()
@@ -108,6 +129,16 @@ func (s *Store) SaveProvider(p *ProviderConfig) error {
 	if p.TimeoutSec == 0 {
 		p.TimeoutSec = 60
 	}
+	
+	// 中文：如果 API Key 为空或脱敏值，保留旧值
+	// English: If API Key is empty or masked, preserve the old value
+	if p.APIKey == "" || p.APIKey == "****" || (len(p.APIKey) == 8 && p.APIKey[4:] == "****") {
+		old, err := s.GetProvider(p.ID)
+		if err == nil && old != nil {
+			p.APIKey = old.APIKey
+		}
+	}
+	
 	isActive := 0
 	if p.IsActive {
 		isActive = 1
@@ -116,7 +147,7 @@ func (s *Store) SaveProvider(p *ProviderConfig) error {
 		`INSERT INTO providers (id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
-		   name=excluded.name, base_url=excluded.base_url, api_key=excluded.api_key,
+		   name=excluded.name, base_url=excluded.base_url,
 		   model=excluded.model, max_tokens=excluded.max_tokens, timeout_sec=excluded.timeout_sec,
 		   is_active=excluded.is_active, updated_at=excluded.updated_at`,
 		p.ID, p.Name, p.BaseURL, p.APIKey, p.Model,

@@ -4,10 +4,12 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/agent"
+	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/pkg/types"
 	"go.uber.org/zap"
 )
@@ -15,12 +17,13 @@ import (
 // AgentHandler handles /api/agent routes.
 type AgentHandler struct {
 	agent  *agent.ReActAgent
+	mem    *memory.Manager
 	logger *zap.Logger
 }
 
 // NewAgentHandler creates an AgentHandler.
-func NewAgentHandler(a *agent.ReActAgent, logger *zap.Logger) *AgentHandler {
-	return &AgentHandler{agent: a, logger: logger}
+func NewAgentHandler(a *agent.ReActAgent, mem *memory.Manager, logger *zap.Logger) *AgentHandler {
+	return &AgentHandler{agent: a, mem: mem, logger: logger}
 }
 
 type chatRequest struct {
@@ -128,4 +131,47 @@ func (h *AgentHandler) ListSessions(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"sessions": out})
+}
+
+// GetSessionMessages handles GET /api/agent/sessions/:id/messages.
+// Returns the message history for a given session, oldest-first.
+// Optional query param: limit (default 100, max 500).
+func (h *AgentHandler) GetSessionMessages(c *gin.Context) {
+	sessionID := c.Param("id")
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "session id is required"})
+		return
+	}
+
+	limit := 100
+	if l := c.Query("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 {
+			if v > 500 {
+				v = 500
+			}
+			limit = v
+		}
+	}
+
+	msgs, err := h.mem.GetContext(sessionID, limit)
+	if err != nil {
+		h.logger.Error("agent: get session messages", zap.String("session_id", sessionID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	type messageItem struct {
+		Role      string `json:"role"`
+		Content   string `json:"content"`
+		CreatedAt int64  `json:"created_at"`
+	}
+	out := make([]messageItem, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, messageItem{
+			Role:      m.Role,
+			Content:   m.Content,
+			CreatedAt: m.CreatedAt.UnixMilli(),
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"session_id": sessionID, "messages": out, "total": len(out)})
 }

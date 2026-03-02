@@ -18,6 +18,11 @@ const router = createRouter({
           component: () => import('@/pages/Chat.vue')
         },
         {
+          path: 'cron',
+          name: 'Cron',
+          component: () => import('@/pages/Cron.vue')
+        },
+        {
           path: 'settings',
           name: 'Settings',
           children: [

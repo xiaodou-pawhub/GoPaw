@@ -63,7 +63,26 @@ const messages = {
         title: '频道配置',
         feishu: '飞书',
         dingtalk: '钉钉',
-        webhook: 'Webhook'
+        webhook: 'Webhook',
+        health: '健康状态',
+        running: '运行中',
+        stopped: '已停止'
+      }
+    },
+    cron: {
+      title: '定时任务',
+      add: '新增任务',
+      name: '任务名称',
+      expr: 'Cron 表达式',
+      channel: '频道',
+      prompt: '触发词',
+      status: '状态',
+      action: '操作',
+      trigger: '立即触发',
+      window: '活跃窗口',
+      noJobs: '暂无定时任务',
+      helper: {
+        expr: '例如 "0 9 * * 1-5" 表示工作日 9 点'
       }
     },
     setup: {
@@ -135,7 +154,26 @@ const messages = {
         title: 'Channel Settings',
         feishu: 'Feishu',
         dingtalk: 'DingTalk',
-        webhook: 'Webhook'
+        webhook: 'Webhook',
+        health: 'Health',
+        running: 'Running',
+        stopped: 'Stopped'
+      }
+    },
+    cron: {
+      title: 'Cron Jobs',
+      add: 'Add Job',
+      name: 'Name',
+      expr: 'Cron Expr',
+      channel: 'Channel',
+      prompt: 'Prompt',
+      status: 'Status',
+      action: 'Action',
+      trigger: 'Trigger Now',
+      window: 'Active Window',
+      noJobs: 'No cron jobs',
+      helper: {
+        expr: 'e.g., "0 9 * * 1-5" for weekdays at 9 AM'
       }
     },
     setup: {

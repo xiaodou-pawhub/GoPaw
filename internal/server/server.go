@@ -4,13 +4,16 @@ package server
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/agent"
 	"github.com/gopaw/gopaw/internal/channel"
 	"github.com/gopaw/gopaw/internal/config"
+	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/scheduler"
 	"github.com/gopaw/gopaw/internal/server/handlers"
 	"github.com/gopaw/gopaw/internal/settings"
@@ -28,15 +31,18 @@ type Server struct {
 }
 
 // New creates and configures the HTTP server without starting it.
+// staticFS is the embedded Vue frontend filesystem (pass nil to disable static serving).
 func New(
 	cfg *config.Config,
 	agentInstance *agent.ReActAgent,
+	memMgr *memory.Manager,
 	channelMgr *channel.Manager,
 	skillMgr *skill.Manager,
 	scheduler *scheduler.Manager,
 	cfgMgr *config.Manager,
 	settingsStore *settings.Store,
 	agentMDPath string,
+	staticFS fs.FS,
 	logger *zap.Logger,
 ) *Server {
 	if !cfg.App.Debug {
@@ -53,7 +59,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(agentInstance, channelMgr, skillMgr, scheduler, cfgMgr, settingsStore, agentMDPath)
+	s.registerRoutes(agentInstance, memMgr, channelMgr, skillMgr, scheduler, cfgMgr, settingsStore, agentMDPath, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -65,15 +71,17 @@ func New(
 	return s
 }
 
-// registerRoutes wires all API routes.
+// registerRoutes wires all API routes and the SPA static file handler.
 func (s *Server) registerRoutes(
 	agentInstance *agent.ReActAgent,
+	memMgr *memory.Manager,
 	channelMgr *channel.Manager,
 	skillMgr *skill.Manager,
 	sched *scheduler.Manager,
 	cfgMgr *config.Manager,
 	settingsStore *settings.Store,
 	agentMDPath string,
+	staticFS fs.FS,
 ) {
 	// WebSocket endpoint.
 	s.engine.GET("/ws", s.wsHandler.Handle)
@@ -81,12 +89,13 @@ func (s *Server) registerRoutes(
 	api := s.engine.Group("/api")
 
 	// /api/agent
-	agentH := handlers.NewAgentHandler(agentInstance, s.logger)
+	agentH := handlers.NewAgentHandler(agentInstance, memMgr, s.logger)
 	agentG := api.Group("/agent")
 	{
 		agentG.POST("/chat", agentH.Chat)
 		agentG.GET("/chat/stream", agentH.ChatStream)
 		agentG.GET("/sessions", agentH.ListSessions)
+		agentG.GET("/sessions/:id/messages", agentH.GetSessionMessages)
 	}
 
 	// /api/config — static startup configuration (read-only)
@@ -143,6 +152,34 @@ func (s *Server) registerRoutes(
 
 	// Health check at root for load balancers.
 	s.engine.GET("/health", sysH.Health)
+
+	// SPA static file serving — must be registered last so API routes take priority.
+	if staticFS != nil {
+		s.engine.NoRoute(spaHandler(staticFS, s.logger))
+	}
+}
+
+// spaHandler returns a Gin handler that serves the embedded Vue SPA.
+// For requests to known static assets (JS/CSS/images), it serves the file directly.
+// For all other paths (Vue Router client-side routes), it falls back to index.html.
+func spaHandler(staticFS fs.FS, logger *zap.Logger) gin.HandlerFunc {
+	httpFS := http.FS(staticFS)
+	fileServer := http.FileServer(httpFS)
+	return func(c *gin.Context) {
+		upath := strings.TrimPrefix(c.Request.URL.Path, "/")
+		if upath == "" {
+			upath = "index.html"
+		}
+		// Check whether the file actually exists in the embedded FS.
+		f, err := staticFS.Open(upath)
+		if err == nil {
+			f.Close()
+			fileServer.ServeHTTP(c.Writer, c.Request)
+			return
+		}
+		// Unknown path — serve index.html so Vue Router can handle it.
+		c.FileFromFS("index.html", httpFS)
+	}
 }
 
 // Start begins accepting HTTP connections.

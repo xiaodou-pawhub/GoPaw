@@ -1,58 +1,77 @@
 <template>
   <div class="providers-page">
-    <n-card :title="t('settings.providers.title')">
-      <n-space vertical>
-        <n-alert v-if="providers.length === 0" type="info">
-          {{ t('settings.providers.addFirst') }}
-        </n-alert>
-        
-        <n-list v-else>
-          <n-list-item v-for="provider in providers" :key="provider.id">
-            <template #prefix>
-              <n-tag :type="provider.isActive ? 'success' : 'default'">
-                {{ provider.isActive ? t('settings.providers.active') : '' }}
-              </n-tag>
-            </template>
-            
-            <n-space vertical>
-              <div class="provider-name">{{ provider.name }}</div>
-              <div class="provider-info">
-                <n-text depth="3">{{ provider.baseURL }}</n-text>
-                <n-text depth="3"> · </n-text>
-                <n-text depth="3">{{ provider.model }}</n-text>
-              </div>
-            </n-space>
-            
-            <template #suffix>
-              <n-space>
-                <n-button
-                  v-if="!provider.isActive"
-                  size="small"
-                  @click="setActive(provider.id)"
-                >
-                  {{ t('settings.providers.setActive') }}
-                </n-button>
-                <n-button size="small" @click="editProvider(provider)">
-                  {{ t('edit') }}
-                </n-button>
-                <n-button size="small" type="error" @click="deleteProvider(provider.id)">
-                  {{ t('delete') }}
-                </n-button>
+    <n-space vertical :size="24">
+      <div class="page-header">
+        <n-h2>{{ t('settings.providers.title') }}</n-h2>
+        <n-text depth="3">配置对话所使用的语言模型提供商 / Configure language model providers for chat</n-text>
+      </div>
+
+      <n-card bordered class="list-card">
+        <n-space vertical :size="16">
+          <n-alert v-if="providers.length === 0" type="info">
+            {{ t('settings.providers.addFirst') }}
+          </n-alert>
+          
+          <n-list v-else hoverable clickable>
+            <n-list-item v-for="provider in providers" :key="provider.id" class="provider-item">
+              <template #prefix>
+                <div class="status-indicator">
+                  <n-tag :type="provider.isActive ? 'success' : 'default'" round size="small">
+                    {{ provider.isActive ? t('settings.providers.active') : 'Inactive' }}
+                  </n-tag>
+                </div>
+              </template>
+              
+              <n-space vertical :size="4">
+                <div class="provider-name">{{ provider.name }}</div>
+                <div class="provider-info">
+                  <n-text depth="3">{{ provider.baseURL }}</n-text>
+                  <n-divider vertical />
+                  <n-tag size="small" quaternary>{{ provider.model }}</n-tag>
+                </div>
               </n-space>
-            </template>
-          </n-list-item>
-        </n-list>
-        
-        <n-divider />
-        
-        <n-button type="primary" @click="showAddModal">
-          {{ t('settings.providers.add') }}
-        </n-button>
-      </n-space>
-    </n-card>
+              
+              <template #suffix>
+                <n-space>
+                  <n-button
+                    v-if="!provider.isActive"
+                    size="small"
+                    secondary
+                    @click="setActive(provider.id)"
+                  >
+                    {{ t('settings.providers.setActive') }}
+                  </n-button>
+                  <n-button size="small" quaternary @click="editProvider(provider)">
+                    {{ t('common.edit') }}
+                  </n-button>
+                  <n-button size="small" quaternary type="error" @click="handleDeleteProvider(provider.id)">
+                    {{ t('common.delete') }}
+                  </n-button>
+                </n-space>
+              </template>
+            </n-list-item>
+          </n-list>
+          
+          <div class="card-actions">
+            <n-button type="primary" @click="showAddModal">
+              <template #icon>
+                <n-icon :component="AddOutline" />
+              </template>
+              {{ t('settings.providers.add') }}
+            </n-button>
+          </div>
+        </n-space>
+      </n-card>
+    </n-space>
     
     <!-- 中文：添加/编辑提供商对话框 / English: Add/Edit provider modal -->
-    <n-modal v-model:show="showModal" :title="isEdit ? t('settings.providers.edit') : t('settings.providers.add')">
+    <n-modal
+      v-model:show="showModal"
+      preset="card"
+      style="width: 500px"
+      :title="isEdit ? t('settings.providers.edit') : t('settings.providers.add')"
+      class="provider-modal"
+    >
       <n-form
         ref="formRef"
         :model="formData"
@@ -90,11 +109,13 @@
         </n-form-item>
       </n-form>
       
-      <template #action>
-        <n-button @click="showModal = false">{{ t('cancel') }}</n-button>
-        <n-button type="primary" :loading="saving" @click="handleSubmit">
-          {{ t('save') }}
-        </n-button>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showModal = false">{{ t('common.cancel') }}</n-button>
+          <n-button type="primary" :loading="saving" @click="handleSubmit">
+            {{ t('common.save') }}
+          </n-button>
+        </n-space>
       </template>
     </n-modal>
   </div>
@@ -104,18 +125,23 @@
 // 中文：导入必要的依赖
 // English: Import necessary dependencies
 import { ref, reactive, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import {
   NCard, NList, NListItem, NButton, NSpace, NTag, NText,
-  NModal, NForm, NFormItem, NInput, NAlert, NDivider, useMessage
+  NModal, NForm, NFormItem, NInput, NAlert, NDivider, NH2,
+  NIcon, useMessage
 } from 'naive-ui'
+import { AddOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import type { FormRules, FormInst } from 'naive-ui'
-import type { Provider } from '@/api/settings'
-import { getProviders, saveProvider, setActiveProvider, deleteProvider } from '@/api/settings'
+import type { Provider } from '@/types'
+import {
+  getProviders,
+  saveProvider,
+  setActiveProvider,
+  deleteProvider as apiDeleteProvider
+} from '@/api/settings'
 import { useAppStore } from '@/stores/app'
 
-const router = useRouter()
 const { t } = useI18n()
 const message = useMessage()
 const appStore = useAppStore()
@@ -148,7 +174,7 @@ async function loadProviders() {
     providers.value = await getProviders()
     appStore.setProviders(providers.value)
   } catch (error) {
-    message.error('Failed to load providers')
+    message.error(t('common.error'))
   }
 }
 
@@ -171,7 +197,10 @@ function showAddModal() {
 // English: Edit provider
 function editProvider(provider: Provider) {
   isEdit.value = true
-  Object.assign(formData, provider)
+  Object.assign(formData, {
+    ...provider,
+    apiKey: '' // 中文：编辑时不回填密码 / Do not backfill password when editing
+  })
   showModal.value = true
 }
 
@@ -180,22 +209,22 @@ function editProvider(provider: Provider) {
 async function setActive(id: string) {
   try {
     await setActiveProvider(id)
-    message.success(t('success'))
+    message.success(t('common.success'))
     loadProviders()
   } catch (error) {
-    message.error(t('error'))
+    message.error(t('common.error'))
   }
 }
 
 // 中文：删除提供商
 // English: Delete provider
-async function deleteProvider(id: string) {
+async function handleDeleteProvider(id: string) {
   try {
-    await deleteProvider(id)
-    message.success(t('success'))
+    await apiDeleteProvider(id)
+    message.success(t('common.success'))
     loadProviders()
   } catch (error) {
-    message.error(t('error'))
+    message.error(t('common.error'))
   }
 }
 
@@ -206,12 +235,11 @@ async function handleSubmit() {
     await formRef.value?.validate()
     saving.value = true
     await saveProvider(formData)
-    message.success(t('success'))
+    message.success(t('common.success'))
     showModal.value = false
     loadProviders()
   } catch (error) {
-    // 中文：验证失败或保存失败
-    // English: Validation or save failed
+    message.error(t('common.error'))
   } finally {
     saving.value = false
   }
@@ -222,17 +250,43 @@ onMounted(() => {
 })
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .providers-page {
-  padding: 24px;
+  padding: 12px;
+}
+
+.page-header {
+  margin-bottom: 8px;
+}
+
+.list-card {
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+.provider-item {
+  padding: 16px 0;
 }
 
 .provider-name {
-  font-weight: 600;
-  font-size: 16px;
+  font-weight: 700;
+  font-size: 17px;
 }
 
 .provider-info {
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.card-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.provider-modal {
+  border-radius: 12px;
 }
 </style>

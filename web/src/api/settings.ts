@@ -1,53 +1,99 @@
 import api from './index'
+import type { Provider, BackendProvider } from '@/types'
 
-export interface Provider {
-  id: string
-  name: string
-  baseURL: string
-  apiKey: string
-  model: string
-  isActive: boolean
+// 中文：前端转后端映射 (LLM Provider)
+// English: Map frontend to backend (LLM Provider)
+function mapProviderToApi(provider: Partial<Provider>): Partial<BackendProvider> {
+  const mapped: any = {}
+  if (provider.id !== undefined) mapped.id = provider.id
+  if (provider.name !== undefined) mapped.name = provider.name
+  if (provider.baseURL !== undefined) mapped.base_url = provider.baseURL
+  if (provider.apiKey !== undefined) mapped.api_key = provider.apiKey
+  if (provider.model !== undefined) mapped.model = provider.model
+  if (provider.maxTokens !== undefined) mapped.max_tokens = provider.maxTokens
+  if (provider.timeoutSec !== undefined) mapped.timeout_sec = provider.timeoutSec
+  if (provider.isActive !== undefined) mapped.is_active = provider.isActive
+  return mapped
 }
 
-// 中文：获取 LLM 提供商列表
-// English: Get LLM provider list
+// 中文：后端转前端映射 (LLM Provider)
+// English: Map backend to frontend (LLM Provider)
+function mapProviderFromApi(data: BackendProvider): Provider {
+  return {
+    id: data.id,
+    name: data.name,
+    baseURL: data.base_url,
+    apiKey: data.api_key,
+    model: data.model,
+    maxTokens: data.max_tokens,
+    timeoutSec: data.timeout_sec,
+    isActive: data.is_active,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at
+  }
+}
+
+// ── LLM 提供商 / LLM Providers ──────────────────────────────────────────────
+
 export async function getProviders(): Promise<Provider[]> {
-  const res = await api.get('/settings/providers')
-  return res.providers || []
+  const res: any = await api.get('/settings/providers')
+  const backendList = res.providers || []
+  return backendList.map((p: BackendProvider) => mapProviderFromApi(p))
 }
 
-// 中文：保存 LLM 提供商（创建或更新）
-// English: Save LLM provider (create or update)
 export async function saveProvider(provider: Partial<Provider>) {
-  return await api.post('/settings/providers', provider)
+  const payload = mapProviderToApi(provider)
+  return await api.post('/settings/providers', payload)
 }
 
-// 中文：设置活跃提供商
-// English: Set active provider
 export async function setActiveProvider(id: string) {
   return await api.put(`/settings/providers/${id}/active`)
 }
 
-// 中文：删除提供商
-// English: Delete provider
 export async function deleteProvider(id: string) {
   return await api.delete(`/settings/providers/${id}`)
 }
 
-// 中文：获取设置状态
-// English: Get setup status
-export async function getSetupStatus() {
-  return await api.get('/settings/setup-status')
+// ── 频道配置 / Channel Configs ───────────────────────────────────────────────
+
+// 中文：获取指定频道的配置
+// English: Get configuration for a specific channel
+export async function getChannelConfig(name: string): Promise<any> {
+  const res: any = await api.get(`/settings/channels/${name}`)
+  try {
+    return typeof res.config === 'string' ? JSON.parse(res.config) : res.config
+  } catch (e) {
+    return {}
+  }
 }
 
-// 中文：获取 Agent 配置
-// English: Get Agent config
-export async function getAgent() {
+// 中文：保存频道配置
+// English: Save channel configuration
+export async function saveChannelConfig(name: string, config: any) {
+  return await api.put(`/settings/channels/${name}`, {
+    config: JSON.stringify(config)
+  })
+}
+
+// 中文：获取所有频道的健康状态
+// English: Get health status of all channels
+export async function getChannelsHealth(): Promise<any[]> {
+  const res: any = await api.get('/channels/health')
+  return res.channels || []
+}
+
+// ── Agent 设定 / Agent Persona ───────────────────────────────────────────────
+
+export async function getAgentMD(): Promise<{ content: string }> {
   return await api.get('/settings/agent')
 }
 
-// 中文：保存 Agent 配置
-// English: Save Agent config
-export async function saveAgent(content: string) {
+export async function saveAgentMD(content: string) {
   return await api.put('/settings/agent', { content })
+}
+
+// ── 初始化状态 / Setup Status ───────────────────────────────────────────────
+
+export async function getSetupStatus(): Promise<{ llm_configured: boolean, setup_required: boolean, hint: string }> {
+  return await api.get('/settings/setup-status')
 }

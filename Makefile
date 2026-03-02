@@ -4,30 +4,45 @@ LDFLAGS  := -ldflags "-X main.appVersion=$(VERSION)"
 GO       := go
 GOFLAGS  :=
 
-.PHONY: build run test clean lint web-install web-build web-dev build-all docker-build docker-push help
+.PHONY: build build-go dev run test clean lint web-install web-build web-dev docker-build docker-push help
 
-## build: compile the gopaw binary
-build:
+## build: [生产] 构建前端（压缩）并嵌入 Go 二进制 → 单文件部署
+build: web-build
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BINARY) ./cmd/gopaw
 
-## run: build and run the server (requires config.yaml)
+## build-go: [生产] 仅编译 Go 二进制（需 web/dist 已存在）
+build-go:
+	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BINARY) ./cmd/gopaw
+
+## dev: [开发] 并行启动 Vite HMR dev server + Go 后端（不 embed 前端）
+## 前端访问 http://localhost:5173（热更新），API 自动代理到 http://localhost:8088
+dev:
+	@echo "===================================================="
+	@echo "  Dev mode"
+	@echo "  Frontend (HMR) : http://localhost:5173"
+	@echo "  Backend API    : http://localhost:8088"
+	@echo "  Press Ctrl+C to stop both processes"
+	@echo "===================================================="
+	@trap 'kill 0' INT TERM EXIT; \
+	 (cd web && pnpm dev) & \
+	 $(GO) run -tags dev $(LDFLAGS) ./cmd/gopaw start; \
+	 wait
+
+## run: [生产] 构建并运行（requires config.yaml）
 run: build
 	./$(BINARY) start --config config.yaml
 
-## web-install: install web frontend dependencies
+## web-install: 安装前端依赖
 web-install:
 	cd web && pnpm install
 
-## web-dev: run web frontend in development mode
+## web-dev: 单独启动 Vite dev server（需另起终端运行 Go 后端）
 web-dev:
 	cd web && pnpm run dev
 
-## web-build: build web frontend
+## web-build: 构建前端（生产压缩）
 web-build:
 	cd web && pnpm run build
-
-## build-all: build both backend and frontend
-build-all: web-build build
 
 ## test: run all tests with race detector
 test:
@@ -69,11 +84,4 @@ init-config:
 	./$(BINARY) init
 
 help:
-	@echo "Available targets:"
 	@grep -E '^## ' Makefile | sed 's/## /  /'
-	@echo ""
-	@echo "Web targets:"
-	@echo "  web-install   - Install web frontend dependencies"
-	@echo "  web-dev       - Run web frontend in dev mode"
-	@echo "  web-build     - Build web frontend"
-	@echo "  build-all     - Build both backend and frontend"
