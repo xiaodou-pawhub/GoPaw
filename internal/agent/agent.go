@@ -5,7 +5,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
@@ -36,8 +38,18 @@ var (
 )
 
 // parseReActOutput extracts structured fields from the LLM's raw text output.
+// It supports both ReAct text format and JSON format.
 func parseReActOutput(text string) parsedReAct {
-	// Check for Final Answer first.
+	text = strings.TrimSpace(text)
+	
+	// Try JSON format first (some models output {"action": "...", "input": {...}})
+	if strings.HasPrefix(text, "{") {
+		if result, ok := parseJSONFormat(text); ok {
+			return result
+		}
+	}
+	
+	// Check for Final Answer first (ReAct format).
 	if m := finalAnswerRe.FindStringSubmatch(text); m != nil {
 		return parsedReAct{IsFinal: true, Answer: strings.TrimSpace(m[1])}
 	}
@@ -52,6 +64,44 @@ func parseReActOutput(text string) parsedReAct {
 	return result
 }
 
+// parseJSONFormat tries to parse the LLM output as JSON.
+// Expected format: {"action": "tool_name", "input": {...}} or {"final_answer": "..."}
+func parseJSONFormat(text string) (parsedReAct, bool) {
+	text = strings.TrimSpace(text)
+	
+	// Try to unmarshal as a map
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		return parsedReAct{}, false
+	}
+	
+	// Check for final_answer field
+	if answer, ok := data["final_answer"].(string); ok {
+		return parsedReAct{IsFinal: true, Answer: answer}, true
+	}
+	
+	// Check for action and input fields
+	action, hasAction := data["action"].(string)
+	if !hasAction {
+		return parsedReAct{}, false
+	}
+	
+	// Input can be a string (JSON) or an object
+	var input string
+	switch v := data["input"].(type) {
+	case string:
+		input = v
+	case map[string]interface{}:
+		// Marshal back to JSON string
+		b, _ := json.Marshal(v)
+		input = string(b)
+	default:
+		input = fmt.Sprintf("%v", v)
+	}
+	
+	return parsedReAct{Action: action, ActionInput: input}, true
+}
+
 // ReActAgent is the core agent implementation using the ReAct reasoning pattern.
 type ReActAgent struct {
 	llmClient      llm.Client
@@ -60,15 +110,23 @@ type ReActAgent struct {
 	skillManager   *skill.Manager
 	memoryManager  *memory.Manager
 	sessionManager *SessionManager
-	basePrompt     string
+	// defaultPrompt is used when agentMDPath is not set or the file cannot be read.
+	defaultPrompt  string
+	// agentMDPath is the path to data/AGENT.md. When set, the system prompt is
+	// read from this file on each request, enabling hot-reload via Web UI edits.
+	agentMDPath    string
 	maxSteps       int
 	logger         *zap.Logger
 }
 
 // Config holds the parameters needed to construct a ReActAgent.
 type Config struct {
-	BasePrompt string
-	MaxSteps   int
+	// DefaultPrompt is the fallback system prompt when AGENT.md is not found.
+	DefaultPrompt string
+	// AgentMDPath is the filesystem path to the AGENT.md persona file.
+	// Leave empty to use DefaultPrompt only.
+	AgentMDPath   string
+	MaxSteps      int
 }
 
 // New creates a ReActAgent.
@@ -87,10 +145,23 @@ func New(
 		skillManager:   skillManager,
 		memoryManager:  memoryManager,
 		sessionManager: NewSessionManager(),
-		basePrompt:     cfg.BasePrompt,
+		defaultPrompt:  cfg.DefaultPrompt,
+		agentMDPath:    cfg.AgentMDPath,
 		maxSteps:       cfg.MaxSteps,
 		logger:         logger,
 	}
+}
+
+// currentBasePrompt returns the active system prompt.
+// It reads from AGENT.md on each call so Web UI edits take effect immediately.
+func (a *ReActAgent) currentBasePrompt() string {
+	if a.agentMDPath != "" {
+		data, err := os.ReadFile(a.agentMDPath)
+		if err == nil {
+			return string(data)
+		}
+	}
+	return a.defaultPrompt
 }
 
 // Process handles one user request through the full ReAct loop.
@@ -122,9 +193,9 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 		}
 	}
 
-	// Build system prompt.
+	// Build system prompt (reads from AGENT.md on each call for hot-reload).
 	tools := a.toolRegistry.All()
-	systemPrompt := buildSystemPrompt(a.basePrompt, a.skillManager.SystemPromptFragment(), tools)
+	systemPrompt := buildSystemPrompt(a.currentBasePrompt(), a.skillManager.SystemPromptFragment(), tools)
 
 	// Convert tools to LLM tool definitions (optional — for providers that support function calling).
 	_ = buildToolDefinitions(tools) // used by stream handler; plain ReAct uses text parsing

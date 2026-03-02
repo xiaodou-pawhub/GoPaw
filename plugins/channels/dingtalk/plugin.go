@@ -35,25 +35,33 @@ type dingtalkConfig struct {
 
 // Plugin implements the DingTalk channel.
 type Plugin struct {
-	cfg     dingtalkConfig
-	inbound chan *types.Message
-	started time.Time
-	token   string
-	logger  *zap.Logger
+	cfg        dingtalkConfig
+	inbound    chan *types.Message
+	started    time.Time
+	token      string
+	configured bool // true when client_id and client_secret have been provided
+	logger     *zap.Logger
 }
 
 func (p *Plugin) Name() string        { return "dingtalk" }
 func (p *Plugin) DisplayName() string { return "钉钉" }
 
 // Init parses DingTalk credentials.
+// An empty or missing config is accepted — the plugin starts in unconfigured mode.
+// Configure credentials via the Web UI → Settings → Channels.
 func (p *Plugin) Init(cfg json.RawMessage) error {
 	p.logger = zap.L().Named("channel.dingtalk")
-	if err := json.Unmarshal(cfg, &p.cfg); err != nil {
-		return fmt.Errorf("dingtalk: parse config: %w", err)
+	if len(cfg) > 0 && string(cfg) != "{}" {
+		if err := json.Unmarshal(cfg, &p.cfg); err != nil {
+			p.logger.Warn("dingtalk: failed to parse config, running unconfigured", zap.Error(err))
+			return nil
+		}
 	}
 	if p.cfg.ClientID == "" || p.cfg.ClientSecret == "" {
-		return fmt.Errorf("dingtalk: client_id and client_secret are required")
+		p.logger.Warn("dingtalk: client_id / client_secret not set — configure via Web UI → Settings → Channels")
+		return nil
 	}
+	p.configured = true
 	return nil
 }
 
@@ -80,6 +88,9 @@ func (p *Plugin) Receive() <-chan *types.Message {
 
 // Send delivers a message to a DingTalk conversation.
 func (p *Plugin) Send(msg *types.Message) error {
+	if !p.configured {
+		return fmt.Errorf("dingtalk: channel not configured — add credentials via Web UI")
+	}
 	payload := map[string]interface{}{
 		"robotCode": p.cfg.ClientID,
 		"userIds":   []string{msg.UserID},
@@ -112,6 +123,13 @@ func (p *Plugin) Send(msg *types.Message) error {
 
 // Health returns the current health status.
 func (p *Plugin) Health() plugin.HealthStatus {
+	if !p.configured {
+		return plugin.HealthStatus{
+			Running: false,
+			Message: "not configured — add credentials via Web UI → Settings → Channels",
+			Since:   p.started,
+		}
+	}
 	return plugin.HealthStatus{
 		Running: p.token != "",
 		Message: "ok",

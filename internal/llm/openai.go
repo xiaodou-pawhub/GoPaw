@@ -21,6 +21,14 @@ const (
 	retryBaseMs   = 500
 )
 
+// min returns the smaller of two integers.
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // openAIChatRequest is the wire format sent to the OpenAI Chat Completions endpoint.
 type openAIChatRequest struct {
 	Model       string            `json:"model"`
@@ -149,6 +157,16 @@ func (c *OpenAIClient) doChat(ctx context.Context, payload openAIChatRequest) (*
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
+	// Log the full request for debugging
+	c.logger.Debug("LLM Request Details",
+		zap.String("method", http.MethodPost),
+		zap.String("url", c.baseURL+"/chat/completions"),
+		zap.String("model", c.model),
+		zap.String("api_key_prefix", c.apiKey[:min(8, len(c.apiKey))]+"..."),
+		zap.Any("payload", payload),
+		zap.String("raw_body", string(body)),
+	)
+
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
@@ -157,16 +175,33 @@ func (c *OpenAIClient) doChat(ctx context.Context, payload openAIChatRequest) (*
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 
+	// Log request headers
+	c.logger.Debug("HTTP Request Headers",
+		zap.String("Content-Type", httpReq.Header.Get("Content-Type")),
+		zap.String("Authorization", httpReq.Header.Get("Authorization")),
+	)
+
 	httpResp, err := c.httpClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("http: %w", err)
 	}
 	defer httpResp.Body.Close()
 
+	// Log response status
+	c.logger.Debug("HTTP Response",
+		zap.Int("status_code", httpResp.StatusCode),
+		zap.String("status", httpResp.Status),
+	)
+
 	respBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
+
+	// Log raw response body
+	c.logger.Debug("Raw Response Body",
+		zap.String("body", string(respBody)),
+	)
 
 	var result openAIResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {

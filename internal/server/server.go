@@ -13,6 +13,7 @@ import (
 	"github.com/gopaw/gopaw/internal/config"
 	"github.com/gopaw/gopaw/internal/scheduler"
 	"github.com/gopaw/gopaw/internal/server/handlers"
+	"github.com/gopaw/gopaw/internal/settings"
 	"github.com/gopaw/gopaw/internal/skill"
 	"go.uber.org/zap"
 )
@@ -34,6 +35,8 @@ func New(
 	skillMgr *skill.Manager,
 	scheduler *scheduler.Manager,
 	cfgMgr *config.Manager,
+	settingsStore *settings.Store,
+	agentMDPath string,
 	logger *zap.Logger,
 ) *Server {
 	if !cfg.App.Debug {
@@ -50,7 +53,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(agentInstance, channelMgr, skillMgr, scheduler, cfgMgr)
+	s.registerRoutes(agentInstance, channelMgr, skillMgr, scheduler, cfgMgr, settingsStore, agentMDPath)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -69,6 +72,8 @@ func (s *Server) registerRoutes(
 	skillMgr *skill.Manager,
 	sched *scheduler.Manager,
 	cfgMgr *config.Manager,
+	settingsStore *settings.Store,
+	agentMDPath string,
 ) {
 	// WebSocket endpoint.
 	s.engine.GET("/ws", s.wsHandler.Handle)
@@ -84,13 +89,23 @@ func (s *Server) registerRoutes(
 		agentG.GET("/sessions", agentH.ListSessions)
 	}
 
-	// /api/config
+	// /api/config — static startup configuration (read-only)
 	cfgH := handlers.NewConfigHandler(cfgMgr, s.logger)
-	cfgG := api.Group("/config")
+	api.GET("/config", cfgH.Get)
+
+	// /api/settings — runtime settings (LLM providers, channel secrets, agent persona)
+	settingsH := handlers.NewSettingsHandler(settingsStore, agentMDPath, s.logger)
+	settingsG := api.Group("/settings")
 	{
-		cfgG.GET("", cfgH.Get)
-		cfgG.GET("/llm", cfgH.GetLLM)
-		cfgG.GET("/agent", cfgH.GetAgent)
+		settingsG.GET("/setup-status", settingsH.SetupStatus)
+		settingsG.GET("/providers", settingsH.ListProviders)
+		settingsG.POST("/providers", settingsH.SaveProvider)
+		settingsG.PUT("/providers/:id/active", settingsH.SetActiveProvider)
+		settingsG.DELETE("/providers/:id", settingsH.DeleteProvider)
+		settingsG.GET("/channels/:name", settingsH.GetChannelConfig)
+		settingsG.PUT("/channels/:name", settingsH.SetChannelConfig)
+		settingsG.GET("/agent", settingsH.GetAgentMD)
+		settingsG.PUT("/agent", settingsH.SetAgentMD)
 	}
 
 	// /api/skills

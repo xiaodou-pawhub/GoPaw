@@ -35,9 +35,19 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// migrate creates all necessary tables and indexes if they do not already exist.
+// migrate creates all necessary tables, indexes and FTS5 triggers.
 func (s *Store) migrate() error {
+	// Enable WAL mode and foreign keys first.
+	_, err := s.db.Exec(`
+		PRAGMA journal_mode=WAL;
+		PRAGMA foreign_keys=ON;
+	`)
+	if err != nil {
+		return fmt.Errorf("memory store: enable WAL: %w", err)
+	}
+
 	ddl := `
+-- Sessions table
 CREATE TABLE IF NOT EXISTS sessions (
     id          TEXT PRIMARY KEY,
     user_id     TEXT NOT NULL,
@@ -47,6 +57,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
+-- Messages table
 CREATE TABLE IF NOT EXISTS messages (
     id          TEXT PRIMARY KEY,
     session_id  TEXT NOT NULL REFERENCES sessions(id),
@@ -57,6 +68,7 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 
+-- FTS5 virtual table for full-text search
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     content,
     session_id UNINDEXED,
@@ -64,6 +76,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     content_rowid='rowid'
 );
 
+-- Memory summaries table
 CREATE TABLE IF NOT EXISTS memory_summaries (
     id          TEXT PRIMARY KEY,
     session_id  TEXT NOT NULL,
@@ -73,6 +86,7 @@ CREATE TABLE IF NOT EXISTS memory_summaries (
     created_at  INTEGER NOT NULL
 );
 
+-- Cron jobs table
 CREATE TABLE IF NOT EXISTS cron_jobs (
     id           TEXT PRIMARY KEY,
     name         TEXT NOT NULL,
@@ -88,9 +102,63 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
     next_run     INTEGER,
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL
-);`
-	_, err := s.db.Exec(ddl)
-	return err
+);
+
+-- LLM providers table (configured via Web UI)
+CREATE TABLE IF NOT EXISTS providers (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    base_url    TEXT NOT NULL,
+    api_key     TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    max_tokens  INTEGER DEFAULT 4096,
+    timeout_sec INTEGER DEFAULT 60,
+    is_active   INTEGER DEFAULT 0,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+);
+
+-- Channel plugin configuration table (secrets configured via Web UI)
+CREATE TABLE IF NOT EXISTS channel_configs (
+    channel     TEXT PRIMARY KEY,
+    config_json TEXT NOT NULL DEFAULT '{}',
+    updated_at  INTEGER NOT NULL
+);
+
+-- FTS5 Triggers: keep messages_fts in sync with messages table
+CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts(rowid, content, session_id) 
+    VALUES (new.rowid, new.content, new.session_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, content, session_id) 
+    VALUES('delete', old.rowid, old.content, old.session_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, content, session_id) 
+    VALUES('delete', old.rowid, old.content, old.session_id);
+    INSERT INTO messages_fts(rowid, content, session_id) 
+    VALUES (new.rowid, new.content, new.session_id);
+END;
+`
+	_, err = s.db.Exec(ddl)
+	if err != nil {
+		return fmt.Errorf("memory store: exec DDL: %w", err)
+	}
+
+	// Verify FTS5 triggers are created.
+	var count int
+	err = s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name LIKE 'messages_%'`).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("memory store: verify triggers: %w", err)
+	}
+	if count < 3 {
+		return fmt.Errorf("memory store: expected 3 FTS triggers, found %d", count)
+	}
+
+	return nil
 }
 
 // EnsureSession creates the session row if it does not already exist.

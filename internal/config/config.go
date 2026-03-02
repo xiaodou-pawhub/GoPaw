@@ -1,5 +1,7 @@
 // Package config handles configuration loading, validation and access throughout GoPaw.
-// It uses Viper for multi-format support, environment-variable substitution and hot-reload.
+// config.yaml contains only static startup settings (server, storage, log, plugin list).
+// Runtime settings (LLM providers, channel secrets, agent persona) are managed via the Web UI
+// and stored in SQLite — see internal/settings.
 package config
 
 import (
@@ -33,63 +35,23 @@ type StorageConfig struct {
 	Path string `mapstructure:"path"`
 }
 
-// LLMConfig describes how to reach the language model provider.
-type LLMConfig struct {
-	Provider        string `mapstructure:"provider"`
-	BaseURL         string `mapstructure:"base_url"`
-	APIKey          string `mapstructure:"api_key"`
-	Model           string `mapstructure:"model"`
-	TimeoutSeconds  int    `mapstructure:"timeout"`
-	MaxTokens       int    `mapstructure:"max_tokens"`
-	// CustomEndpoint is used when provider == "custom".
-	CustomEndpoint  string `mapstructure:"endpoint"`
-	// ResponsePath is a dot-path into the JSON response body for custom providers.
-	ResponsePath    string `mapstructure:"response_path"`
-}
-
 // MemoryConfig tunes the in-session context window and persistence.
 type MemoryConfig struct {
 	ContextLimit int `mapstructure:"context_limit"`
 	HistoryLimit int `mapstructure:"history_limit"`
 }
 
-// AgentConfig controls agent behaviour.
+// AgentConfig controls agent behaviour. LLM provider and system prompt are
+// managed separately (Web UI → SQLite for provider, data/AGENT.md for prompt).
 type AgentConfig struct {
-	SystemPrompt string       `mapstructure:"system_prompt"`
-	MaxSteps     int          `mapstructure:"max_steps"`
-	Memory       MemoryConfig `mapstructure:"memory"`
+	MaxSteps int          `mapstructure:"max_steps"`
+	Memory   MemoryConfig `mapstructure:"memory"`
 }
 
 // PluginsConfig lists which channel plugins are enabled.
+// Plugin secrets are configured via the Web UI and stored in SQLite.
 type PluginsConfig struct {
 	Enabled []string `mapstructure:"enabled"`
-}
-
-// FeishuPluginConfig holds Feishu (Lark) Open Platform credentials.
-type FeishuPluginConfig struct {
-	AppID             string `mapstructure:"app_id"`
-	AppSecret         string `mapstructure:"app_secret"`
-	VerificationToken string `mapstructure:"verification_token"`
-	EncryptKey        string `mapstructure:"encrypt_key"`
-}
-
-// DingTalkPluginConfig holds DingTalk credentials.
-type DingTalkPluginConfig struct {
-	ClientID     string `mapstructure:"client_id"`
-	ClientSecret string `mapstructure:"client_secret"`
-}
-
-// WebhookPluginConfig holds settings for the generic Webhook channel.
-type WebhookPluginConfig struct {
-	Token       string `mapstructure:"token"`
-	CallbackURL string `mapstructure:"callback_url"`
-}
-
-// PluginConfig aggregates per-plugin configurations.
-type PluginConfig struct {
-	Feishu   FeishuPluginConfig   `mapstructure:"feishu"`
-	DingTalk DingTalkPluginConfig `mapstructure:"dingtalk"`
-	Webhook  WebhookPluginConfig  `mapstructure:"webhook"`
 }
 
 // SkillsConfig controls which skills are loaded and their per-skill settings.
@@ -107,17 +69,28 @@ type LogConfig struct {
 	File   string `mapstructure:"file"`
 }
 
-// Config is the root configuration structure for the entire application.
+// Config is the root configuration structure for the application startup settings.
+// It intentionally omits LLM provider, agent system prompt, and channel secrets —
+// those are runtime settings managed via the Web UI.
 type Config struct {
 	App     AppConfig     `mapstructure:"app"`
 	Server  ServerConfig  `mapstructure:"server"`
 	Storage StorageConfig `mapstructure:"storage"`
-	LLM     LLMConfig     `mapstructure:"llm"`
 	Agent   AgentConfig   `mapstructure:"agent"`
 	Plugins PluginsConfig `mapstructure:"plugins"`
-	Plugin  PluginConfig  `mapstructure:"plugin"`
 	Skills  SkillsConfig  `mapstructure:"skills"`
 	Log     LogConfig     `mapstructure:"log"`
+}
+
+// Validate checks required configuration fields.
+func (c *Config) Validate() error {
+	if c.Server.Port < 1 || c.Server.Port > 65535 {
+		return fmt.Errorf("server.port must be between 1 and 65535, got %d", c.Server.Port)
+	}
+	if c.Storage.Path == "" {
+		return fmt.Errorf("storage.path is required")
+	}
+	return nil
 }
 
 var envVarRe = regexp.MustCompile(`\$\{([A-Z_][A-Z0-9_]*)\}`)
@@ -129,7 +102,7 @@ func expandEnvVars(s string) string {
 		if val, ok := os.LookupEnv(key); ok {
 			return val
 		}
-		return match // leave unreplaced if the variable is not set
+		return match
 	})
 }
 
@@ -186,12 +159,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("storage.type", "sqlite")
 	v.SetDefault("storage.path", "data/gopaw.db")
 
-	v.SetDefault("llm.provider", "openai_compatible")
-	v.SetDefault("llm.base_url", "https://api.openai.com/v1")
-	v.SetDefault("llm.model", "gpt-4o-mini")
-	v.SetDefault("llm.timeout", 60)
-	v.SetDefault("llm.max_tokens", 4096)
-
 	v.SetDefault("agent.max_steps", 20)
 	v.SetDefault("agent.memory.context_limit", 4000)
 	v.SetDefault("agent.memory.history_limit", 50)
@@ -205,7 +172,6 @@ func setDefaults(v *viper.Viper) {
 
 // unmarshal deserialises Viper settings into the typed Config, expanding env vars.
 func (m *Manager) unmarshal() error {
-	// Write back the raw map so that string values get env-var expansion.
 	raw := m.v.AllSettings()
 	expandMap(raw)
 	for k, v := range flatten(raw, "") {
@@ -217,6 +183,11 @@ func (m *Manager) unmarshal() error {
 		return fmt.Errorf("config: unmarshal: %w", err)
 	}
 	m.cfg = cfg
+
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("config: validate: %w", err)
+	}
+
 	return nil
 }
 

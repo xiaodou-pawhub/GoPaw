@@ -84,7 +84,7 @@ P3  开发者友好      清晰的插件接口规范，完善的文档
 │                                                             │
 │   ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
 │   │  Web Console │  │   REST API   │  │    WebSocket     │  │
-│   │  (React SPA) │  │   (Gin)      │  │    (实时消息)    │  │
+│   │  (Vue 3 SPA) │  │   (Gin)      │  │    (实时消息)    │  │
 │   └──────────────┘  └──────────────┘  └──────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -977,128 +977,153 @@ GET /webhook/{token}/health
 
 ## 13. 配置管理
 
-### 13.1 完整配置示例
+GoPaw 采用**两层配置架构（Plan C）**：静态启动配置 + 运行时动态配置。
+
+```
+┌───────────────────────────────────────────────────────┐
+│  config.yaml（静态启动配置）                           │
+│  ✅ 只含服务器、存储、日志、插件列表                    │
+│  ✅ 无任何 API Key，可安全提交 git                     │
+│  ✅ 修改需重启                                        │
+└───────────────────────────────────────────────────────┘
+                        ↓ 启动后通过 Web UI 配置
+┌───────────────────────────────────────────────────────┐
+│  SQLite（运行时动态配置）                              │
+│  providers 表：LLM 提供商（支持多个，动态切换）          │
+│  channel_configs 表：频道密钥（飞书/钉钉 AppID/Secret）  │
+│                                                       │
+│  data/AGENT.md（Agent 角色设定文件）                    │
+│  通过 Web UI 编辑，Agent 每次请求时读取（即时生效）       │
+└───────────────────────────────────────────────────────┘
+```
+
+### 13.1 config.yaml（启动配置）
 
 ```yaml
 # config.yaml
+# ⚠️ 此文件只包含服务器启动配置，不含任何 API Key
 
-# 基础设置
 app:
-  name: "我的AI助手"          # Agent 显示名称
+  name: "GoPaw"
   language: zh
   timezone: Asia/Shanghai
   debug: false
 
-# 服务器
 server:
   host: 0.0.0.0
   port: 8088
 
-# 数据存储
 storage:
   type: sqlite
-  path: data/gopaw.db
+  path: data/gopaw.db     # AGENT.md 与数据库同目录: data/AGENT.md
 
-# LLM 配置
-llm:
-  # 使用 OpenAI 兼容接口
-  provider: openai_compatible
-  base_url: https://api.openai.com/v1
-  api_key: ${OPENAI_API_KEY}
-  model: gpt-4o-mini
-  timeout: 60
-  max_tokens: 4096
-
-  # 或自定义接口（实现适配器）
-  # provider: custom
-  # endpoint: https://your-llm-api.com/chat
-  # api_key: ${CUSTOM_API_KEY}
-  # request_template: ...
-  # response_path: "data.choices[0].message.content"
-
-# Agent 配置
 agent:
-  system_prompt: |
-    你是一个智能助理，名字叫 ${app.name}。
-    你会帮助用户完成各种任务，回答问题，处理文件。
-    请用中文回复，语气友好自然。
   max_steps: 20
   memory:
-    context_limit: 4000      # token 数超过此值触发压缩
-    history_limit: 50        # 最多保留最近 50 条消息
+    context_limit: 4000   # token 数超过此值触发压缩
+    history_limit: 50     # 最多保留最近 50 条消息
 
-# 插件启用列表（只有列出的插件才会启动）
+# 只列出启用哪些频道插件，密钥通过 Web UI 配置
 plugins:
   enabled:
-    - console      # Web Console 频道（通常始终启用）
-    - feishu       # 飞书
-    # - dingtalk   # 钉钉（需要时取消注释）
-    # - webhook    # Webhook 接入
+    - console      # Web Console（内置，建议始终启用）
+    # - feishu     # 飞书（密钥在 Web UI → 设置 → 频道 配置）
+    # - dingtalk   # 钉钉
+    # - webhook    # 通用 Webhook
 
-# 各插件独立配置
-plugin:
-  feishu:
-    app_id: ${FEISHU_APP_ID}
-    app_secret: ${FEISHU_APP_SECRET}
-    verification_token: ${FEISHU_VERIFICATION_TOKEN}
-    encrypt_key: ${FEISHU_ENCRYPT_KEY}
-
-  dingtalk:
-    client_id: ${DINGTALK_CLIENT_ID}
-    client_secret: ${DINGTALK_CLIENT_SECRET}
-
-  webhook:
-    token: ${WEBHOOK_TOKEN}
-    callback_url: ""         # 留空则不主动推送，外部轮询
-
-# Skills 配置
 skills:
-  dir: skills/               # 自定义 Skill 目录
-  enabled:                   # 启用的 Skill 列表（不填则全部启用）
-    - news
-    - pdf
-    - docx
+  dir: skills/
+  enabled: []
 
-  # 各 Skill 的用户配置
-  config:
-    news:
-      sources: [hacker_news, v2ex]
-      language: zh
-
-# 日志
 log:
-  level: info                # debug / info / warn / error
+  level: info
   format: json
-  output: stdout             # stdout / file
-  file: logs/gopaw.log       # 当 output=file 时生效
+  output: stdout
 ```
 
-### 13.2 环境变量
+### 13.2 LLM 提供商（运行时，存 SQLite）
 
-所有敏感信息通过环境变量注入，配置文件中使用 `${ENV_VAR}` 引用：
+通过 Settings API 管理，支持多个提供商，可随时切换：
 
-```bash
-# .env 文件（不提交到 git）
-OPENAI_API_KEY=sk-xxx
-FEISHU_APP_ID=cli_xxx
-FEISHU_APP_SECRET=xxx
-FEISHU_VERIFICATION_TOKEN=xxx
-DINGTALK_CLIENT_ID=xxx
-DINGTALK_CLIENT_SECRET=xxx
-WEBHOOK_TOKEN=your-random-token
+```
+# 添加提供商
+POST /api/settings/providers
+{
+  "name": "OpenAI GPT-4o-mini",
+  "base_url": "https://api.openai.com/v1",
+  "api_key": "sk-xxx",
+  "model": "gpt-4o-mini",
+  "max_tokens": 4096,
+  "timeout_sec": 60
+}
+
+# 切换活跃提供商（无需重启，即时生效）
+PUT /api/settings/providers/{id}/active
 ```
 
-### 13.3 配置热加载
+**LiveClient 原理**：`internal/llm.LiveClient` 在每次 Chat/Stream 调用时动态读取 `providers` 表中活跃提供商的配置，创建对应的 OpenAI 客户端发起请求。切换提供商后立即生效，无需重启。
 
-修改 `config.yaml` 后无需重启，GoPaw 自动检测变更并重载非关键配置：
+### 13.3 频道密钥（运行时，存 SQLite）
 
-| 配置项 | 是否热加载 |
-|-------|----------|
-| `agent.system_prompt` | ✅ |
-| `llm.model` / `llm.api_key` | ✅ |
-| `skills.config.*` | ✅ |
-| `plugins.enabled` | ❌ 需重启 |
-| `server.port` | ❌ 需重启 |
+每个频道插件的密钥以 JSON 形式存在 `channel_configs` 表中：
+
+```
+# 配置飞书频道密钥
+PUT /api/settings/channels/feishu
+{
+  "config": "{\"app_id\":\"cli_xxx\",\"app_secret\":\"xxx\",\"verification_token\":\"xxx\"}"
+}
+
+# 配置钉钉频道密钥
+PUT /api/settings/channels/dingtalk
+{
+  "config": "{\"client_id\":\"xxx\",\"client_secret\":\"xxx\"}"
+}
+```
+
+> **注意**：修改频道密钥后，当前版本需要重启服务生效（见 TD-08，P1 待解决）。
+
+### 13.4 Agent 角色设定（data/AGENT.md）
+
+Agent 的系统提示保存在 `data/AGENT.md` 文件中（与数据库同目录）。
+
+```
+# 查看当前 Agent 设定
+GET /api/settings/agent
+
+# 更新 Agent 设定（立即生效，无需重启）
+PUT /api/settings/agent
+{
+  "content": "# 你的 Agent 设定\n\n你是一个专注于代码审查的助手..."
+}
+```
+
+**热加载原理**：`agent.ReActAgent.currentBasePrompt()` 方法在每次处理请求时调用 `os.ReadFile(agentMDPath)` 读取最新内容，因此 Web UI 修改后立即对下一条消息生效。
+
+### 13.5 首次启动引导
+
+首次启动时，LLM 尚未配置，但服务可以正常启动：
+
+```
+GET /api/settings/setup-status
+→ {
+    "llm_configured": false,
+    "setup_required": true,
+    "hint": "请在 Web UI → 设置 → LLM 提供商 中配置 LLM 才能开始对话"
+  }
+```
+
+前端检测到 `setup_required: true` 时显示引导提示，**不强制阻塞**——用户可以查看界面，但对话功能在 LLM 配置完成前不可用。
+
+### 13.6 热加载汇总
+
+| 配置类型 | 修改方式 | 是否需要重启 |
+|---------|---------|------------|
+| LLM 提供商切换 | Web UI → LLM 提供商 | ❌ 即时生效 |
+| Agent 角色设定 | Web UI → Agent 设定 | ❌ 即时生效（下一条消息） |
+| 频道密钥 | Web UI → 频道配置 | ⚠️ 当前需要重启（TD-08 待解决） |
+| 插件列表（plugins.enabled） | config.yaml | ✅ 需要重启 |
+| server.port / storage.path | config.yaml | ✅ 需要重启 |
 
 ---
 
@@ -1125,14 +1150,14 @@ WEBHOOK_TOKEN=your-random-token
 - 支持清空会话、查看 Token 使用情况
 
 **设置页（/settings）**
-- LLM 提供商选择和 API Key 配置
-- Agent 名称和基础 Prompt 编辑
-- 记忆系统参数调整
+- `/settings/providers`：LLM 提供商管理（添加/切换/删除，支持多提供商）
+- `/settings/agent`：Agent 角色设定（AGENT.md 内容编辑，即时生效）
+- 首次启动时显示引导提示（非强制阻塞）
 
 **频道管理（/channels）**
-- 各频道的启用/禁用开关
-- 频道配置表单（根据插件 manifest 动态生成）
-- 频道连接状态展示
+- 各频道的启用/禁用（修改 config.yaml，需重启）
+- `/settings/channels/:name`：频道密钥配置表单（飞书/钉钉密钥填写）
+- 频道连接状态展示（已配置/未配置/运行中）
 
 **技能管理（/skills）**
 - 已安装技能列表（启用/禁用/配置）
@@ -1147,18 +1172,32 @@ WEBHOOK_TOKEN=your-random-token
 
 ### 14.3 前端技术栈
 
-| 组件 | 选型 |
-|------|------|
-| 框架 | React 18 + TypeScript |
-| 构建 | Vite |
-| UI 库 | Ant Design v5 |
-| 状态管理 | Zustand（轻量） |
-| 网络请求 | Axios |
-| WebSocket | 原生 API |
-| Markdown | react-markdown + highlight.js |
-| 国际化 | i18next（初期只做中文） |
+| 组件 | 选型 | 说明 |
+|------|------|------|
+| 框架 | Vue 3 + TypeScript | Composition API + TypeScript-first |
+| 构建 | Vite | 快速开发和构建 |
+| UI 库 | Naive UI | TypeScript-first，组件精良，支持主题定制 |
+| 状态管理 | Pinia | Vue 官方推荐，轻量且强大 |
+| 网络请求 | Axios | 成熟的 HTTP 客户端 |
+| WebSocket | 原生 API | 轻量，无需额外依赖 |
+| Markdown 渲染 | markdown-it + highlight.js | 高性能 Markdown 解析和代码高亮 |
+| 国际化 | vue-i18n | Vue 生态标准国际化方案 |
+| 包管理器 | pnpm / bun | 快速、节省磁盘空间 |
 
-前端构建产物通过 Go embed 嵌入二进制，无需额外的静态文件服务。
+**主题定制**：
+- 使用 Naive UI 的 `NConfigProvider` 进行全局主题配置
+- 主题变量通过 `useThemeVars()` 获取，方便后续自定义
+- 预留主题切换入口，支持亮色/暗色模式
+
+**国际化支持**：
+- 使用 `vue-i18n` 进行多语言管理
+- 语言文件放在 `src/locales/` 目录
+- 支持中文（zh-CN）和英文（en-US）
+- 语言切换通过 Pinia 状态管理
+
+**代码注释规范**：
+- 所有新增/修改的代码使用中英双语注释
+- 格式：`// 中文注释 / English comment`
 
 ---
 
@@ -1383,9 +1422,13 @@ Web Console                       Persona 预设包
 | 日志 | Zap | 高性能结构化日志 |
 | 定时任务 | robfig/cron | 轻量级 Cron 表达式解析 |
 | 嵌入前端 | Go embed | 单二进制内置静态文件 |
-| 前端框架 | React 18 + TypeScript | 成熟稳定 |
-| 前端 UI | Ant Design v5 | 组件完整，admin 类界面首选 |
-| 前端构建 | Vite | 快速 |
+| 前端框架 | Vue 3 + TypeScript | 轻量，Composition API + TypeScript-first |
+| 前端 UI | Naive UI | TypeScript-first，组件精良，支持主题定制 |
+| 前端构建 | Vite | 快速开发和热重载 |
+| 状态管理 | Pinia | Vue 官方推荐，轻量且强大 |
+| Markdown | markdown-it + highlight.js | 高性能 Markdown 解析和代码高亮 |
+| 国际化 | vue-i18n | Vue 生态标准国际化方案 |
+| 包管理器 | pnpm / bun | 快速、节省磁盘空间 |
 
 ## 附录 B：不做的事（边界）
 

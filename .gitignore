@@ -36,3 +36,6 @@ ai/
 # Temporary files
 tmp/
 *.tmp
+
+# Local scratch directory (personal notes, experiments, not shared)
+local/

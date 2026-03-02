@@ -37,25 +37,33 @@ type feishuConfig struct {
 
 // Plugin implements the Feishu channel.
 type Plugin struct {
-	cfg     feishuConfig
-	inbound chan *types.Message
-	started time.Time
-	token   string // app_access_token, refreshed periodically
-	logger  *zap.Logger
+	cfg        feishuConfig
+	inbound    chan *types.Message
+	started    time.Time
+	token      string // app_access_token, refreshed periodically
+	configured bool   // true when app_id and app_secret have been provided
+	logger     *zap.Logger
 }
 
 func (p *Plugin) Name() string        { return "feishu" }
 func (p *Plugin) DisplayName() string { return "飞书" }
 
 // Init parses Feishu credentials.
+// An empty or missing config is accepted — the plugin starts in unconfigured mode
+// and will log a warning. Configure credentials via the Web UI → Settings → Channels.
 func (p *Plugin) Init(cfg json.RawMessage) error {
 	p.logger = zap.L().Named("channel.feishu")
-	if err := json.Unmarshal(cfg, &p.cfg); err != nil {
-		return fmt.Errorf("feishu: parse config: %w", err)
+	if len(cfg) > 0 && string(cfg) != "{}" {
+		if err := json.Unmarshal(cfg, &p.cfg); err != nil {
+			p.logger.Warn("feishu: failed to parse config, running unconfigured", zap.Error(err))
+			return nil
+		}
 	}
 	if p.cfg.AppID == "" || p.cfg.AppSecret == "" {
-		return fmt.Errorf("feishu: app_id and app_secret are required")
+		p.logger.Warn("feishu: app_id / app_secret not set — configure via Web UI → Settings → Channels")
+		return nil
 	}
+	p.configured = true
 	return nil
 }
 
@@ -82,6 +90,9 @@ func (p *Plugin) Receive() <-chan *types.Message {
 
 // Send delivers a message to a Feishu chat via the open API.
 func (p *Plugin) Send(msg *types.Message) error {
+	if !p.configured {
+		return fmt.Errorf("feishu: channel not configured — add credentials via Web UI")
+	}
 	receiveID := msg.SessionID
 	if receiveID == "" {
 		receiveID = msg.UserID
@@ -118,6 +129,13 @@ func (p *Plugin) Send(msg *types.Message) error {
 
 // Health returns the plugin's operational status.
 func (p *Plugin) Health() plugin.HealthStatus {
+	if !p.configured {
+		return plugin.HealthStatus{
+			Running: false,
+			Message: "not configured — add credentials via Web UI → Settings → Channels",
+			Since:   p.started,
+		}
+	}
 	return plugin.HealthStatus{
 		Running: p.token != "",
 		Message: "ok",
