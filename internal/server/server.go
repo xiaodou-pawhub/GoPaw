@@ -141,8 +141,10 @@ func (s *Server) registerRoutes(
 	{
 		cronG.GET("", cronH.List)
 		cronG.POST("", cronH.Create)
+		cronG.PUT("/:id", cronH.Update)
 		cronG.DELETE("/:id", cronH.Delete)
 		cronG.POST("/:id/trigger", cronH.Trigger)
+		cronG.GET("/:id/runs", cronH.ListRuns)
 	}
 
 	// /api/system
@@ -151,8 +153,7 @@ func (s *Server) registerRoutes(
 	{
 		sysG.GET("/health", sysH.Health)
 		sysG.GET("/version", sysH.Version)
-		// TODO: Implement real admin middleware
-		sysG.GET("/logs", sysH.AdminAuth(), handlers.ListLogs)
+		sysG.GET("/logs", sysH.AdminAuth(), sysH.ListLogs)
 	}
 
 	// Health check at root for load balancers.

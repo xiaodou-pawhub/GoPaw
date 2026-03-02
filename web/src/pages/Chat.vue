@@ -217,6 +217,23 @@ function closeCurrentSSE() {
   }
 }
 
+// 重置当前会话状态
+function resetCurrentSessionState() {
+  closeCurrentSSE()
+  currentSessionId.value = ''
+  messages.value = []
+  sessionStats.value = null
+}
+
+// 删除会话后的同步逻辑
+async function reloadSessionsAfterDelete(deletedId: string) {
+  const newList = await loadSessions()
+  // 如果删除的是当前会话，且列表不为空，自动切换到第一个
+  if (currentSessionId.value === '' && newList.length > 0) {
+    selectSession(newList[0].id)
+  }
+}
+
 // 删除会话
 async function handleDeleteSession(id: string, e: MouseEvent) {
   e.stopPropagation()
@@ -227,22 +244,13 @@ async function handleDeleteSession(id: string, e: MouseEvent) {
     negativeText: t('common.cancel'),
     onPositiveClick: async () => {
       try {
-        // 如果要删除的是当前正在对话的会话，先关闭 SSE
         if (currentSessionId.value === id) {
-          closeCurrentSSE()
-          currentSessionId.value = ''
-          messages.value = []
-          sessionStats.value = null
+          resetCurrentSessionState()
         }
         
         await apiDeleteSession(id)
-        const newList = await loadSessions()
-        message.success(t('common.success'))
-        
-        // 如果当前会话被删了，自动切换到第一个
-        if (currentSessionId.value === '' && newList.length > 0) {
-          selectSession(newList[0].id)
-        }
+        await reloadSessionsAfterDelete(id)
+        message.success(`${t('common.success')} (ID: ${id.substring(0, 8)})`)
       } catch (error) {
         message.error(t('common.error'))
       }
@@ -256,6 +264,7 @@ async function loadStats(id: string) {
     sessionStats.value = await getSessionStats(id)
   } catch (error) {
     console.error('Failed to load stats:', error)
+    message.warning('无法加载 Token 统计信息 / Failed to load stats')
   }
 }
 

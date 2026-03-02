@@ -27,6 +27,19 @@ type CronJob struct {
 	UpdatedAt   time.Time
 }
 
+// CronRun is the data model for a cron job execution.
+// 中文：Cron 任务执行记录的数据模型
+// English: Data model for cron job execution
+type CronRun struct {
+	ID           string
+	JobID        string
+	TriggeredAt  time.Time
+	FinishedAt   time.Time
+	Status       string // "running" | "success" | "error"
+	Output       string
+	ErrorMessage string
+}
+
 // JobStore handles persistence for CronJob records.
 type JobStore struct {
 	db *sql.DB
@@ -139,6 +152,67 @@ func (s *JobStore) UpdateLastRun(id string, lastRun, nextRun time.Time) error {
 	return err
 }
 
+// CreateRun inserts a new CronRun record.
+// 中文：创建新的 Cron 执行记录
+// English: Insert a new CronRun record
+func (s *JobStore) CreateRun(run *CronRun) (string, error) {
+	if run.ID == "" {
+		run.ID = uuid.New().String()
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO cron_runs (id, job_id, triggered_at, finished_at, status, output, error_msg)
+		VALUES (?,?,?,?,?,?,?)`,
+		run.ID, run.JobID, timeToUnix(run.TriggeredAt), timeToUnix(run.FinishedAt),
+		run.Status, run.Output, run.ErrorMessage,
+	)
+	if err != nil {
+		return "", fmt.Errorf("job store: create run: %w", err)
+	}
+	return run.ID, nil
+}
+
+// ListRuns returns the most recent N executions for a job.
+// 中文：返回指定任务的最近 N 次执行记录（时间倒序）
+// English: Return the most recent N executions for a job (ordered by triggered_at DESC)
+func (s *JobStore) ListRuns(jobID string, limit int) ([]CronRun, error) {
+	rows, err := s.db.Query(`
+		SELECT id, job_id, triggered_at, finished_at, status, output, error_msg
+		FROM cron_runs WHERE job_id = ?
+		ORDER BY triggered_at DESC LIMIT ?`,
+		jobID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("job store: list runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []CronRun
+	for rows.Next() {
+		r, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, r)
+	}
+	return runs, rows.Err()
+}
+
+// UpdateRun updates the status of a run record.
+// 中文：更新执行记录的状态
+// English: Update the status of a run record
+func (s *JobStore) UpdateRun(id string, finishedAt time.Time, status, output, errMsg string) error {
+	_, err := s.db.Exec(`
+		UPDATE cron_runs
+		SET finished_at=?, status=?, output=?, error_msg=?
+		WHERE id=?`,
+		timeToUnix(finishedAt), status, output, errMsg, id,
+	)
+	if err != nil {
+		return fmt.Errorf("job store: update run: %w", err)
+	}
+	return nil
+}
+
 // scanRow is a common interface for sql.Row and *sql.Rows.
 type scanRow interface {
 	Scan(dest ...interface{}) error
@@ -162,6 +236,26 @@ func scanJob(row scanRow) (CronJob, error) {
 	j.CreatedAt = time.UnixMilli(createdMs)
 	j.UpdatedAt = time.UnixMilli(updatedMs)
 	return j, nil
+}
+
+// scanRun scans a CronRun from a sql.Row or *sql.Rows.
+// 中文：从数据库行扫描 CronRun 记录
+// English: Scan a CronRun record from database row
+func scanRun(row scanRow) (CronRun, error) {
+	var r CronRun
+	var triggeredMs, finishedMs int64
+	err := row.Scan(
+		&r.ID, &r.JobID, &triggeredMs, &finishedMs,
+		&r.Status, &r.Output, &r.ErrorMessage,
+	)
+	if err != nil {
+		return r, err
+	}
+	r.TriggeredAt = time.UnixMilli(triggeredMs)
+	if finishedMs > 0 {
+		r.FinishedAt = time.UnixMilli(finishedMs)
+	}
+	return r, nil
 }
 
 func boolToInt(b bool) int {

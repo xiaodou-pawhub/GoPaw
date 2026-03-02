@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -116,4 +117,21 @@ func (h *CronHandler) Trigger(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// ListRuns handles GET /api/cron/:id/runs — returns execution history.
+func (h *CronHandler) ListRuns(c *gin.Context) {
+	id := c.Param("id")
+	limit := 20
+	if l := c.Query("limit"); l != "" {
+		fmt.Sscanf(l, "%d", &limit)
+	}
+
+	runs, err := h.manager.ListRuns(id, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"runs": runs})
 }

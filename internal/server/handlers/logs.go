@@ -17,9 +17,12 @@ type LogEntry struct {
 
 // ListLogs 处理 GET /api/system/logs
 // 高效读取日志文件末尾 N 行
-func ListLogs(c *gin.Context) {
-	// 默认读取路径，后续可迁入 config
-	logPath := "logs/gopaw.log"
+func (h *SystemHandler) ListLogs(c *gin.Context) {
+	logPath := h.cfg.Log.File
+	if logPath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "系统日志文件路径未配置 / Log file path not configured"})
+		return
+	}
 
 	limit := 100
 	if l, err := strconv.Atoi(c.DefaultQuery("limit", "100")); err == nil && l > 0 {

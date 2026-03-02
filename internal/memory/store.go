@@ -104,6 +104,20 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
     updated_at   INTEGER NOT NULL
 );
 
+-- Cron job execution history table
+CREATE TABLE IF NOT EXISTS cron_runs (
+    id           TEXT PRIMARY KEY,
+    job_id       TEXT NOT NULL,
+    triggered_at INTEGER NOT NULL,
+    finished_at  INTEGER,
+    status       TEXT NOT NULL,
+    output       TEXT,
+    error_msg    TEXT,
+    FOREIGN KEY (job_id) REFERENCES cron_jobs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_cron_runs_job_id ON cron_runs(job_id);
+CREATE INDEX IF NOT EXISTS idx_cron_runs_triggered_at ON cron_runs(triggered_at DESC);
+
 -- LLM providers table (configured via Web UI)
 CREATE TABLE IF NOT EXISTS providers (
     id          TEXT PRIMARY KEY,
