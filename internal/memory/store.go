@@ -316,6 +316,21 @@ func (s *Store) DeleteSession(sessionID string) error {
 	return tx.Commit()
 }
 
+// GetSessionStats calculates message count and token usage for a session.
+func (s *Store) GetSessionStats(sessionID string) (count, total, user, assist int, err error) {
+	err = s.db.QueryRow(`
+		SELECT 
+			COUNT(*), 
+			IFNULL(SUM(token_count), 0),
+			IFNULL(SUM(CASE WHEN role = 'user' THEN token_count ELSE 0 END), 0),
+			IFNULL(SUM(CASE WHEN role = 'assistant' THEN token_count ELSE 0 END), 0)
+		FROM messages WHERE session_id = ?`, sessionID).Scan(&count, &total, &user, &assist)
+	if err == sql.ErrNoRows {
+		return 0, 0, 0, 0, nil
+	}
+	return
+}
+
 // DB returns the raw *sql.DB for use by other storage layers (e.g. scheduler).
 func (s *Store) DB() *sql.DB {
 	return s.db

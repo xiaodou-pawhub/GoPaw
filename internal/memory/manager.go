@@ -53,22 +53,30 @@ func (m *Manager) Add(sessionID, userID, channel, userMsg, assistantMsg string) 
 	}
 
 	now := time.Now().UnixMilli()
+	
+	// 中文：计算 token 数
+	// English: Calculate token count
+	userTokens := CountTokens([]MemoryMessage{{Role: "user", Content: userMsg}})
+	assistTokens := CountTokens([]MemoryMessage{{Role: "assistant", Content: assistantMsg}})
+
 	if err := m.store.AddMessage(StoredMessage{
-		ID:        uuid.New().String(),
-		SessionID: sessionID,
-		Role:      "user",
-		Content:   userMsg,
-		CreatedAt: now,
+		ID:         uuid.New().String(),
+		SessionID:  sessionID,
+		Role:       "user",
+		Content:    userMsg,
+		TokenCount: userTokens,
+		CreatedAt:  now,
 	}); err != nil {
 		return fmt.Errorf("memory: add user message: %w", err)
 	}
 
 	if err := m.store.AddMessage(StoredMessage{
-		ID:        uuid.New().String(),
-		SessionID: sessionID,
-		Role:      "assistant",
-		Content:   assistantMsg,
-		CreatedAt: now + 1, // ensure stable ordering
+		ID:         uuid.New().String(),
+		SessionID:  sessionID,
+		Role:       "assistant",
+		Content:    assistantMsg,
+		TokenCount: assistTokens,
+		CreatedAt:  now + 1, // ensure stable ordering
 	}); err != nil {
 		return fmt.Errorf("memory: add assistant message: %w", err)
 	}
@@ -222,8 +230,13 @@ func (m *Manager) Clear(sessionID string) error {
 	return nil
 }
 
+// GetSessionStats returns the message count and token usage for a session.
+func (m *Manager) GetSessionStats(sessionID string) (count, total, user, assist int, err error) {
+	return m.store.GetSessionStats(sessionID)
+}
+
 // EstimateTokens returns the precise token count for the messages.
-// Deprecated: Use CountTokens from tokenizer.go instead.
 func EstimateTokens(msgs []MemoryMessage) int {
 	return CountTokens(msgs)
 }
+
