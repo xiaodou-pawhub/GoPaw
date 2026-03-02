@@ -105,7 +105,7 @@ func (s *Server) registerRoutes(
 	api.GET("/config", cfgH.Get)
 
 	// /api/settings — runtime settings (LLM providers, channel secrets, agent persona)
-	settingsH := handlers.NewSettingsHandler(settingsStore, agentMDPath, s.logger)
+	settingsH := handlers.NewSettingsHandler(settingsStore, agentMDPath, channelMgr, s.logger)
 	settingsG := api.Group("/settings")
 	{
 		settingsG.GET("/setup-status", settingsH.SetupStatus)
