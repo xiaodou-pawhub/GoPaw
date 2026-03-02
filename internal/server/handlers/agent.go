@@ -133,6 +133,48 @@ func (h *AgentHandler) ListSessions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"sessions": out})
 }
 
+// DeleteSession handles DELETE /api/agent/sessions/:id.
+func (h *AgentHandler) DeleteSession(c *gin.Context) {
+	sessionID := c.Param("id")
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "session id is required"})
+		return
+	}
+	if err := h.mem.Clear(sessionID); err != nil {
+		h.logger.Error("failed to delete session", zap.String("id", sessionID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	h.agent.Sessions().Delete(sessionID)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "deleted_session_id": sessionID})
+}
+
+// GetSessionStats handles GET /api/agent/sessions/:id/stats.
+func (h *AgentHandler) GetSessionStats(c *gin.Context) {
+	sessionID := c.Param("id")
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "session id is required"})
+		return
+	}
+
+	count, total, user, assist, err := h.mem.GetSessionStats(sessionID)
+	if err != nil {
+		h.logger.Error("failed to get session stats", zap.String("id", sessionID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"session_id":    sessionID,
+		"message_count": count,
+		"total_tokens":  total,
+		"user_tokens":   user,
+		"assist_tokens": assist,
+	})
+}
+
+
+
 // GetSessionMessages handles GET /api/agent/sessions/:id/messages.
 // Returns the message history for a given session, oldest-first.
 // Optional query param: limit (default 100, max 500).

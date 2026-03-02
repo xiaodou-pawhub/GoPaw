@@ -96,6 +96,8 @@ func (s *Server) registerRoutes(
 		agentG.GET("/chat/stream", agentH.ChatStream)
 		agentG.GET("/sessions", agentH.ListSessions)
 		agentG.GET("/sessions/:id/messages", agentH.GetSessionMessages)
+		agentG.DELETE("/sessions/:id", agentH.DeleteSession)
+		agentG.GET("/sessions/:id/stats", agentH.GetSessionStats)
 	}
 
 	// /api/config — static startup configuration (read-only)
@@ -149,10 +151,17 @@ func (s *Server) registerRoutes(
 	{
 		sysG.GET("/health", sysH.Health)
 		sysG.GET("/version", sysH.Version)
+		// TODO: Implement real admin middleware
+		sysG.GET("/logs", sysH.AdminAuth(), handlers.ListLogs)
 	}
 
 	// Health check at root for load balancers.
 	s.engine.GET("/health", sysH.Health)
+
+	// Webhook channel routes (no /api prefix, as agreed with external systems).
+	webhookH := handlers.NewWebhookHandler(channelMgr)
+	s.engine.POST("/webhook/:token", webhookH.Receive)
+	s.engine.GET("/webhook/:token/messages", webhookH.Poll)
 
 	// SPA static file serving — must be registered last so API routes take priority.
 	if staticFS != nil {

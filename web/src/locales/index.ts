@@ -22,7 +22,8 @@ const messages = {
       providers: 'LLM 提供商',
       channels: '频道',
       agent: 'Agent 设定',
-      cron: '定时任务'
+      cron: '定时任务',
+      logs: '系统日志'
     },
     chat: {
       title: '聊天',
@@ -31,7 +32,8 @@ const messages = {
       newChat: '新对话',
       history: '历史会话',
       thinking: '思考中...',
-      welcome: '你好！我是 GoPaw，你的 AI 助理。有什么可以帮你的吗？'
+      welcome: '你好！我是 GoPaw，你的 AI 助理。有什么可以帮你的吗？',
+      deleteConfirm: '删除后无法恢复该会话的所有消息，是否继续？'
     },
     settings: {
       title: '设置',
@@ -66,8 +68,7 @@ const messages = {
         webhook: 'Webhook',
         health: '健康状态',
         running: '运行中',
-        stopped: '已停止',
-        test: '测试连接'
+        stopped: '已停止'
       }
     },
     cron: {
@@ -85,6 +86,14 @@ const messages = {
       helper: {
         expr: '例如 "0 9 * * 1-5" 表示工作日 9 点'
       }
+    },
+    logs: {
+      title: '系统日志',
+      refresh: '刷新',
+      autoRefresh: '自动刷新',
+      level: '级别',
+      message: '内容',
+      time: '时间'
     },
     setup: {
       title: '欢迎使用 GoPaw',
@@ -114,7 +123,8 @@ const messages = {
       providers: 'LLM Providers',
       channels: 'Channels',
       agent: 'Agent',
-      cron: 'Cron'
+      cron: 'Cron',
+      logs: 'System Logs'
     },
     chat: {
       title: 'Chat',
@@ -123,7 +133,8 @@ const messages = {
       newChat: 'New Chat',
       history: 'History',
       thinking: 'Thinking...',
-      welcome: 'Hello! I\'m GoPaw, your AI assistant. How can I help you?'
+      welcome: 'Hello! I\'m GoPaw, your AI assistant. How can I help you?',
+      deleteConfirm: 'Delete this session and all its messages? This action cannot be undone.'
     },
     settings: {
       title: 'Settings',
@@ -158,8 +169,7 @@ const messages = {
         webhook: 'Webhook',
         health: 'Health',
         running: 'Running',
-        stopped: 'Stopped',
-        test: 'Test Connection'
+        stopped: 'Stopped'
       }
     },
     cron: {
@@ -177,6 +187,14 @@ const messages = {
       helper: {
         expr: 'e.g., "0 9 * * 1-5" for weekdays at 9 AM'
       }
+    },
+    logs: {
+      title: 'System Logs',
+      refresh: 'Refresh',
+      autoRefresh: 'Auto Refresh',
+      level: 'Level',
+      message: 'Message',
+      time: 'Time'
     },
     setup: {
       title: 'Welcome to GoPaw',

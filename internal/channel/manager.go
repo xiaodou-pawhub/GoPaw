@@ -137,3 +137,9 @@ func (m *Manager) Test(ctx context.Context, name string) (plugin.TestResult, err
 	}
 	return p.Test(ctx), nil
 }
+
+// GetPlugin returns the plugin with the given name.
+// This is a wrapper around the registry's Get method for use by HTTP handlers.
+func (m *Manager) GetPlugin(name string) (plugin.ChannelPlugin, error) {
+	return m.registry.Get(name)
+}

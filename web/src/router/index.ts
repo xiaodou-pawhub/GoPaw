@@ -23,6 +23,11 @@ const router = createRouter({
           component: () => import('@/pages/Cron.vue')
         },
         {
+          path: 'logs',
+          name: 'Logs',
+          component: () => import('@/pages/Logs.vue')
+        },
+        {
           path: 'settings',
           name: 'Settings',
           children: [

@@ -84,6 +84,7 @@ import {
 } from 'naive-ui'
 import {
   PawOutline,
+  ChatbubbleOutline,
   ChatboxEllipsesOutline,
   SettingsOutline,
   TimeOutline,
@@ -93,7 +94,8 @@ import {
   AlertCircleOutline,
   RocketOutline,
   PersonOutline,
-  HardwareChipOutline
+  HardwareChipOutline,
+  DocumentTextOutline
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -117,6 +119,7 @@ const currentRouteName = computed(() => {
   if (route.path.includes('/settings/channels')) return t('nav.channels')
   if (route.path.includes('/settings/agent')) return t('nav.agent')
   if (route.path.includes('/cron')) return t('nav.cron')
+  if (route.path.includes('/logs')) return t('nav.logs')
   return null
 })
 
@@ -138,6 +141,11 @@ const menuOptions = computed(() => [
     label: t('nav.cron'),
     key: '/cron',
     icon: renderIcon(TimeOutline)
+  },
+  {
+    label: t('nav.logs'),
+    key: '/logs',
+    icon: renderIcon(DocumentTextOutline)
   },
   {
     label: t('nav.settings'),

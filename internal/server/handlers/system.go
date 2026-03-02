@@ -38,3 +38,25 @@ func (h *SystemHandler) Version(c *gin.Context) {
 		"arch":       runtime.GOARCH,
 	})
 }
+
+// AdminAuth returns a middleware that checks for a simple admin token.
+func (h *SystemHandler) AdminAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 中文：简单实现的 Token 鉴权，生产环境应从配置读取
+		// English: Simple token auth, production should read from config.
+		const adminToken = "gopaw-admin-secret"
+		
+		token := c.GetHeader("X-Admin-Token")
+		if token == "" {
+			token = c.Query("token")
+		}
+
+		if token != adminToken {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "未授权访问 / Unauthorized"})
+			return
+		}
+		c.Next()
+	}
+}
+
+

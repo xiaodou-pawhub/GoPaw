@@ -67,6 +67,16 @@ export interface ChatMessage {
   time: string
 }
 
+// 中文：会话统计信息
+// English: Session statistics
+export interface SessionStats {
+  session_id: string
+  message_count: number
+  total_tokens: number
+  user_tokens: number
+  assist_tokens: number
+}
+
 // 中文：会话信息
 // English: Session information
 export interface SessionInfo {

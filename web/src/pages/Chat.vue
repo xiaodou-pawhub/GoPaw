@@ -17,10 +17,26 @@
               :key="session.id"
               :class="{ active: currentSessionId === session.id }"
               @click="selectSession(session.id)"
+              class="session-list-item"
             >
               <div class="session-item">
-                <n-icon :component="ChatbubbleOutline" />
-                <span class="session-name">{{ session.id.substring(0, 8) }}...</span>
+                <div class="session-info">
+                  <n-icon :component="ChatbubbleOutline" />
+                  <span class="session-name">{{ session.id.substring(0, 8) }}...</span>
+                </div>
+                <!-- 中文：会话删除按钮 / English: Session delete button -->
+                <n-button
+                  class="delete-session-btn"
+                  quaternary
+                  circle
+                  size="small"
+                  type="error"
+                  @click="(e) => handleDeleteSession(session.id, e)"
+                >
+                  <template #icon>
+                    <n-icon :component="TrashOutline" />
+                  </template>
+                </n-button>
               </div>
             </n-list-item>
           </n-list>
@@ -32,8 +48,27 @@
         <n-card :bordered="false" class="chat-card" content-style="padding: 0; display: flex; flex-direction: column; height: 100%;">
           <template #header>
             <div class="chat-header">
-              <n-text strong size="large">{{ t('chat.title') }}</n-text>
-              <n-text depth="3" small style="margin-left: 12px;">ID: {{ currentSessionId }}</n-text>
+              <div class="header-left">
+                <n-text strong size="large">{{ t('chat.title') }}</n-text>
+                <n-text depth="3" small style="margin-left: 12px;">ID: {{ currentSessionId }}</n-text>
+              </div>
+              
+              <!-- 中文：Token 统计展示 / English: Token stats display -->
+              <div v-if="sessionStats" class="header-right stats-container">
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <div class="stats-badge">
+                      <n-icon :component="BarChartOutline" />
+                      <span class="stats-text">{{ formatTokens(sessionStats.total_tokens) }} tokens</span>
+                    </div>
+                  </template>
+                  <div class="stats-detail">
+                    <div>消息: {{ sessionStats.message_count }}</div>
+                    <div>用户: {{ formatTokens(sessionStats.user_tokens) }}</div>
+                    <div>助手: {{ formatTokens(sessionStats.assist_tokens) }}</div>
+                  </div>
+                </n-tooltip>
+              </div>
             </div>
           </template>
 
@@ -108,33 +143,39 @@
 <script setup lang="ts">
 // 中文：导入必要的依赖
 // English: Import necessary dependencies
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, onMounted, nextTick, onUnmounted } from 'vue'
 import {
   NCard, NButton, NIcon, NInput, NList, NListItem, NScrollbar,
-  NAvatar, NText, NEmpty, NSpin, useMessage
+  NAvatar, NText, NEmpty, NSpin, NTooltip, useMessage, useDialog
 } from 'naive-ui'
 import {
   AddOutline,
   ChatbubbleOutline,
   PersonOutline,
   PawOutline,
-  SendOutline
+  SendOutline,
+  TrashOutline,
+  BarChartOutline
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { getSessions, getSessionMessages, getChatStreamUrl } from '@/api/agent'
-import type { ChatMessage, SessionInfo } from '@/types'
+import { getSessions, getSessionMessages, getChatStreamUrl, deleteSession as apiDeleteSession, getSessionStats } from '@/api/agent'
+import type { ChatMessage, SessionInfo, SessionStats } from '@/types'
 import markdownIt from 'markdown-it'
 import highlightjs from 'highlight.js'
 import 'highlight.js/styles/github.css'
 
 const { t } = useI18n()
 const message = useMessage()
+const dialog = useDialog()
 const appStore = useAppStore()
 
-// 中文：配置 Markdown 渲染引擎
-// English: Configure Markdown rendering engine
+// 中文：配置 Markdown 渲染引擎，显式禁用 HTML 以防范注入攻击
+// English: Configure Markdown rendering engine, explicitly disable HTML to prevent injection
 const md = markdownIt({
+  html: false, // 禁用 HTML 标签 / Disable HTML tags
+  linkify: true,
+  typographer: true,
   highlight: function (str, lang) {
     if (lang && highlightjs.getLanguage(lang)) {
       try {
@@ -150,46 +191,93 @@ const md = markdownIt({
 const sessions = ref<SessionInfo[]>([])
 const currentSessionId = ref('')
 const messages = ref<ChatMessage[]>([])
+const sessionStats = ref<SessionStats | null>(null)
 const inputMessage = ref('')
 const isThinking = ref(false)
 const isStreaming = ref(false)
 const messagesRef = ref<HTMLElement | null>(null)
-
-// 中文：维护 EventSource 引用，用于生命周期管理
-// English: Maintain EventSource reference for lifecycle management
 let currentEventSource: EventSource | null = null
-
-// 中文：关闭当前 EventSource
-// English: Close current EventSource
-function closeEventSource() {
-  if (currentEventSource) {
-    currentEventSource.close()
-    currentEventSource = null
-  }
-  isStreaming.value = false
-  isThinking.value = false
-}
 
 // 中文：加载所有会话
 // English: Load all sessions
 async function loadSessions() {
   try {
     sessions.value = await getSessions()
+    if (sessions.value.length > 0 && !currentSessionId.value) {
+      selectSession(sessions.value[0].id)
+    }
   } catch (error) {
     console.error('Failed to load sessions:', error)
   }
 }
 
+// 中文：安全关闭当前 SSE 连接
+// English: Safely close current SSE connection
+function closeCurrentSSE() {
+  if (currentEventSource) {
+    currentEventSource.close()
+    currentEventSource = null
+    isStreaming.value = false
+    isThinking.value = false
+  }
+}
+
+// 中文：删除会话
+// English: Delete session
+async function handleDeleteSession(id: string, e: MouseEvent) {
+  e.stopPropagation()
+  dialog.warning({
+    title: t('common.confirm'),
+    content: t('chat.deleteConfirm'),
+    positiveText: t('common.delete'),
+    negativeText: t('common.cancel'),
+    onPositiveClick: async () => {
+      try {
+        // 中文：如果要删除的是当前正在对话的会话，先关闭 SSE
+        // English: If deleting the currently active session, close SSE first
+        if (currentSessionId.value === id) {
+          closeCurrentSSE()
+          currentSessionId.value = ''
+          messages.value = []
+          sessionStats.value = null
+        }
+        
+        await apiDeleteSession(id)
+        await loadSessions()
+        message.success(t('common.success'))
+      } catch (error) {
+        message.error(t('common.error'))
+      }
+    }
+  })
+}
+
+// 中文：加载会话统计
+// English: Load session statistics
+async function loadStats(id: string) {
+  try {
+    sessionStats.value = await getSessionStats(id)
+  } catch (error) {
+    console.error('Failed to load stats:', error)
+  }
+}
+
+// 中文：格式化 Token 数量
+// English: Format token counts
+function formatTokens(n: number): string {
+  if (!n) return '0'
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return n.toString()
+}
+
 // 中文：创建新会话
 // English: Create a new session
 function createNewSession() {
-  // 中文：先关闭之前的 EventSource
-  // English: Close previous EventSource first
-  closeEventSource()
-  
+  closeCurrentSSE()
   const newId = crypto.randomUUID()
   currentSessionId.value = newId
   messages.value = []
+  sessionStats.value = null
   // 中文：添加欢迎语
   // English: Add welcome message
   messages.value.push({
@@ -203,11 +291,11 @@ function createNewSession() {
 // 中文：选择会话并加载历史记录
 // English: Select a session and load history
 async function selectSession(id: string) {
-  // 中文：先关闭之前的 EventSource
-  // English: Close previous EventSource first
-  closeEventSource()
+  if (currentSessionId.value === id && messages.value.length > 0) return
   
+  closeCurrentSSE()
   currentSessionId.value = id
+  loadStats(id)
   try {
     const history = await getSessionMessages(id)
     messages.value = history
@@ -281,13 +369,10 @@ async function handleSend() {
     time: new Date().toLocaleTimeString()
   }
   
-  // 中文：使用 SSE (Server-Sent Events) 获取流式响应
-  // English: Use SSE (Server-Sent Events) for streaming response
   const url = getChatStreamUrl(currentSessionId.value, content)
-  const eventSource = new EventSource(url)
-  currentEventSource = eventSource
+  currentEventSource = new EventSource(url)
 
-  eventSource.onmessage = (event) => {
+  currentEventSource.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data)
       
@@ -302,52 +387,36 @@ async function handleSend() {
       }
 
       if (data.done) {
-        eventSource.close()
-        currentEventSource = null
-        isStreaming.value = false
+        closeCurrentSSE()
         loadSessions() // 中文：刷新会话列表 / Refresh session list
+        loadStats(currentSessionId.value) // 中文：刷新统计 / Refresh stats
       }
 
       if (data.error) {
         message.error(data.error)
-        eventSource.close()
-        currentEventSource = null
-        isStreaming.value = false
-        isThinking.value = false
+        closeCurrentSSE()
       }
     } catch (e) {
       console.error('SSE parse error:', e)
     }
   }
 
-  eventSource.onerror = (err) => {
+  currentEventSource.onerror = (err) => {
     console.error('SSE error:', err)
-    eventSource.close()
-    currentEventSource = null
-    isStreaming.value = false
-    isThinking.value = false
+    closeCurrentSSE()
     message.error(t('common.error'))
   }
 }
 
 onMounted(async () => {
-  // 中文：先加载会话列表，等待完成
-  // English: Load sessions first, wait for completion
   await loadSessions()
-  
-  // 中文：如果有历史会话，选择第一个；否则创建新会话
-  // English: If there are sessions, select the first one; otherwise create new
-  if (sessions.value.length > 0) {
-    selectSession(sessions.value[0].id)
-  } else {
+  if (!currentSessionId.value) {
     createNewSession()
   }
 })
 
 onUnmounted(() => {
-  // 中文：组件卸载时关闭 EventSource
-  // English: Close EventSource when component unmounts
-  closeEventSource()
+  closeCurrentSSE()
 })
 </script>
 
@@ -380,13 +449,31 @@ onUnmounted(() => {
   flex: 1;
 }
 
+.session-list-item {
+  position: relative;
+  
+  .delete-session-btn {
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  
+  &:hover .delete-session-btn {
+    opacity: 1;
+  }
+}
+
 .session-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.session-info {
+  display: flex;
+  align-items: center;
   gap: 10px;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .active {
@@ -408,6 +495,24 @@ onUnmounted(() => {
 .chat-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.stats-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: #f3f4f6;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #666;
+  cursor: default;
+}
+
+.stats-detail {
+  line-height: 1.6;
 }
 
 .messages-area {
