@@ -108,7 +108,7 @@
 <script setup lang="ts">
 // 中文：导入必要的依赖
 // English: Import necessary dependencies
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import {
   NCard, NButton, NIcon, NInput, NList, NListItem, NScrollbar,
   NAvatar, NText, NEmpty, NSpin, useMessage
@@ -155,14 +155,26 @@ const isThinking = ref(false)
 const isStreaming = ref(false)
 const messagesRef = ref<HTMLElement | null>(null)
 
+// 中文：维护 EventSource 引用，用于生命周期管理
+// English: Maintain EventSource reference for lifecycle management
+let currentEventSource: EventSource | null = null
+
+// 中文：关闭当前 EventSource
+// English: Close current EventSource
+function closeEventSource() {
+  if (currentEventSource) {
+    currentEventSource.close()
+    currentEventSource = null
+  }
+  isStreaming.value = false
+  isThinking.value = false
+}
+
 // 中文：加载所有会话
 // English: Load all sessions
 async function loadSessions() {
   try {
     sessions.value = await getSessions()
-    if (sessions.value.length > 0 && !currentSessionId.value) {
-      selectSession(sessions.value[0].id)
-    }
   } catch (error) {
     console.error('Failed to load sessions:', error)
   }
@@ -171,6 +183,10 @@ async function loadSessions() {
 // 中文：创建新会话
 // English: Create a new session
 function createNewSession() {
+  // 中文：先关闭之前的 EventSource
+  // English: Close previous EventSource first
+  closeEventSource()
+  
   const newId = crypto.randomUUID()
   currentSessionId.value = newId
   messages.value = []
@@ -187,6 +203,10 @@ function createNewSession() {
 // 中文：选择会话并加载历史记录
 // English: Select a session and load history
 async function selectSession(id: string) {
+  // 中文：先关闭之前的 EventSource
+  // English: Close previous EventSource first
+  closeEventSource()
+  
   currentSessionId.value = id
   try {
     const history = await getSessionMessages(id)
@@ -265,6 +285,7 @@ async function handleSend() {
   // English: Use SSE (Server-Sent Events) for streaming response
   const url = getChatStreamUrl(currentSessionId.value, content)
   const eventSource = new EventSource(url)
+  currentEventSource = eventSource
 
   eventSource.onmessage = (event) => {
     try {
@@ -282,6 +303,7 @@ async function handleSend() {
 
       if (data.done) {
         eventSource.close()
+        currentEventSource = null
         isStreaming.value = false
         loadSessions() // 中文：刷新会话列表 / Refresh session list
       }
@@ -289,6 +311,7 @@ async function handleSend() {
       if (data.error) {
         message.error(data.error)
         eventSource.close()
+        currentEventSource = null
         isStreaming.value = false
         isThinking.value = false
       }
@@ -300,17 +323,31 @@ async function handleSend() {
   eventSource.onerror = (err) => {
     console.error('SSE error:', err)
     eventSource.close()
+    currentEventSource = null
     isStreaming.value = false
     isThinking.value = false
     message.error(t('common.error'))
   }
 }
 
-onMounted(() => {
-  loadSessions()
-  if (!currentSessionId.value) {
+onMounted(async () => {
+  // 中文：先加载会话列表，等待完成
+  // English: Load sessions first, wait for completion
+  await loadSessions()
+  
+  // 中文：如果有历史会话，选择第一个；否则创建新会话
+  // English: If there are sessions, select the first one; otherwise create new
+  if (sessions.value.length > 0) {
+    selectSession(sessions.value[0].id)
+  } else {
     createNewSession()
   }
+})
+
+onUnmounted(() => {
+  // 中文：组件卸载时关闭 EventSource
+  // English: Close EventSource when component unmounts
+  closeEventSource()
 })
 </script>
 
