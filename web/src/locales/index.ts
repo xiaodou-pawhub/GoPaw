@@ -23,7 +23,8 @@ const messages = {
       channels: '频道',
       agent: 'Agent 设定',
       cron: '定时任务',
-      logs: '系统日志'
+      logs: '系统日志',
+      skills: '技能管理'
     },
     chat: {
       title: '聊天',
@@ -37,8 +38,13 @@ const messages = {
     },
     settings: {
       title: '设置',
+      description: '管理系统核心配置与接入能力',
+      syncStatus: '已同步至云端',
+      modifiedStatus: '未保存的修改',
+      markdownTip: '支持 Markdown 语法，设定将作为 System Prompt 注入对话上下文',
       providers: {
         title: 'LLM 提供商',
+        description: '配置并切换不同的大模型服务商，支持 OpenAI 格式的 API 接入',
         add: '添加提供商',
         edit: '编辑提供商',
         name: '名称',
@@ -47,6 +53,7 @@ const messages = {
         model: '模型',
         active: '活跃',
         setActive: '设为活跃',
+        deleteConfirm: '确认删除此提供商吗？',
         noProviders: '暂无 LLM 提供商',
         addFirst: '请添加第一个 LLM 提供商以开始使用',
         placeholder: {
@@ -58,17 +65,20 @@ const messages = {
       },
       agent: {
         title: 'Agent 设定',
-        description: '编辑 Agent 的角色设定和系统提示',
-        placeholder: '输入 Agent 设定...'
+        description: '定制 Agent 的性格、知识背景与行为逻辑',
+        placeholder: '在此输入 Agent 的系统提示词...'
       },
       channels: {
         title: '频道配置',
-        feishu: '飞书',
-        dingtalk: '钉钉',
+        description: '配置第三方平台的接入凭证，实现在不同终端的自动化推送与交互',
+        feishu: '飞书 (Feishu)',
+        dingtalk: '钉钉 (DingTalk)',
         webhook: 'Webhook',
-        health: '健康状态',
         running: '运行中',
-        stopped: '已停止'
+        stopped: '未启用',
+        configured: '已激活',
+        notConfigured: '未配置',
+        endpoint: '接收地址：'
       }
     },
     cron: {
@@ -134,7 +144,8 @@ const messages = {
       channels: 'Channels',
       agent: 'Agent',
       cron: 'Cron',
-      logs: 'System Logs'
+      logs: 'System Logs',
+      skills: 'Skills'
     },
     chat: {
       title: 'Chat',
@@ -148,8 +159,13 @@ const messages = {
     },
     settings: {
       title: 'Settings',
+      description: 'Manage core system configurations and integrations',
+      syncStatus: 'Synced to Cloud',
+      modifiedStatus: 'Unsaved Changes',
+      markdownTip: 'Markdown supported. Settings will be injected as System Prompt',
       providers: {
         title: 'LLM Providers',
+        description: 'Configure and switch LLM providers, supports OpenAI format',
         add: 'Add Provider',
         edit: 'Edit Provider',
         name: 'Name',
@@ -158,8 +174,9 @@ const messages = {
         model: 'Model',
         active: 'Active',
         setActive: 'Set Active',
+        deleteConfirm: 'Are you sure to delete this provider?',
         noProviders: 'No LLM providers',
-        addFirst: 'Please add your first LLM provider to get started',
+        addFirst: 'Add your first LLM provider to get started',
         placeholder: {
           name: 'e.g., OpenAI',
           baseURL: 'https://api.openai.com/v1',
@@ -169,17 +186,20 @@ const messages = {
       },
       agent: {
         title: 'Agent Settings',
-        description: 'Edit Agent role and system prompt',
-        placeholder: 'Enter agent settings...'
+        description: 'Customize Agent personality, knowledge and behavior',
+        placeholder: 'Enter System Prompt here...'
       },
       channels: {
-        title: 'Channel Settings',
+        title: 'Channels',
+        description: 'Configure 3rd-party platform credentials for automation',
         feishu: 'Feishu',
         dingtalk: 'DingTalk',
         webhook: 'Webhook',
-        health: 'Health',
         running: 'Running',
-        stopped: 'Stopped'
+        stopped: 'Stopped',
+        configured: 'Active',
+        notConfigured: 'Not Configured',
+        endpoint: 'Endpoint: '
       }
     },
     cron: {
@@ -208,7 +228,7 @@ const messages = {
     },
     logs: {
       title: 'System Logs',
-      description: 'Real-time system monitoring and error logs',
+      description: 'Real-time monitoring of system status and errors',
       refresh: 'Refresh',
       autoRefresh: 'Auto Refresh',
       level: 'Level',

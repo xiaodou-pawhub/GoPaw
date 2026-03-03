@@ -80,6 +80,7 @@ import {
   NMenu, NIcon, NBreadcrumb, NBreadcrumbItem, NButton,
   NTooltip, NTag, NDivider
 } from 'naive-ui'
+import type { MenuOption } from 'naive-ui'
 import {
   PawOutline,
   ChatboxEllipsesOutline,
@@ -89,11 +90,7 @@ import {
   SunnyOutline,
   CheckmarkCircleOutline,
   AlertCircleOutline,
-  RocketOutline,
-  PersonOutline,
-  HardwareChipOutline,
-  DocumentTextOutline,
-  BulbOutline
+  DocumentTextOutline
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -106,15 +103,15 @@ const appStore = useAppStore()
 const collapsed = ref(false)
 
 // 当前激活的菜单项
-const activeKey = computed(() => route.path)
+const activeKey = computed(() => {
+  if (route.path.startsWith('/settings')) return '/settings'
+  return route.path
+})
 
 // 当前路由名称用于面包屑
 const currentRouteName = computed(() => {
   if (route.path === '/chat') return null
-  if (route.path.includes('/settings/providers')) return t('nav.providers')
-  if (route.path.includes('/settings/channels')) return t('nav.channels')
-  if (route.path.includes('/settings/agent')) return t('nav.agent')
-  if (route.path.includes('/settings/skills')) return t('nav.skills')
+  if (route.path.includes('/settings')) return t('nav.settings')
   if (route.path.includes('/cron')) return t('nav.cron')
   if (route.path.includes('/logs')) return t('nav.logs')
   return null
@@ -126,7 +123,7 @@ function renderIcon(icon: any) {
 }
 
 // 菜单选项
-const menuOptions = computed(() => [
+const menuOptions = computed<MenuOption[]>(() => [
   {
     label: t('nav.chat'),
     key: '/chat',
@@ -145,29 +142,7 @@ const menuOptions = computed(() => [
   {
     label: t('nav.settings'),
     key: '/settings',
-    icon: renderIcon(SettingsOutline),
-    children: [
-      {
-        label: t('settings.providers.title'),
-        key: '/settings/providers',
-        icon: renderIcon(HardwareChipOutline)
-      },
-      {
-        label: t('settings.agent.title'),
-        key: '/settings/agent',
-        icon: renderIcon(PersonOutline)
-      },
-      {
-        label: t('settings.channels.title'),
-        key: '/settings/channels',
-        icon: renderIcon(RocketOutline)
-      },
-      {
-        label: t('settings.skills.title'),
-        key: '/settings/skills',
-        icon: renderIcon(BulbOutline)
-      }
-    ]
+    icon: renderIcon(SettingsOutline)
   }
 ])
 
@@ -184,7 +159,7 @@ function handleMenuSelect(key: string) {
 }
 
 .sidebar {
-  background-color: #1a1a2e; // 深色侧边栏
+  background-color: #1a1a2e;
   height: 100vh;
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
   
@@ -217,7 +192,6 @@ function handleMenuSelect(key: string) {
 .side-menu {
   margin-top: 12px;
   
-  // 侧边栏菜单深色适配
   :deep(.n-menu-item-content-header) {
     color: rgba(255, 255, 255, 0.8) !important;
   }

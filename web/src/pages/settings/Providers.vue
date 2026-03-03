@@ -1,118 +1,108 @@
 <template>
-  <div class="providers-page">
-    <n-space vertical :size="24">
-      <div class="page-header">
-        <n-h2>{{ t('settings.providers.title') }}</n-h2>
-        <n-text depth="3">配置对话所使用的语言模型提供商 / Configure language model providers for chat</n-text>
+  <div class="providers-view">
+    <div class="view-header">
+      <div class="header-main">
+        <n-h2 class="title">{{ t('settings.providers.title') }}</n-h2>
+        <n-text depth="3" class="description">{{ t('settings.providers.description') }}</n-text>
       </div>
+      <n-button type="primary" size="large" round @click="openModal('create')">
+        <template #icon><n-icon :component="AddOutline" /></template>
+        {{ t('settings.providers.add') }}
+      </n-button>
+    </div>
 
-      <n-card bordered class="list-card">
-        <n-space vertical :size="16">
-          <n-alert v-if="providers.length === 0" type="info">
-            {{ t('settings.providers.addFirst') }}
-          </n-alert>
+    <div v-if="providers.length === 0" class="empty-state">
+      <n-empty :description="t('settings.providers.noProviders')">
+        <template #extra>
+          <n-button quaternary @click="openModal('create')">{{ t('settings.providers.addFirst') }}</n-button>
+        </template>
+      </n-empty>
+    </div>
+
+    <div v-else class="provider-grid">
+      <div
+        v-for="provider in providers"
+        :key="provider.id"
+        class="provider-card"
+        :class="{ active: provider.isActive }"
+      >
+        <div class="card-glow"></div>
+        <div class="card-content">
+          <div class="card-header">
+            <div class="provider-info">
+              <div class="provider-name">{{ provider.name }}</div>
+              <div class="provider-model">{{ provider.model }}</div>
+            </div>
+            <n-tag v-if="provider.isActive" type="success" size="small" round ghost>
+              {{ t('settings.providers.active') }}
+            </n-tag>
+          </div>
           
-          <n-list v-else hoverable clickable>
-            <n-list-item v-for="provider in providers" :key="provider.id" class="provider-item">
-              <template #prefix>
-                <div class="status-indicator">
-                  <n-tag :type="provider.isActive ? 'success' : 'default'" round size="small">
-                    {{ provider.isActive ? t('settings.providers.active') : 'Inactive' }}
-                  </n-tag>
-                </div>
-              </template>
-              
-              <n-space vertical :size="4">
-                <div class="provider-name">{{ provider.name }}</div>
-                <div class="provider-info">
-                  <n-text depth="3">{{ provider.baseURL }}</n-text>
-                  <n-divider vertical />
-                  <n-tag size="small" quaternary>{{ provider.model }}</n-tag>
-                </div>
-              </n-space>
-              
-              <template #suffix>
-                <n-space>
-                  <n-button
-                    v-if="!provider.isActive"
-                    size="small"
-                    secondary
-                    @click="setActive(provider.id)"
-                  >
-                    {{ t('settings.providers.setActive') }}
+          <div class="card-body">
+            <div class="url-badge">
+              <n-icon :component="LinkOutline" />
+              <span class="url-text">{{ provider.baseURL }}</span>
+            </div>
+          </div>
+
+          <div class="card-footer">
+            <n-space>
+              <n-button quaternary circle size="small" @click="openModal('edit', provider)">
+                <template #icon><n-icon :component="CreateOutline" /></template>
+              </n-button>
+              <n-popconfirm @positive-click="handleDelete(provider.id)">
+                <template #trigger>
+                  <n-button quaternary circle size="small" type="error">
+                    <template #icon><n-icon :component="TrashOutline" /></template>
                   </n-button>
-                  <n-button size="small" quaternary @click="editProvider(provider)">
-                    {{ t('common.edit') }}
-                  </n-button>
-                  <n-button size="small" quaternary type="error" @click="handleDeleteProvider(provider.id)">
-                    {{ t('common.delete') }}
-                  </n-button>
-                </n-space>
-              </template>
-            </n-list-item>
-          </n-list>
-          
-          <div class="card-actions">
-            <n-button type="primary" @click="showAddModal">
-              <template #icon>
-                <n-icon :component="AddOutline" />
-              </template>
-              {{ t('settings.providers.add') }}
+                </template>
+                {{ t('settings.providers.deleteConfirm') }}
+              </n-popconfirm>
+            </n-space>
+            
+            <n-button
+              v-if="!provider.isActive"
+              secondary
+              size="small"
+              round
+              @click="handleSetActive(provider.id)"
+            >
+              {{ t('settings.providers.setActive') }}
             </n-button>
           </div>
-        </n-space>
-      </n-card>
-    </n-space>
-    
-    <!-- 中文：添加/编辑提供商对话框 / English: Add/Edit provider modal -->
+        </div>
+      </div>
+    </div>
+
     <n-modal
       v-model:show="showModal"
       preset="card"
-      style="width: 500px"
-      :title="isEdit ? t('settings.providers.edit') : t('settings.providers.add')"
-      class="provider-modal"
+      :title="modalType === 'create' ? t('settings.providers.add') : t('settings.providers.edit')"
+      style="width: 500px; border-radius: 16px;"
     >
-      <n-form
-        ref="formRef"
-        :model="formData"
-        :rules="formRules"
-        label-placement="top"
-      >
-        <n-form-item :label="t('settings.providers.name')" path="name">
-          <n-input
-            v-model:value="formData.name"
-            :placeholder="t('settings.providers.placeholder.name')"
-          />
+      <n-form :model="formModel" label-placement="top">
+        <n-form-item :label="t('settings.providers.name')">
+          <n-input v-model:value="formModel.name" :placeholder="t('settings.providers.placeholder.name')" />
         </n-form-item>
-        
-        <n-form-item :label="t('settings.providers.baseURL')" path="baseURL">
-          <n-input
-            v-model:value="formData.baseURL"
-            :placeholder="t('settings.providers.placeholder.baseURL')"
-          />
+        <n-form-item :label="t('settings.providers.baseURL')">
+          <n-input v-model:value="formModel.base_url" :placeholder="t('settings.providers.placeholder.baseURL')" />
         </n-form-item>
-        
-        <n-form-item :label="t('settings.providers.apiKey')" path="apiKey">
+        <n-form-item :label="t('settings.providers.apiKey')">
           <n-input
-            v-model:value="formData.apiKey"
+            v-model:value="formModel.api_key"
             type="password"
-            show-password-on="click"
+            show-password-on="mousedown"
             :placeholder="t('settings.providers.placeholder.apiKey')"
           />
         </n-form-item>
-        
-        <n-form-item :label="t('settings.providers.model')" path="model">
-          <n-input
-            v-model:value="formData.model"
-            :placeholder="t('settings.providers.placeholder.model')"
-          />
+        <n-form-item :label="t('settings.providers.model')">
+          <n-input v-model:value="formModel.model" :placeholder="t('settings.providers.placeholder.model')" />
         </n-form-item>
       </n-form>
-      
       <template #footer>
         <n-space justify="end">
           <n-button @click="showModal = false">{{ t('common.cancel') }}</n-button>
-          <n-button type="primary" :loading="saving" @click="handleSubmit">
+          <n-button type="primary" :loading="submitting" @click="handleSubmit" round style="padding: 0 24px;">
             {{ t('common.save') }}
           </n-button>
         </n-space>
@@ -122,171 +112,83 @@
 </template>
 
 <script setup lang="ts">
-// 中文：导入必要的依赖
-// English: Import necessary dependencies
-import { ref, reactive, onMounted } from 'vue'
-import {
-  NCard, NList, NListItem, NButton, NSpace, NTag, NText,
-  NModal, NForm, NFormItem, NInput, NAlert, NDivider, NH2,
-  NIcon, useMessage
-} from 'naive-ui'
-import { AddOutline } from '@vicons/ionicons5'
+import { ref, onMounted, reactive } from 'vue'
+import { NH2, NText, NButton, NIcon, NEmpty, NTag, NSpace, NPopconfirm, NModal, NForm, NFormItem, NInput, useMessage } from 'naive-ui'
+import { AddOutline, LinkOutline, CreateOutline, TrashOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
-import type { FormRules, FormInst } from 'naive-ui'
-import type { Provider } from '@/types'
-import {
-  getProviders,
-  saveProvider,
-  setActiveProvider,
-  deleteProvider as apiDeleteProvider
-} from '@/api/settings'
-import { useAppStore } from '@/stores/app'
+import { getProviders, saveProvider, deleteProvider, setActiveProvider } from '@/api/settings'
+import type { BackendProvider } from '@/types'
 
 const { t } = useI18n()
 const message = useMessage()
-const appStore = useAppStore()
 
-const providers = ref<Provider[]>([])
+const providers = ref<BackendProvider[]>([])
 const showModal = ref(false)
-const isEdit = ref(false)
-const saving = ref(false)
-const formRef = ref<FormInst | null>(null)
+const modalType = ref<'create' | 'edit'>('create')
+const submitting = ref(false)
 
-const formData = reactive<Partial<Provider>>({
-  name: '',
-  baseURL: '',
-  apiKey: '',
-  model: '',
-  isActive: false
-})
+const formModel = reactive({ id: '', name: '', base_url: '', api_key: '', model: '' })
 
-const formRules: FormRules = {
-  name: { required: true, message: t('settings.providers.placeholder.name'), trigger: 'blur' },
-  baseURL: { required: true, message: t('settings.providers.placeholder.baseURL'), trigger: 'blur' },
-  apiKey: { required: true, message: t('settings.providers.placeholder.apiKey'), trigger: 'blur' },
-  model: { required: true, message: t('settings.providers.placeholder.model'), trigger: 'blur' }
-}
-
-// 中文：加载提供商列表
-// English: Load provider list
-async function loadProviders() {
+async function loadData() {
   try {
     providers.value = await getProviders()
-    appStore.setProviders(providers.value)
   } catch (error) {
-    message.error(t('common.error'))
+    console.error(error)
   }
 }
 
-// 中文：显示添加对话框
-// English: Show add modal
-function showAddModal() {
-  isEdit.value = false
-  Object.assign(formData, {
-    id: '',
-    name: '',
-    baseURL: '',
-    apiKey: '',
-    model: '',
-    isActive: false
-  })
+function openModal(type: 'create' | 'edit', data?: BackendProvider) {
+  modalType.value = type
+  if (type === 'edit' && data) Object.assign(formModel, data)
+  else Object.assign(formModel, { id: '', name: '', base_url: '', api_key: '', model: '' })
   showModal.value = true
 }
 
-// 中文：编辑提供商
-// English: Edit provider
-function editProvider(provider: Provider) {
-  isEdit.value = true
-  Object.assign(formData, {
-    ...provider,
-    apiKey: '' // 中文：编辑时不回填密码 / Do not backfill password when editing
-  })
-  showModal.value = true
-}
-
-// 中文：设置活跃提供商
-// English: Set active provider
-async function setActive(id: string) {
-  try {
-    await setActiveProvider(id)
-    message.success(t('common.success'))
-    loadProviders()
-  } catch (error) {
-    message.error(t('common.error'))
-  }
-}
-
-// 中文：删除提供商
-// English: Delete provider
-async function handleDeleteProvider(id: string) {
-  try {
-    await apiDeleteProvider(id)
-    message.success(t('common.success'))
-    loadProviders()
-  } catch (error) {
-    message.error(t('common.error'))
-  }
-}
-
-// 中文：提交表单
-// English: Submit form
 async function handleSubmit() {
+  submitting.value = true
   try {
-    await formRef.value?.validate()
-    saving.value = true
-    await saveProvider(formData)
+    await saveProvider(formModel)
     message.success(t('common.success'))
     showModal.value = false
-    loadProviders()
+    loadData()
   } catch (error) {
     message.error(t('common.error'))
   } finally {
-    saving.value = false
+    submitting.value = false
   }
 }
 
-onMounted(() => {
-  loadProviders()
-})
+async function handleDelete(id: string) {
+  try {
+    await deleteProvider(id)
+    message.success(t('common.success'))
+    loadData()
+  } catch (error) {
+    message.error(t('common.error'))
+  }
+}
+
+async function handleSetActive(id: string) {
+  try {
+    await setActiveProvider(id)
+    message.success(t('common.success'))
+    loadData()
+  } catch (error) {
+    message.error(t('common.error'))
+  }
+}
+
+onMounted(loadData)
 </script>
 
 <style scoped lang="scss">
-.providers-page {
-  padding: 12px;
-}
-
-.page-header {
-  margin-bottom: 8px;
-}
-
-.list-card {
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
-}
-
-.provider-item {
-  padding: 16px 0;
-}
-
-.provider-name {
-  font-weight: 700;
-  font-size: 17px;
-}
-
-.provider-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.card-actions {
-  margin-top: 16px;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.provider-modal {
-  border-radius: 12px;
-}
+.providers-view { display: flex; flex-direction: column; gap: 40px; }
+.view-header { display: flex; justify-content: space-between; align-items: flex-start; .title { margin: 0 0 8px; font-weight: 800; font-size: 32px; letter-spacing: -1px; } .description { font-size: 15px; } }
+.provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 24px; }
+.provider-card { position: relative; background: #fff; border-radius: 20px; padding: 24px; border: 1px solid rgba(0, 0, 0, 0.06); transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1); overflow: hidden; &:hover { transform: translateY(-4px); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08); border-color: rgba(24, 160, 88, 0.2); } &.active { background: #fdfdfd; border-color: rgba(24, 160, 88, 0.4); box-shadow: 0 8px 24px rgba(24, 160, 88, 0.06); .card-glow { opacity: 1; } } }
+.card-glow { position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(24, 160, 88, 0.03) 0%, transparent 70%); pointer-events: none; opacity: 0; transition: opacity 0.4s; }
+.card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; .provider-name { font-size: 20px; font-weight: 700; color: #1a1a1a; } .provider-model { font-size: 13px; color: #888; margin-top: 2px; } }
+.card-body { margin-bottom: 24px; .url-badge { display: inline-flex; align-items: center; gap: 6px; background: #f5f5f5; padding: 6px 12px; border-radius: 8px; font-family: monospace; font-size: 12px; color: #666; max-width: 100%; .url-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } } }
+.card-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(0, 0, 0, 0.04); padding-top: 20px; }
+.empty-state { padding: 80px 0; }
 </style>

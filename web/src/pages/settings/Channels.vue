@@ -1,131 +1,125 @@
 <template>
-  <div class="channels-page">
-    <n-space vertical :size="24">
-      <div class="page-header">
-        <n-h2>{{ t('settings.channels.title') }}</n-h2>
-        <n-text depth="3">配置各个接入频道的 API 密钥与回调参数</n-text>
+  <div class="channels-view">
+    <div class="view-header">
+      <div class="header-main">
+        <n-h2 class="title">{{ t('settings.channels.title') }}</n-h2>
+        <n-text depth="3" class="description">{{ t('settings.channels.description') }}</n-text>
+      </div>
+    </div>
+
+    <div class="channel-list">
+      <!-- 飞书频道 -->
+      <div class="channel-item">
+        <div class="channel-brand">
+          <div class="brand-icon feishu"><n-icon :component="BusinessOutline" /></div>
+          <div class="brand-info">
+            <div class="brand-name">{{ t('settings.channels.feishu') }}</div>
+            <div class="brand-status">
+              <n-badge :type="getChannelHealth('feishu').running ? 'success' : 'default'" dot processing />
+              <span>{{ getChannelHealth('feishu').running ? t('settings.channels.running') : t('settings.channels.stopped') }}</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="channel-form-card">
+          <n-form :model="feishuForm" label-placement="top">
+            <n-grid :cols="2" :x-gap="24">
+              <n-gi>
+                <n-form-item label="App ID">
+                  <n-input v-model:value="feishuForm.app_id" placeholder="cli_xxx" />
+                </n-form-item>
+              </n-gi>
+              <n-gi>
+                <n-form-item label="App Secret">
+                  <n-input v-model:value="feishuForm.app_secret" type="password" show-password-on="mousedown" placeholder="App Secret" />
+                </n-form-item>
+              </n-gi>
+            </n-grid>
+            <div class="form-actions">
+              <n-button type="primary" secondary round :loading="saving === 'feishu'" @click="saveConfig('feishu', feishuForm)">
+                {{ t('common.save') }}
+              </n-button>
+            </div>
+          </n-form>
+        </div>
       </div>
 
-      <n-grid :cols="1" :x-gap="12" :y-gap="24" responsive="screen" item-responsive>
-        <!-- 飞书配置 -->
-        <n-gi>
-          <n-card bordered class="channel-card">
-            <template #header>
-              <div class="card-header">
-                <div class="header-main">
-                  <n-icon :component="BusinessOutline" :size="28" color="#18a058" />
-                  <span class="channel-title">{{ t('settings.channels.feishu') }}</span>
-                </div>
-                <n-tag :type="getChannelHealth('feishu').running ? 'success' : 'default'" round size="small">
-                  {{ getChannelHealth('feishu').running ? t('settings.channels.running') : t('settings.channels.stopped') }}
-                </n-tag>
-              </div>
-            </template>
+      <!-- 钉钉频道 -->
+      <div class="channel-item">
+        <div class="channel-brand">
+          <div class="brand-icon dingtalk"><n-icon :component="RocketOutline" /></div>
+          <div class="brand-info">
+            <div class="brand-name">{{ t('settings.channels.dingtalk') }}</div>
+            <div class="brand-status">
+              <n-badge :type="getChannelHealth('dingtalk').running ? 'success' : 'default'" dot processing />
+              <span>{{ getChannelHealth('dingtalk').running ? t('settings.channels.running') : t('settings.channels.stopped') }}</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="channel-form-card">
+          <n-form :model="dingtalkForm" label-placement="top">
+            <n-grid :cols="2" :x-gap="24">
+              <n-gi>
+                <n-form-item label="Client ID">
+                  <n-input v-model:value="dingtalkForm.client_id" placeholder="Suite Key" />
+                </n-form-item>
+              </n-gi>
+              <n-gi>
+                <n-form-item label="Client Secret">
+                  <n-input v-model:value="dingtalkForm.client_secret" type="password" show-password-on="mousedown" placeholder="Secret" />
+                </n-form-item>
+              </n-gi>
+            </n-grid>
+            <div class="form-actions">
+              <n-button type="primary" secondary round :loading="saving === 'dingtalk'" @click="saveConfig('dingtalk', dingtalkForm)">
+                {{ t('common.save') }}
+              </n-button>
+            </div>
+          </n-form>
+        </div>
+      </div>
 
-            <n-form label-placement="left" label-width="120" :model="feishuForm">
-              <n-form-item label="App ID">
-                <n-input v-model:value="feishuForm.app_id" placeholder="cli_xxx" />
-              </n-form-item>
-              <n-form-item label="App Secret">
-                <n-input
-                  v-model:value="feishuForm.app_secret"
-                  type="password"
-                  show-password-on="click"
-                  placeholder="请输入 App Secret"
-                />
-              </n-form-item>
-              
-              <div class="form-actions">
-                <n-button type="primary" :loading="saving === 'feishu'" @click="saveConfig('feishu', feishuForm)">
-                  {{ t('common.save') }}
-                </n-button>
-              </div>
-            </n-form>
-          </n-card>
-        </n-gi>
+      <!-- Webhook 频道 -->
+      <div class="channel-item">
+        <div class="channel-brand">
+          <div class="brand-icon webhook"><n-icon :component="LinkOutline" /></div>
+          <div class="brand-info">
+            <div class="brand-name">{{ t('settings.channels.webhook') }}</div>
+            <div class="brand-status">
+              <n-badge :type="getChannelHealth('webhook').running ? 'success' : 'default'" dot processing />
+              <span>{{ getChannelHealth('webhook').running ? t('settings.channels.configured') : t('settings.channels.notConfigured') }}</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="channel-form-card">
+          <n-form :model="webhookForm" label-placement="top">
+            <n-form-item label="Auth Token">
+              <n-input v-model:value="webhookForm.token" placeholder="Token" />
+            </n-form-item>
+            
+            <div class="endpoint-tip">
+              {{ t('settings.channels.endpoint') }} <span class="code">/webhook/{{ webhookForm.token || '{token}' }}</span>
+            </div>
 
-        <!-- 钉钉配置 -->
-        <n-gi>
-          <n-card bordered class="channel-card">
-            <template #header>
-              <div class="card-header">
-                <div class="header-main">
-                  <n-icon :component="RocketOutline" :size="28" color="#2080f0" />
-                  <span class="channel-title">{{ t('settings.channels.dingtalk') }}</span>
-                </div>
-                <n-tag :type="getChannelHealth('dingtalk').running ? 'success' : 'default'" round size="small">
-                  {{ getChannelHealth('dingtalk').running ? t('settings.channels.running') : t('settings.channels.stopped') }}
-                </n-tag>
-              </div>
-            </template>
-
-            <n-form label-placement="left" label-width="120" :model="dingtalkForm">
-              <n-form-item label="Client ID">
-                <n-input v-model:value="dingtalkForm.client_id" placeholder="Suite Key / App ID" />
-              </n-form-item>
-              <n-form-item label="Client Secret">
-                <n-input
-                  v-model:value="dingtalkForm.client_secret"
-                  type="password"
-                  show-password-on="click"
-                  placeholder="请输入 Secret"
-                />
-              </n-form-item>
-              
-              <div class="form-actions">
-                <n-button type="primary" :loading="saving === 'dingtalk'" @click="saveConfig('dingtalk', dingtalkForm)">
-                  {{ t('common.save') }}
-                </n-button>
-              </div>
-            </n-form>
-          </n-card>
-        </n-gi>
-
-        <!-- Webhook 配置 -->
-        <n-gi>
-          <n-card bordered class="channel-card">
-            <template #header>
-              <div class="card-header">
-                <div class="header-main">
-                  <n-icon :component="LinkOutline" :size="28" color="#f0a020" />
-                  <span class="channel-title">{{ t('settings.channels.webhook') }}</span>
-                </div>
-                <n-tag :type="getChannelHealth('webhook').running ? 'success' : 'default'" round size="small">
-                  {{ getChannelHealth('webhook').running ? t('settings.channels.running') : t('settings.channels.stopped') }}
-                </n-tag>
-              </div>
-            </template>
-
-            <n-form label-placement="left" label-width="120" :model="webhookForm">
-              <n-form-item label="Auth Token">
-                <n-input v-model:value="webhookForm.token" placeholder="用于请求鉴权" />
-              </n-form-item>
-              
-              <n-alert title="Webhook 地址" type="info" :show-icon="false" class="webhook-alert">
-                POST <n-code>http://your-server:8088/webhook/{{ webhookForm.token || '{token}' }}</n-code>
-              </n-alert>
-
-              <div class="form-actions">
-                <n-button type="primary" :loading="saving === 'webhook'" @click="saveConfig('webhook', webhookForm)">
-                  {{ t('common.save') }}
-                </n-button>
-              </div>
-            </n-form>
-          </n-card>
-        </n-gi>
-      </n-grid>
-    </n-space>
+            <div class="form-actions">
+              <n-button type="primary" secondary round :loading="saving === 'webhook'" @click="saveConfig('webhook', webhookForm)">
+                {{ t('common.save') }}
+              </n-button>
+            </div>
+          </n-form>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, reactive } from 'vue'
-import {
-  NCard, NSpace, NGrid, NGi, NForm, NFormItem, NInput,
-  NButton, NIcon, NTag, NH2, NText, NAlert, NCode, useMessage
-} from 'naive-ui'
-import { useI18n } from 'vue-i18n'
+import { NH2, NText, NButton, NIcon, NBadge, NForm, NFormItem, NInput, NGrid, NGi, useMessage } from 'naive-ui'
 import { BusinessOutline, RocketOutline, LinkOutline } from '@vicons/ionicons5'
+import { useI18n } from 'vue-i18n'
 import { getChannelConfig, saveChannelConfig, getChannelsHealth } from '@/api/settings'
 import type { ChannelStatus } from '@/types'
 
@@ -136,57 +130,35 @@ const saving = ref<string | null>(null)
 const healthData = ref<ChannelStatus[]>([])
 let healthTimer: ReturnType<typeof setInterval>
 
-const feishuForm = reactive({
-  app_id: '',
-  app_secret: ''
-})
+const feishuForm = reactive({ app_id: '', app_secret: '' })
+const dingtalkForm = reactive({ client_id: '', client_secret: '' })
+const webhookForm = reactive({ token: '' })
 
-const dingtalkForm = reactive({
-  client_id: '',
-  client_secret: ''
-})
-
-const webhookForm = reactive({
-  token: ''
-})
-
-// 加载所有频道配置
 async function loadConfigs() {
   try {
-    const [fs, dt, wh] = await Promise.all([
-      getChannelConfig('feishu'),
-      getChannelConfig('dingtalk'),
-      getChannelConfig('webhook')
-    ])
+    const [fs, dt, wh] = await Promise.all([getChannelConfig('feishu'), getChannelConfig('dingtalk'), getChannelConfig('webhook')])
     Object.assign(feishuForm, fs)
     Object.assign(dingtalkForm, dt)
     Object.assign(webhookForm, wh)
   } catch (error) {
-    console.error('Failed to load channel configs:', error)
+    console.error(error)
   }
 }
 
-// 加载健康状态
 async function loadHealth() {
-  try {
-    healthData.value = await getChannelsHealth()
-  } catch (error) {
-    console.error('Failed to load health status:', error)
-  }
+  try { healthData.value = await getChannelsHealth() } catch (error) { console.error(error) }
 }
 
-// 获取指定频道的健康状态
 function getChannelHealth(name: string): Partial<ChannelStatus> {
   return healthData.value.find(h => h.name === name) || { running: false }
 }
 
-// 保存配置
-async function saveConfig(name: string, data: any) {
+async function saveConfig(name: string, data: Record<string, string>) {
+  saving.value = name
   try {
-    saving.value = name
     await saveChannelConfig(name, data)
     message.success(t('common.success'))
-    loadHealth() // 保存后刷新状态
+    loadHealth()
   } catch (error) {
     message.error(t('common.error'))
   } finally {
@@ -197,68 +169,19 @@ async function saveConfig(name: string, data: any) {
 onMounted(() => {
   loadConfigs()
   loadHealth()
-  // 每 10 秒刷新一次健康状态
   healthTimer = setInterval(loadHealth, 10000)
 })
 
-onUnmounted(() => {
-  // 销毁组件时清理定时器
-  if (healthTimer) {
-    clearInterval(healthTimer)
-  }
-})
+onUnmounted(() => { if (healthTimer) clearInterval(healthTimer) })
 </script>
 
 <style scoped lang="scss">
-.channels-page {
-  padding: 12px;
-}
-
-.page-header {
-  margin-bottom: 8px;
-}
-
-.channel-card {
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
-  transition: transform 0.2s;
-
-  &:hover {
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
-  }
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-}
-
-.header-main {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.channel-title {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
-}
-
-.webhook-alert {
-  margin: 16px 0;
-  
-  :deep(.n-code) {
-    background: rgba(0, 0, 0, 0.05);
-    padding: 2px 6px;
-    border-radius: 4px;
-  }
-}
+.channels-view { display: flex; flex-direction: column; gap: 40px; }
+.view-header { .title { margin: 0 0 8px; font-weight: 800; font-size: 32px; letter-spacing: -1px; } }
+.channel-list { display: flex; flex-direction: column; gap: 48px; }
+.channel-item { display: flex; gap: 48px; @media (max-width: 1000px) { flex-direction: column; gap: 24px; } }
+.channel-brand { width: 200px; display: flex; flex-direction: column; gap: 16px; .brand-icon { width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 28px; color: #fff; &.feishu { background: linear-gradient(135deg, #2ecc71, #18a058); } &.dingtalk { background: linear-gradient(135deg, #3498db, #2080f0); } &.webhook { background: linear-gradient(135deg, #f39c12, #f0a020); } } .brand-name { font-weight: 700; font-size: 18px; color: #1a1a1a; } .brand-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #888; } }
+.channel-form-card { flex: 1; background: #fdfdfd; padding: 32px; border-radius: 24px; border: 1px solid rgba(0, 0, 0, 0.04); transition: all 0.3s; &:hover { background: #fff; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.03); border-color: rgba(0, 0, 0, 0.08); } }
+.endpoint-tip { margin-top: -8px; margin-bottom: 24px; font-size: 12px; color: #999; .code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-family: monospace; color: #e67e22; } }
+.form-actions { display: flex; justify-content: flex-end; }
 </style>
