@@ -1,9 +1,9 @@
 <template>
-  <div class="providers-view">
-    <div class="view-header">
+  <div class="page-container">
+    <div class="page-header">
       <div class="header-main">
-        <h1 class="title">{{ t('settings.providers.title') }}</h1>
-        <p class="description">{{ t('settings.providers.description') }}</p>
+        <h1 class="page-title">{{ t('settings.providers.title') }}</h1>
+        <p class="page-description">{{ t('settings.providers.description') }}</p>
       </div>
       <n-button type="primary" size="medium" round @click="openModal('create')" class="add-button">
         <template #icon><n-icon :component="AddOutline" :size="18" /></template>
@@ -11,7 +11,7 @@
       </n-button>
     </div>
 
-    <div v-if="providers.length === 0" class="empty-state">
+    <div v-if="providers.length === 0" class="page-empty">
       <n-empty :description="t('settings.providers.noProviders')" size="large">
         <template #extra>
           <n-button type="primary" round @click="openModal('create')" style="margin-top: 24px;">
@@ -192,15 +192,18 @@ onMounted(loadData)
 
 <style scoped lang="scss">
 @use '@/styles/variables.scss' as *;
+@use '@/styles/page-layout' as *;
 
-.providers-view {
-  display: flex;
-  flex-direction: column;
-  gap: 32px;
-  max-width: 1200px;
-  margin: 0 auto;
-  width: 100%;
-  animation: fadeIn 0.4s ease-out;
+.add-button {
+  transition: all 0.2s ease;
+
+  &:hover {
+    transform: scale(1.02);
+  }
+
+  &:active {
+    transform: scale(0.98);
+  }
 }
 
 @keyframes fadeIn {

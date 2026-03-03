@@ -1,14 +1,14 @@
 <template>
-  <div class="skills-view">
-    <div class="view-header">
+  <div class="page-container">
+    <div class="page-header">
       <div class="header-main">
-        <h1 class="title">{{ t('settings.skills.title') }}</h1>
-        <p class="description">{{ t('settings.skills.description') }}</p>
+        <h1 class="page-title">{{ t('settings.skills.title') }}</h1>
+        <p class="page-description">{{ t('settings.skills.description') }}</p>
       </div>
     </div>
 
     <div class="skills-list" v-loading="loading" :class="{ 'is-loading': loading }">
-      <n-empty v-if="skills.length === 0" :description="t('settings.skills.noSkills')" size="large" class="empty-state">
+      <n-empty v-if="skills.length === 0" :description="t('settings.skills.noSkills')" size="large" class="page-empty">
         <template #extra>
           <p class="empty-tip">{{ t('settings.skills.noSkillsTip') }}</p>
         </template>
@@ -109,85 +109,23 @@ onMounted(() => {
 
 <style scoped lang="scss">
 @use '@/styles/variables.scss' as *;
-
-.skills-view {
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-8;
-  max-width: 1200px;
-  margin: 0 auto;
-  width: 100%;
-  animation: fadeIn 0.4s ease-out;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.view-header {
-  padding-bottom: $spacing-6;
-  border-bottom: 1px solid $color-border-light;
-  animation: slideDown 0.5s ease-out;
-
-  @keyframes slideDown {
-    from {
-      opacity: 0;
-      transform: translateY(-20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .title {
-    margin: 0 0 $spacing-2;
-    font-weight: $font-weight-bold;
-    font-size: $font-size-h1;
-    color: $color-text-primary;
-    letter-spacing: -0.5px;
-  }
-
-  .description {
-    margin: 0;
-    font-size: $font-size-base;
-    color: $color-text-secondary;
-  }
-}
+@use '@/styles/page-layout' as *;
 
 .skills-list {
-  margin-top: $spacing-6;
+  min-height: 200px;
 
   &.is-loading {
-    opacity: 0.6;
-  }
-}
-
-.empty-state {
-  padding: $spacing-20 0;
-
-  .empty-tip {
-    margin-top: $spacing-4;
-    color: $color-text-secondary;
-    font-size: $font-size-sm;
+    opacity: 0.7;
   }
 }
 
 .skill-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
   gap: $spacing-5;
 }
 
 .skill-card {
-  background: $color-bg-primary;
   border: 1px solid $color-border-light;
   border-radius: $radius-xl;
   padding: $spacing-6;

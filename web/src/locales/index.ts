@@ -72,6 +72,17 @@ const messages = {
         description: '定制 Agent 的性格、知识背景与行为逻辑',
         placeholder: '在此输入 Agent 的系统提示词...'
       },
+      context: {
+        title: '工作区背景',
+        description: '设置当前工作区的背景信息、项目信息和用户偏好',
+        placeholder: '在此输入工作区背景描述...'
+      },
+      memory: {
+        title: '记忆管理',
+        description: 'Agent 自动维护的跨会话记忆，如需手动校正可直接编辑',
+        emptyTip: 'Agent 尚未写入任何记忆',
+        placeholder: '这是 Agent 自动维护的跨会话记忆...'
+      },
       channels: {
         title: '频道配置',
         description: '配置第三方平台的接入凭证，实现在不同终端的自动化推送与交互',
@@ -208,6 +219,17 @@ const messages = {
         title: 'Agent Persona',
         description: 'Customize Agent personality, knowledge and behavior',
         placeholder: 'Enter System Prompt here...'
+      },
+      context: {
+        title: 'Workspace Context',
+        description: 'Set workspace background, project info and user preferences',
+        placeholder: 'Enter workspace context here...'
+      },
+      memory: {
+        title: 'Memory Management',
+        description: 'Cross-session memory maintained by Agent, edit directly if needed',
+        emptyTip: 'Agent has not written any memory yet',
+        placeholder: 'This is Agent cross-session memory...'
       },
       channels: {
         title: 'Channels',

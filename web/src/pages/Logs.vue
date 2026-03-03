@@ -1,55 +1,51 @@
 <template>
-  <div class="logs-page">
-    <n-space vertical :size="24">
-      <div class="page-header">
-        <div class="header-left">
-          <n-h2>{{ t('logs.title') }}</n-h2>
-          <n-text depth="3">实时监控系统运行状态与错误日志</n-text>
-        </div>
-        <n-space>
-          <n-switch v-model:value="autoRefresh" class="auto-refresh-switch">
-            <template #checked>
-              {{ t('logs.autoRefresh') }}
-            </template>
-            <template #unchecked>
-              {{ t('logs.autoRefresh') }}
-            </template>
-          </n-switch>
-          <n-button :loading="loading" @click="fetchLogs">
-            <template #icon>
-              <n-icon :component="RefreshOutline" />
-            </template>
-            {{ t('logs.refresh') }}
-          </n-button>
-        </n-space>
+  <div class="page-container">
+    <div class="page-header">
+      <div class="header-main">
+        <h1 class="page-title">{{ t('logs.title') }}</h1>
+        <p class="page-description">实时监控系统运行状态与错误日志</p>
       </div>
+      <n-space>
+        <n-switch v-model:value="autoRefresh">
+          <template #checked>
+            {{ t('logs.autoRefresh') }}
+          </template>
+          <template #unchecked>
+            {{ t('logs.autoRefresh') }}
+          </template>
+        </n-switch>
+        <n-button :loading="loading" @click="fetchLogs">
+          <template #icon>
+            <n-icon :component="RefreshOutline" />
+          </template>
+          {{ t('logs.refresh') }}
+        </n-button>
+      </n-space>
+    </div>
 
-      <n-card bordered class="logs-card" content-style="padding: 0;">
-        <div class="logs-container">
-          <div v-if="logs.length === 0" class="empty-logs">
-            <n-empty description="暂无日志数据" />
-          </div>
-          <div v-else class="log-list">
-            <div
-              v-for="(log, index) in logs"
-              :key="index"
-              class="log-item"
-              :class="getLogLevelClass(log.raw)"
-            >
-              <span class="log-raw">{{ log.raw }}</span>
-            </div>
+    <n-card bordered class="page-card" content-style="padding: 0;">
+      <div class="logs-container">
+        <div v-if="logs.length === 0" class="empty-logs">
+          <n-empty :description="t('logs.noLogs')" />
+        </div>
+        <div v-else class="log-list">
+          <div
+            v-for="(log, index) in logs"
+            :key="index"
+            class="log-item"
+            :class="getLogLevelClass(log.raw)"
+          >
+            <span class="log-raw">{{ log.raw }}</span>
           </div>
         </div>
-      </n-card>
-    </n-space>
+      </div>
+    </n-card>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import {
-  NSpace, NH2, NText, NButton, NIcon, NCard, NSwitch, NEmpty
-} from 'naive-ui'
+import { NCard, NSwitch, NEmpty, NSpace, NButton, NIcon } from 'naive-ui'
 import { RefreshOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { getSystemLogs } from '@/api/system'
@@ -65,15 +61,13 @@ const loading = ref(false)
 const autoRefresh = ref(true)
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
-// 根据内容判断日志级别并返回样式类
-function getLogLevelClass(raw: string) {
+const getLogLevelClass = (raw: string) => {
   const lower = raw.toLowerCase()
   if (lower.includes('"level":"error"') || lower.includes('error')) return 'level-error'
   if (lower.includes('"level":"warn"') || lower.includes('warn')) return 'level-warn'
   return 'level-info'
 }
 
-// 获取系统日志
 async function fetchLogs() {
   loading.value = true
   try {
@@ -86,7 +80,6 @@ async function fetchLogs() {
   }
 }
 
-// 设置/清除自动刷新定时器
 function toggleAutoRefresh(enabled: boolean) {
   if (enabled) {
     refreshTimer = setInterval(fetchLogs, 5000)
@@ -112,53 +105,7 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 @use '@/styles/variables.scss' as *;
-
-.logs-page {
-  padding: $spacing-3;
-  animation: fadeIn 0.4s ease-out;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  margin-bottom: $spacing-2;
-
-  :deep(.n-h2) {
-    margin: 0 0 $spacing-1;
-    font-weight: $font-weight-bold;
-    color: $color-text-primary;
-  }
-}
-
-.logs-card {
-  border-radius: $radius-xl;
-  box-shadow: $shadow-md;
-  overflow: hidden;
-  animation: slideUp 0.5s ease-out;
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
+@use '@/styles/page-layout';
 
 .logs-container {
   height: calc(100vh - 240px);
@@ -210,9 +157,5 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.auto-refresh-switch {
-  margin-right: $spacing-3;
 }
 </style>

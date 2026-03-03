@@ -1,0 +1,114 @@
+@use '@/styles/variables.scss' as *;
+
+// ==========================================
+// 统一页面布局样式
+// GoPaw Design System - Page Layout
+// ==========================================
+
+// 页面容器 - 统一所有页面的基础布局
+.page-container {
+  padding: $spacing-6;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  animation: pageFadeIn 0.3s ease-out;
+}
+
+// 编辑页面（表单类）- 更窄的编辑区，更好的阅读体验
+.page-container.narrow {
+  max-width: 800px;
+}
+
+// 页面头部
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: $spacing-6;
+  padding-bottom: $spacing-6;
+  border-bottom: 1px solid $color-border-light;
+
+  .header-main {
+    flex: 1;
+  }
+
+  .page-title {
+    margin: 0 0 $spacing-2;
+    font-weight: $font-weight-bold;
+    font-size: $font-size-h1;
+    color: $color-text-primary;
+    letter-spacing: -0.5px;
+  }
+
+  .page-description {
+    font-size: $font-size-base;
+    color: $color-text-secondary;
+    margin: 0;
+  }
+}
+
+// 统一卡片样式
+.page-card {
+  background: $color-bg-primary;
+  border-radius: $radius-lg;
+  border: 1px solid $color-border-light;
+  padding: $spacing-5;
+  box-shadow: $shadow-sm;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+
+  &:hover {
+    box-shadow: $shadow-md;
+  }
+}
+
+// 页面内容区域
+.page-content {
+  animation: pageSlideUp 0.4s ease-out;
+}
+
+// 空状态
+.page-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-20;
+  text-align: center;
+}
+
+// 动画
+@keyframes pageFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pageSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+// 响应式
+@media (max-width: 768px) {
+  .page-container {
+    padding: $spacing-4;
+  }
+
+  .page-header {
+    margin-bottom: $spacing-4;
+    padding-bottom: $spacing-4;
+
+    .page-title {
+      font-size: $font-size-h2;
+    }
+  }
+}

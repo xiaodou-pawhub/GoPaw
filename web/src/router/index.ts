@@ -51,6 +51,16 @@ const routes: RouteRecordRaw[] = [
         path: 'settings/skills',
         name: 'SettingsSkills',
         component: () => import('@/pages/settings/Skills.vue')
+      },
+      {
+        path: 'settings/context',
+        name: 'SettingsContext',
+        component: () => import('@/pages/settings/Context.vue')
+      },
+      {
+        path: 'settings/memory',
+        name: 'SettingsMemory',
+        component: () => import('@/pages/settings/Memory.vue')
       }
     ]
   }

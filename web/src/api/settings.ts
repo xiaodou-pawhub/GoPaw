@@ -56,6 +56,26 @@ export async function saveChannelConfig(name: string, config: Record<string, str
   })
 }
 
+// 获取工作区背景描述（CONTEXT.md）
+export async function getWorkspaceContext(): Promise<{ content: string }> {
+  return await api.get('/workspace/context')
+}
+
+// 保存工作区背景描述
+export async function saveWorkspaceContext(content: string): Promise<{ saved: boolean }> {
+  return await api.put('/workspace/context', { content })
+}
+
+// 获取 Agent 记忆文件（MEMORY.md）
+export async function getAgentMemory(): Promise<{ content: string }> {
+  return await api.get('/workspace/memory')
+}
+
+// 覆盖 Agent 记忆文件（用于用户手动校正）
+export async function saveAgentMemory(content: string): Promise<{ saved: boolean }> {
+  return await api.put('/workspace/memory', { content })
+}
+
 // 获取所有频道健康状态
 export async function getChannelsHealth(): Promise<ChannelStatus[]> {
   const res = await api.get<{ channels: ChannelStatus[] }>('/channels/health')

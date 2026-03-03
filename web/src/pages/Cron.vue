@@ -1,29 +1,27 @@
 <template>
-  <div class="cron-page">
-    <n-space vertical :size="24">
-      <div class="page-header">
-        <div class="header-left">
-          <n-h2>{{ t('cron.title') }}</n-h2>
-          <n-text depth="3">自动化执行 Agent 任务，支持定时推送至不同频道</n-text>
-        </div>
-        <n-button type="primary" @click="openModal('create')">
-          <template #icon>
-            <n-icon :component="AddOutline" />
-          </template>
-          {{ t('cron.add') }}
-        </n-button>
+  <div class="page-container">
+    <div class="page-header">
+      <div class="header-main">
+        <h1 class="page-title">{{ t('cron.title') }}</h1>
+        <p class="page-description">自动化执行 Agent 任务，支持定时推送至不同频道</p>
       </div>
+      <n-button type="primary" @click="openModal('create')">
+        <template #icon>
+          <n-icon :component="AddOutline" />
+        </template>
+        {{ t('cron.add') }}
+      </n-button>
+    </div>
 
-      <n-card bordered class="cron-card" content-style="padding: 0;">
-        <n-data-table
-          :columns="columns"
-          :data="jobs"
-          :loading="loading"
-          :bordered="false"
-          class="cron-table"
-        />
-      </n-card>
-    </n-space>
+    <n-card bordered class="page-card" content-style="padding: 0;">
+      <n-data-table
+        :columns="columns"
+        :data="jobs"
+        :loading="loading"
+        :bordered="false"
+        class="cron-table"
+      />
+    </n-card>
 
     <!-- 编辑/创建弹窗 -->
     <n-modal
@@ -147,7 +145,7 @@
 <script setup lang="ts">
 import { ref, onMounted, h, reactive } from 'vue'
 import {
-  NSpace, NH2, NText, NButton, NIcon, NCard, NDataTable, NModal,
+  NSpace, NButton, NIcon, NCard, NDataTable, NModal,
   NForm, NFormItem, NInput, NSelect, NSwitch, NGrid, NGi, NTimePicker,
   NDrawer, NDrawerContent, NTag, NEmpty, NSpin, useMessage, useDialog
 } from 'naive-ui'
@@ -399,21 +397,8 @@ onMounted(loadJobs)
 </script>
 
 <style scoped lang="scss">
-.cron-page {
-  padding: 12px;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  margin-bottom: 8px;
-}
-
-.cron-card {
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
-}
+@use '@/styles/variables.scss' as *;
+@use '@/styles/page-layout';
 
 .cron-table {
   :deep(.n-data-table-td) {

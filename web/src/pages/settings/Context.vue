@@ -2,8 +2,8 @@
   <div class="page-container narrow">
     <div class="page-header">
       <div class="header-main">
-        <h1 class="page-title">{{ t('settings.agent.title') }}</h1>
-        <p class="page-description">{{ t('settings.agent.description') }}</p>
+        <h1 class="page-title">{{ t('settings.context.title') }}</h1>
+        <p class="page-description">{{ t('settings.context.description') }}</p>
       </div>
       <n-button type="primary" size="medium" round :loading="saving" @click="handleSave">
         {{ t('common.save') }}
@@ -22,7 +22,7 @@
         v-model:value="content"
         type="textarea"
         class="markdown-editor"
-        :placeholder="t('settings.agent.placeholder')"
+        :placeholder="t('settings.context.placeholder')"
         :autosize="{ minRows: 15, maxRows: 30 }"
         @input="isModified = true"
       />
@@ -38,7 +38,7 @@
 import { ref, onMounted } from 'vue'
 import { NButton, NInput, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
-import { getAgentConfig, saveAgentConfig } from '@/api/settings'
+import { getWorkspaceContext, saveWorkspaceContext } from '@/api/settings'
 
 const { t } = useI18n()
 const message = useMessage()
@@ -46,21 +46,26 @@ const message = useMessage()
 const content = ref('')
 const saving = ref(false)
 const isModified = ref(false)
+const loading = ref(false)
 
 async function loadData() {
+  loading.value = true
   try {
-    const res = await getAgentConfig()
+    const res = await getWorkspaceContext()
     content.value = res.content || ''
     isModified.value = false
   } catch (error) {
     console.error(error)
+    content.value = ''
+  } finally {
+    loading.value = false
   }
 }
 
 async function handleSave() {
   saving.value = true
   try {
-    await saveAgentConfig(content.value)
+    await saveWorkspaceContext(content.value)
     message.success(t('common.success'))
     isModified.value = false
   } catch (error) {

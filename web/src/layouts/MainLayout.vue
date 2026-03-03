@@ -76,7 +76,9 @@ import {
   HardwareChipOutline,
   PersonOutline,
   RocketOutline,
-  BulbOutline
+  BulbOutline,
+  BookOutline,
+  TrashOutline
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -122,6 +124,16 @@ const menuOptions = computed<MenuOption[]>(() => [
     label: t('settings.channels.title'),
     key: '/settings/channels',
     icon: renderIcon(RocketOutline)
+  },
+  {
+    label: t('settings.context.title'),
+    key: '/settings/context',
+    icon: renderIcon(BookOutline)
+  },
+  {
+    label: t('settings.memory.title'),
+    key: '/settings/memory',
+    icon: renderIcon(TrashOutline)
   },
   {
     label: t('nav.skills'),

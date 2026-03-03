@@ -1,9 +1,9 @@
 <template>
-  <div class="channels-view">
-    <div class="view-header">
+  <div class="page-container">
+    <div class="page-header">
       <div class="header-main">
-        <h1 class="title">{{ t('settings.channels.title') }}</h1>
-        <p class="description">{{ t('settings.channels.description') }}</p>
+        <h1 class="page-title">{{ t('settings.channels.title') }}</h1>
+        <p class="page-description">{{ t('settings.channels.description') }}</p>
       </div>
     </div>
 
@@ -177,51 +177,12 @@ onUnmounted(() => { if (healthTimer) clearInterval(healthTimer) })
 
 <style scoped lang="scss">
 @use '@/styles/variables.scss' as *;
-
-.channels-view {
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-8;
-  max-width: 1200px;
-  margin: 0 auto;
-  width: 100%;
-  animation: fadeIn 0.4s ease-out;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.view-header {
-  padding-bottom: $spacing-6;
-  border-bottom: 1px solid $color-border-light;
-
-  .title {
-    margin: 0 0 $spacing-2;
-    font-weight: $font-weight-bold;
-    font-size: $font-size-h1;
-    color: $color-text-primary;
-    letter-spacing: -0.5px;
-  }
-
-  .description {
-    margin: 0;
-    font-size: $font-size-base;
-    color: $color-text-secondary;
-  }
-}
+@use '@/styles/page-layout' as *;
 
 .channel-list {
   display: flex;
   flex-direction: column;
-  gap: $spacing-8;
+  gap: $spacing-6;
 }
 
 .channel-item {
