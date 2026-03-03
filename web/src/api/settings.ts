@@ -40,13 +40,9 @@ export async function saveAgentConfig(content: string): Promise<{ saved: boolean
 
 // 获取指定频道的配置
 export async function getChannelConfig<T = Record<string, string>>(name: string): Promise<T> {
-  const res = await api.get<{ channel: string, config: string }>(`/settings/channels/${name}`)
-  try {
-    // @ts-ignore - 响应拦截器返回response.data
-    return JSON.parse(res.config) as T
-  } catch (e) {
-    return {} as T
-  }
+  const res = await api.get<{ channel: string, config: T }>(`/settings/channels/${name}`)
+  // @ts-ignore - 响应拦截器返回response.data
+  return res.config || ({} as T)
 }
 
 // 保存频道配置
