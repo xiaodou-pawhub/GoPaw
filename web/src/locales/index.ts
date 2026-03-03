@@ -93,7 +93,10 @@ const messages = {
         stopped: '未启用',
         configured: '已激活',
         notConfigured: '未配置',
-        endpoint: '接收地址：'
+        endpoint: '接收地址：',
+        test: '测试',
+        callbackUrl: '回调地址 (可选)',
+        callbackUrlPlaceholder: 'https://your-server.com/webhook/callback'
       },
       skills: {
         title: '技能管理',
@@ -241,7 +244,10 @@ const messages = {
         stopped: 'Stopped',
         configured: 'Active',
         notConfigured: 'Not Configured',
-        endpoint: 'Endpoint: '
+        endpoint: 'Endpoint: ',
+        test: 'Test',
+        callbackUrl: 'Callback URL (Optional)',
+        callbackUrlPlaceholder: 'https://your-server.com/webhook/callback'
       },
       skills: {
         title: 'Skills',

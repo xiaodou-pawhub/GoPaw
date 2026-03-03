@@ -79,6 +79,11 @@ export async function getChannelsHealth(): Promise<ChannelStatus[]> {
   return res.channels || []
 }
 
+// 测试频道连通性
+export async function testChannel(name: string): Promise<{ success: boolean, message: string }> {
+  return await api.post(`/channels/${name}/test`)
+}
+
 // --- Skill 相关接口 ---
 
 export interface Skill {

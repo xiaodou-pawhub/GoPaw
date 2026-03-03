@@ -101,8 +101,9 @@ func (p *Plugin) Health() plugin.HealthStatus {
 	}
 }
 
-// Test validates the webhook configuration.
-// If callback_url is configured, it sends a test request to verify reachability.
+// Test validates the webhook configuration by sending a test message.
+// The test message is sent to the callback_url if configured.
+// User should verify receipt of the test message to confirm configuration.
 func (p *Plugin) Test(ctx context.Context) plugin.TestResult {
 	// 检查 token 配置
 	if p.cfg.Token == "" {
@@ -112,55 +113,40 @@ func (p *Plugin) Test(ctx context.Context) plugin.TestResult {
 		}
 	}
 
-	// 如果配置了 callback_url，测试可达性
+	// 如果配置了 callback_url，发送测试消息
 	if p.cfg.CallbackURL != "" {
-		if err := p.testCallbackURL(ctx); err != nil {
+		if err := p.sendTestMessage(ctx); err != nil {
 			return plugin.TestResult{
 				Success: false,
-				Message: "回调地址不可达",
+				Message: "发送测试消息失败",
 				Details: err.Error(),
 			}
 		}
 		return plugin.TestResult{
 			Success: true,
-			Message: "配置有效，回调地址可达",
+			Message: "测试消息已发送，请检查回调地址是否收到",
 		}
 	}
 
 	// 没有配置 callback_url，使用轮询模式
 	return plugin.TestResult{
 		Success: true,
-		Message: "配置有效（轮询模式）",
+		Message: "配置有效（轮询模式），可通过 /webhook/{token}/messages 获取消息",
 	}
 }
 
-// testCallbackURL sends a test request to the callback URL.
-func (p *Plugin) testCallbackURL(ctx context.Context) error {
-	testPayload := map[string]interface{}{
-		"test":     "connection",
-		"time":     time.Now().Format(time.RFC3339),
-		"channel":  p.Name(),
+// sendTestMessage sends a test message to the callback URL.
+func (p *Plugin) sendTestMessage(ctx context.Context) error {
+	testMsg := &types.Message{
+		ID:        uuid.New().String(),
+		SessionID: "test-session",
+		UserID:    "system",
+		Channel:   p.Name(),
+		Content:   "这是一条来自 GoPaw 的测试消息，用于验证 Webhook 配置是否正确。",
+		MsgType:   types.MsgTypeText,
+		Timestamp: time.Now().UnixMilli(),
 	}
-	body, _ := json.Marshal(testPayload)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.CallbackURL, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// 接受 2xx 和 3xx 响应
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("server returned status %d", resp.StatusCode)
-	}
-	return nil
+	return p.pushCallback(testMsg)
 }
 
 // HandleReceive processes POST /webhook/{token} requests.

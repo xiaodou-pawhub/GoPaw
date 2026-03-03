@@ -39,6 +39,9 @@
               <n-button type="primary" round :loading="saving === 'feishu'" @click="saveConfig('feishu', feishuForm)">
                 {{ t('common.save') }}
               </n-button>
+              <n-button round :loading="testing === 'feishu'" @click="testChannelConn('feishu')">
+                {{ t('settings.channels.test') }}
+              </n-button>
             </div>
           </n-form>
         </div>
@@ -75,6 +78,9 @@
               <n-button type="primary" round :loading="saving === 'dingtalk'" @click="saveConfig('dingtalk', dingtalkForm)">
                 {{ t('common.save') }}
               </n-button>
+              <n-button round :loading="testing === 'dingtalk'" @click="testChannelConn('dingtalk')">
+                {{ t('settings.channels.test') }}
+              </n-button>
             </div>
           </n-form>
         </div>
@@ -99,6 +105,10 @@
               <n-input v-model:value="webhookForm.token" placeholder="Token" />
             </n-form-item>
             
+            <n-form-item :label="t('settings.channels.callbackUrl')">
+              <n-input v-model:value="webhookForm.callback_url" :placeholder="t('settings.channels.callbackUrlPlaceholder')" />
+            </n-form-item>
+            
             <div class="endpoint-tip">
               {{ t('settings.channels.endpoint') }} <span class="code">/webhook/{{ webhookForm.token || '{token}' }}</span>
             </div>
@@ -106,6 +116,9 @@
             <div class="form-actions">
               <n-button type="primary" round :loading="saving === 'webhook'" @click="saveConfig('webhook', webhookForm)">
                 {{ t('common.save') }}
+              </n-button>
+              <n-button round :loading="testing === 'webhook'" @click="testChannelConn('webhook')">
+                {{ t('settings.channels.test') }}
               </n-button>
             </div>
           </n-form>
@@ -120,19 +133,20 @@ import { ref, onMounted, onUnmounted, reactive } from 'vue'
 import { NButton, NIcon, NBadge, NForm, NFormItem, NInput, NGrid, NGi, useMessage } from 'naive-ui'
 import { BusinessOutline, RocketOutline, LinkOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
-import { getChannelConfig, saveChannelConfig, getChannelsHealth } from '@/api/settings'
+import { getChannelConfig, saveChannelConfig, getChannelsHealth, testChannel } from '@/api/settings'
 import type { ChannelStatus } from '@/types'
 
 const { t } = useI18n()
 const message = useMessage()
 
 const saving = ref<string | null>(null)
+const testing = ref<string | null>(null)
 const healthData = ref<ChannelStatus[]>([])
 let healthTimer: ReturnType<typeof setInterval>
 
 const feishuForm = reactive({ app_id: '', app_secret: '' })
 const dingtalkForm = reactive({ client_id: '', client_secret: '' })
-const webhookForm = reactive({ token: '' })
+const webhookForm = reactive({ token: '', callback_url: '' })
 
 async function loadConfigs() {
   try {
@@ -163,6 +177,22 @@ async function saveConfig(name: string, data: Record<string, string>) {
     message.error(t('common.error'))
   } finally {
     saving.value = null
+  }
+}
+
+async function testChannelConn(name: string) {
+  testing.value = name
+  try {
+    const result = await testChannel(name)
+    if (result.success) {
+      message.success(result.message)
+    } else {
+      message.error(result.message)
+    }
+  } catch (error: any) {
+    message.error(error?.message || t('common.error'))
+  } finally {
+    testing.value = null
   }
 }
 
@@ -304,6 +334,7 @@ onUnmounted(() => { if (healthTimer) clearInterval(healthTimer) })
 .form-actions {
   display: flex;
   justify-content: flex-end;
+  gap: $spacing-3;
   margin-top: $spacing-4;
 
   :deep(.n-button) {
