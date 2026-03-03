@@ -5,6 +5,7 @@ package convlog
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -45,7 +46,7 @@ type Logger struct {
 // New opens (or creates) the log file for appending.
 func New(path string) (*Logger, error) {
 	// Ensure parent directory exists.
-	if err := os.MkdirAll(path[:len(path)-len("/conversations.jsonl")], 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)

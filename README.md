@@ -68,13 +68,14 @@ gopaw/
 │   ├── llm/           # LLM 客户端
 │   ├── scheduler/     # Cron 调度器
 │   ├── server/        # HTTP/WebSocket 服务
-│   └── config/        # 配置管理
+│   ├── config/        # 配置管理
+│   ├── workspace/     # 工作区路径管理
+│   ├── convlog/       # 对话日志系统
+│   ├── platform/      # 内置频道插件（feishu/dingtalk/console/webhook）
+│   └── tools/         # 内置工具（file_read/file_write/shell/web_search/http）
 ├── pkg/               # 公共接口（插件开发者使用）
 │   ├── plugin/        # ChannelPlugin / Tool / Skill 接口
 │   └── types/         # 统一消息类型
-├── plugins/           # 内置插件实现
-│   ├── channels/      # feishu / dingtalk / console / webhook
-│   └── tools/         # file_read / file_write / shell / web_search / http_get
 └── skills/            # 用户自定义 Skill 目录
 ```
 
@@ -84,11 +85,11 @@ gopaw/
 
 | 配置项 | 说明 | 热加载 |
 |--------|------|--------|
-| `llm.api_key` | LLM API Key | 是 |
-| `llm.model` | 使用的模型 | 是 |
-| `agent.system_prompt` | 系统提示 | 是 |
-| `plugins.enabled` | 启用的频道插件 | 否（需重启） |
+| `workspace.dir` | 工作区目录（数据库、日志、Agent 文件） | 否（需重启） |
+| `agent.system_prompt` | 系统提示（AGENT.md） | 是 |
 | `server.port` | 监听端口 | 否（需重启） |
+
+> 频道插件配置了 API Key 即自动激活，无需手动启用。
 
 ## REST API
 
@@ -176,7 +177,7 @@ make lint           # 代码检查
 
 - **生产部署**：Docker 或 Go 1.22+ 运行时
 - **最低内存**：50MB（不含 LLM API 响应）
-- **存储**：SQLite 数据库（默认 `data/gopaw.db`）
+- **存储**：SQLite 数据库（默认 `~/.gopaw/gopaw.db`）
 - **网络**：能访问 LLM API（OpenAI 或兼容接口）
 
 ## License
