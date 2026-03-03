@@ -2,9 +2,11 @@
 gopaw
 gopaw.exe
 dist/
+workspace
 
 # Build artifacts
 /web/dist/
+/internal/server/web/
 
 # Configuration (contains secrets)
 config.yaml
