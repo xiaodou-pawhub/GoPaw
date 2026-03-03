@@ -43,36 +43,34 @@ func NewManager(registry *Registry, logger *zap.Logger) *Manager {
 	}
 }
 
-// Start initialises and starts all enabled channel plugins.
-// enabledNames is the list from config.yaml plugins.enabled.
-// pluginCfgs is the raw plugin configuration sub-tree keyed by plugin name.
-// The context is saved for hot-reload operations to ensure plugin background
-// tasks are not tied to HTTP request lifecycles.
-func (m *Manager) Start(ctx context.Context, enabledNames []string, pluginCfgs map[string]json.RawMessage) error {
-	// Save the process-level context for Reinit
+// Start initialises and starts all registered channel plugins.
+// All plugins in the registry are started automatically.
+// Plugins that fail to initialize (e.g., missing config) are skipped with a warning.
+func (m *Manager) Start(ctx context.Context, pluginCfgs map[string]json.RawMessage) error {
 	m.ctx = ctx
 
-	for _, name := range enabledNames {
-		p, err := m.registry.Get(name)
-		if err != nil {
-			m.logger.Warn("channel plugin not registered, skipping",
+	for _, p := range m.registry.All() {
+		name := p.Name()
+		cfg := pluginCfgs[name]
+		if cfg == nil {
+			cfg = json.RawMessage("{}")
+		}
+
+		if err := p.Init(cfg); err != nil {
+			m.logger.Warn("channel plugin init failed, skipping",
 				zap.String("plugin", name), zap.Error(err))
 			continue
 		}
-
-		cfg := pluginCfgs[name]
-		if err := p.Init(cfg); err != nil {
-			return fmt.Errorf("channel manager: init %q: %w", name, err)
-		}
 		if err := p.Start(ctx); err != nil {
-			return fmt.Errorf("channel manager: start %q: %w", name, err)
+			m.logger.Warn("channel plugin start failed, skipping",
+				zap.String("plugin", name), zap.Error(err))
+			continue
 		}
 
 		m.mu.Lock()
 		m.active = append(m.active, p)
 		m.mu.Unlock()
 
-		// Fan all inbound messages into the aggregated channel.
 		go m.fanIn(ctx, p)
 
 		m.logger.Info("channel started", zap.String("plugin", name))
@@ -148,22 +146,17 @@ func (m *Manager) Test(ctx context.Context, name string) (plugin.TestResult, err
 }
 
 // GetPlugin returns the plugin with the given name from the registry.
-// Note: This returns registered plugins regardless of whether they are started.
-// Use GetActivePlugin for HTTP handlers that require a running plugin.
 func (m *Manager) GetPlugin(name string) (plugin.ChannelPlugin, error) {
 	return m.registry.Get(name)
 }
 
 // GetActivePlugin returns an active (initialized and started) plugin by name.
-// Returns error if the plugin is not registered or not in the active list.
 func (m *Manager) GetActivePlugin(name string) (plugin.ChannelPlugin, error) {
-	// First check if plugin is registered
 	_, err := m.registry.Get(name)
 	if err != nil {
 		return nil, err
 	}
 
-	// Then check if it's in the active list
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, ap := range m.active {
@@ -175,67 +168,47 @@ func (m *Manager) GetActivePlugin(name string) (plugin.ChannelPlugin, error) {
 }
 
 // Reinit reinitializes a channel plugin with new configuration.
-// It stops the old instance, initializes with new config, and restarts.
-// This enables hot-reload of channel configuration without process restart.
-// Note: It uses the process-level context saved during Manager.Start(),
-// not the HTTP request context, to ensure plugin background tasks persist.
 func (m *Manager) Reinit(name string, cfg json.RawMessage) error {
-	// Use process-level context, not request context
 	if m.ctx == nil {
 		return fmt.Errorf("channel: manager not started, cannot reinit")
 	}
 
-	// 1. Get the plugin from registry (no lock needed for registry)
 	p, err := m.registry.Get(name)
 	if err != nil {
 		return fmt.Errorf("channel: plugin %q not registered", name)
 	}
 
-	// 2. Find the old plugin instance and remove from active list (short lock)
 	var oldPlugin plugin.ChannelPlugin
-	wasActive := false
 	m.mu.Lock()
 	for i, ap := range m.active {
 		if ap.Name() == name {
 			oldPlugin = ap
-			wasActive = true
-			// Remove from active list
 			m.active = append(m.active[:i], m.active[i+1:]...)
 			break
 		}
 	}
 	m.mu.Unlock()
 
-	// 3. Stop old instance (outside lock - may be slow)
 	if oldPlugin != nil {
 		if err := oldPlugin.Stop(); err != nil {
 			m.logger.Warn("channel: stop old plugin failed",
-				zap.String("name", name),
-				zap.Error(err),
-			)
+				zap.String("name", name), zap.Error(err))
 		}
 	}
 
-	// 4. Initialize with new config (outside lock - may be slow)
 	if err := p.Init(cfg); err != nil {
 		return fmt.Errorf("channel: reinit %q: %w", name, err)
 	}
 
-	// 5. Start the plugin with process-level context (outside lock - may be slow)
 	if err := p.Start(m.ctx); err != nil {
 		return fmt.Errorf("channel: start %q after reinit: %w", name, err)
 	}
 
-	// 6. Add to active list (short lock)
 	m.mu.Lock()
 	m.active = append(m.active, p)
 	m.mu.Unlock()
 
-	// 7. Only start fanIn if this plugin was not previously active
-	// (already active plugins have fanIn running from initial Start)
-	if !wasActive {
-		go m.fanIn(m.ctx, p)
-	}
+	go m.fanIn(m.ctx, p)
 
 	m.logger.Info("channel: reinit completed", zap.String("name", name))
 	return nil

@@ -3,5 +3,5 @@
 // with the global tool registry. Import this package with a blank
 // identifier to activate all built-in tools:
 //
-//	import _ "github.com/gopaw/gopaw/plugins/tools"
+//	import _ "github.com/gopaw/gopaw/internal/tools"
 package tools

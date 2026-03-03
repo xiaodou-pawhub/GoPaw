@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/gopaw/gopaw/internal/convlog"
 	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/skill"
@@ -111,12 +112,13 @@ type ReActAgent struct {
 	memoryManager  *memory.Manager
 	sessionManager *SessionManager
 	// defaultPrompt is used when agentMDPath is not set or the file cannot be read.
-	defaultPrompt  string
+	defaultPrompt string
 	// agentMDPath is the path to data/AGENT.md. When set, the system prompt is
 	// read from this file on each request, enabling hot-reload via Web UI edits.
-	agentMDPath    string
-	maxSteps       int
-	logger         *zap.Logger
+	agentMDPath string
+	maxSteps    int
+	logger      *zap.Logger
+	convlog     *convlog.Logger // conversation event logger (may be nil)
 }
 
 // Config holds the parameters needed to construct a ReActAgent.
@@ -125,8 +127,10 @@ type Config struct {
 	DefaultPrompt string
 	// AgentMDPath is the filesystem path to the AGENT.md persona file.
 	// Leave empty to use DefaultPrompt only.
-	AgentMDPath   string
-	MaxSteps      int
+	AgentMDPath string
+	MaxSteps    int
+	// ConvLog is an optional conversation event logger.
+	ConvLog *convlog.Logger
 }
 
 // New creates a ReActAgent.
@@ -149,6 +153,7 @@ func New(
 		agentMDPath:    cfg.AgentMDPath,
 		maxSteps:       cfg.MaxSteps,
 		logger:         logger,
+		convlog:        cfg.ConvLog,
 	}
 }
 
@@ -174,6 +179,13 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 	_, err := a.sessionManager.GetOrCreate(req.SessionID, req.UserID, req.Channel)
 	if err != nil {
 		return nil, fmt.Errorf("agent: session: %w", err)
+	}
+
+	// Log user message.
+	if a.convlog != nil {
+		if err := a.convlog.LogUserMessage(req.SessionID, req.Content); err != nil {
+			a.logger.Warn("agent: failed to log user message", zap.Error(err))
+		}
 	}
 
 	// Load conversation history from memory.
@@ -229,6 +241,13 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 			break
 		}
 
+		// Log tool call.
+		if a.convlog != nil {
+			if err := a.convlog.LogToolCall(req.SessionID, parsed.Action, json.RawMessage(parsed.ActionInput)); err != nil {
+				a.logger.Warn("agent: failed to log tool call", zap.Error(err))
+			}
+		}
+
 		// Execute the requested tool.
 		a.logger.Info("agent: executing tool",
 			zap.String("tool", parsed.Action),
@@ -239,12 +258,31 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 			observation = fmt.Sprintf("Tool error: %v", execErr)
 		}
 
+		// Log tool result.
+		if a.convlog != nil {
+			var errPtr *string
+			if execErr != nil {
+				errStr := execErr.Error()
+				errPtr = &errStr
+			}
+			if err := a.convlog.LogToolResult(req.SessionID, parsed.Action, observation, errPtr); err != nil {
+				a.logger.Warn("agent: failed to log tool result", zap.Error(err))
+			}
+		}
+
 		// Append the ReAct step to the message list.
 		messages = appendReActStep(messages, reply, observation)
 	}
 
 	if finalAnswer == "" {
 		return nil, fmt.Errorf("agent: max steps (%d) reached without final answer", maxSteps)
+	}
+
+	// Log agent reply.
+	if a.convlog != nil {
+		if err := a.convlog.LogAgentReply(req.SessionID, finalAnswer, nil); err != nil {
+			a.logger.Warn("agent: failed to log agent reply", zap.Error(err))
+		}
 	}
 
 	// Persist the exchange to memory.

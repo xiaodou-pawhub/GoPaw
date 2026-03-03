@@ -21,9 +21,8 @@ func TestConfig_Validate(t *testing.T) {
 					Host: "0.0.0.0",
 					Port: 8088,
 				},
-				Storage: StorageConfig{
-					Type: "sqlite",
-					Path: "data/gopaw.db",
+				Workspace: WorkspaceConfig{
+					Dir: "~/.gopaw",
 				},
 			},
 			wantErr: false,
@@ -34,8 +33,8 @@ func TestConfig_Validate(t *testing.T) {
 				Server: ServerConfig{
 					Port: 0,
 				},
-				Storage: StorageConfig{
-					Path: "data/gopaw.db",
+				Workspace: WorkspaceConfig{
+					Dir: "~/.gopaw",
 				},
 			},
 			wantErr: true,
@@ -47,25 +46,25 @@ func TestConfig_Validate(t *testing.T) {
 				Server: ServerConfig{
 					Port: 70000,
 				},
-				Storage: StorageConfig{
-					Path: "data/gopaw.db",
+				Workspace: WorkspaceConfig{
+					Dir: "~/.gopaw",
 				},
 			},
 			wantErr: true,
 			errMsg:  "server.port must be between 1 and 65535",
 		},
 		{
-			name: "missing storage path",
+			name: "missing workspace dir",
 			cfg: Config{
 				Server: ServerConfig{
 					Port: 8088,
 				},
-				Storage: StorageConfig{
-					Path: "",
+				Workspace: WorkspaceConfig{
+					Dir: "",
 				},
 			},
 			wantErr: true,
-			errMsg:  "storage.path is required",
+			errMsg:  "workspace.dir is required",
 		},
 	}
 
@@ -147,13 +146,8 @@ func TestLoadConfig(t *testing.T) {
 server:
   host: "0.0.0.0"
   port: 9000
-storage:
-  type: "sqlite"
-  path: "test.db"
-plugins:
-  enabled:
-    - console
-    - feishu
+workspace:
+  dir: "/tmp/gopaw"
 `
 	err := os.WriteFile(configPath, []byte(configContent), 0644)
 	if err != nil {
@@ -174,8 +168,8 @@ plugins:
 	if cfg.Server.Host != "0.0.0.0" {
 		t.Fatalf("expected host 0.0.0.0, got %s", cfg.Server.Host)
 	}
-	if len(cfg.Plugins.Enabled) != 2 {
-		t.Fatalf("expected 2 enabled plugins, got %d", len(cfg.Plugins.Enabled))
+	if cfg.Workspace.Dir != "/tmp/gopaw" {
+		t.Fatalf("expected workspace dir /tmp/gopaw, got %s", cfg.Workspace.Dir)
 	}
 }
 
@@ -183,8 +177,8 @@ plugins:
 func TestLoadConfig_WithEnvVar(t *testing.T) {
 	// Set environment variable
 	tmpDir := t.TempDir()
-	os.Setenv("GOPAW_TEST_PATH", tmpDir)
-	defer os.Unsetenv("GOPAW_TEST_PATH")
+	os.Setenv("GOPAW_TEST_DIR", tmpDir)
+	defer os.Unsetenv("GOPAW_TEST_DIR")
 
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
@@ -192,8 +186,8 @@ func TestLoadConfig_WithEnvVar(t *testing.T) {
 	configContent := `
 server:
   port: 8088
-storage:
-  path: "${GOPAW_TEST_PATH}/test.db"
+workspace:
+  dir: "${GOPAW_TEST_DIR}/gopaw"
 `
 	err := os.WriteFile(configPath, []byte(configContent), 0644)
 	if err != nil {
@@ -208,9 +202,9 @@ storage:
 
 	// Verify env var was expanded
 	cfg := m.Get()
-	expectedPath := filepath.Join(tmpDir, "test.db")
-	if cfg.Storage.Path != expectedPath {
-		t.Fatalf("expected path %s, got %s", expectedPath, cfg.Storage.Path)
+	expectedDir := filepath.Join(tmpDir, "gopaw")
+	if cfg.Workspace.Dir != expectedDir {
+		t.Fatalf("expected dir %s, got %s", expectedDir, cfg.Workspace.Dir)
 	}
 }
 
@@ -223,8 +217,6 @@ func TestConfigDefaults(t *testing.T) {
 	configContent := `
 server:
   port: 8088
-storage:
-  path: "test.db"
 `
 	err := os.WriteFile(configPath, []byte(configContent), 0644)
 	if err != nil {
@@ -248,5 +240,8 @@ storage:
 	}
 	if cfg.Agent.Memory.ContextLimit != 4000 {
 		t.Fatalf("expected context limit 4000, got %d", cfg.Agent.Memory.ContextLimit)
+	}
+	if cfg.Workspace.Dir != "~/.gopaw" {
+		t.Fatalf("expected workspace dir ~/.gopaw, got %s", cfg.Workspace.Dir)
 	}
 }

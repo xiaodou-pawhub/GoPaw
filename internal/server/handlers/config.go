@@ -26,12 +26,11 @@ func NewConfigHandler(m *config.Manager, logger *zap.Logger) *ConfigHandler {
 func (h *ConfigHandler) Get(c *gin.Context) {
 	cfg := h.manager.Get()
 	c.JSON(http.StatusOK, gin.H{
-		"app":     cfg.App,
-		"server":  cfg.Server,
-		"storage": cfg.Storage,
-		"agent":   cfg.Agent,
-		"plugins": cfg.Plugins,
-		"skills":  cfg.Skills,
-		"log":     cfg.Log,
+		"app":       cfg.App,
+		"server":    cfg.Server,
+		"workspace": cfg.Workspace,
+		"agent":     cfg.Agent,
+		"skills":    cfg.Skills,
+		"log":       cfg.Log,
 	})
 }

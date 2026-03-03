@@ -18,6 +18,7 @@ import (
 	"github.com/gopaw/gopaw/internal/server/handlers"
 	"github.com/gopaw/gopaw/internal/settings"
 	"github.com/gopaw/gopaw/internal/skill"
+	"github.com/gopaw/gopaw/internal/workspace"
 	"go.uber.org/zap"
 )
 
@@ -41,7 +42,7 @@ func New(
 	scheduler *scheduler.Manager,
 	cfgMgr *config.Manager,
 	settingsStore *settings.Store,
-	agentMDPath string,
+	wp *workspace.Paths,
 	staticFS fs.FS,
 	logger *zap.Logger,
 ) *Server {
@@ -59,7 +60,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(agentInstance, memMgr, channelMgr, skillMgr, scheduler, cfgMgr, settingsStore, agentMDPath, staticFS)
+	s.registerRoutes(agentInstance, memMgr, channelMgr, skillMgr, scheduler, cfgMgr, settingsStore, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -80,7 +81,7 @@ func (s *Server) registerRoutes(
 	sched *scheduler.Manager,
 	cfgMgr *config.Manager,
 	settingsStore *settings.Store,
-	agentMDPath string,
+	wp *workspace.Paths,
 	staticFS fs.FS,
 ) {
 	// WebSocket endpoint.
@@ -109,7 +110,7 @@ func (s *Server) registerRoutes(
 	api.GET("/config", cfgH.Get)
 
 	// /api/settings — runtime settings (LLM providers, channel secrets, agent persona)
-	settingsH := handlers.NewSettingsHandler(settingsStore, agentMDPath, channelMgr, s.logger)
+	settingsH := handlers.NewSettingsHandler(settingsStore, wp.AgentMDFile, channelMgr, s.logger)
 	settingsG := api.Group("/settings")
 	{
 		settingsG.GET("/setup-status", settingsH.SetupStatus)
@@ -121,6 +122,20 @@ func (s *Server) registerRoutes(
 		settingsG.PUT("/channels/:name", settingsH.SetChannelConfig)
 		settingsG.GET("/agent", settingsH.GetAgentMD)
 		settingsG.PUT("/agent", settingsH.SetAgentMD)
+	}
+
+	// /api/workspace — agent files (AGENT.md, PERSONA.md, CONTEXT.md, MEMORY.md)
+	workspaceH := handlers.NewWorkspaceHandler(wp, s.logger)
+	workspaceG := api.Group("/workspace")
+	{
+		workspaceG.GET("/agent", workspaceH.GetAgent)
+		workspaceG.PUT("/agent", workspaceH.PutAgent)
+		workspaceG.GET("/persona", workspaceH.GetPersona)
+		workspaceG.PUT("/persona", workspaceH.PutPersona)
+		workspaceG.GET("/context", workspaceH.GetContext)
+		workspaceG.PUT("/context", workspaceH.PutContext)
+		workspaceG.GET("/memory", workspaceH.GetMemory)
+		workspaceG.PUT("/memory", workspaceH.PutMemory)
 	}
 
 	// /api/skills

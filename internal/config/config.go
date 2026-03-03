@@ -31,10 +31,10 @@ type ServerConfig struct {
 	Port int    `mapstructure:"port"`
 }
 
-// StorageConfig selects and configures the persistence backend.
-type StorageConfig struct {
-	Type string `mapstructure:"type"`
-	Path string `mapstructure:"path"`
+// WorkspaceConfig holds the root directory for all runtime data.
+// All paths (DB, logs, agent files) are derived from this directory.
+type WorkspaceConfig struct {
+	Dir string `mapstructure:"dir"`
 }
 
 // MemoryConfig tunes the in-session context window and persistence.
@@ -48,12 +48,6 @@ type MemoryConfig struct {
 type AgentConfig struct {
 	MaxSteps int          `mapstructure:"max_steps"`
 	Memory   MemoryConfig `mapstructure:"memory"`
-}
-
-// PluginsConfig lists which channel plugins are enabled.
-// Plugin secrets are configured via the Web UI and stored in SQLite.
-type PluginsConfig struct {
-	Enabled []string `mapstructure:"enabled"`
 }
 
 // SkillsConfig controls which skills are loaded and their per-skill settings.
@@ -74,14 +68,14 @@ type LogConfig struct {
 // Config is the root configuration structure for the application startup settings.
 // It intentionally omits LLM provider, agent system prompt, and channel secrets —
 // those are runtime settings managed via the Web UI.
+// Channel plugins are auto-discovered from plugins/channels/ directory.
 type Config struct {
-	App     AppConfig     `mapstructure:"app"`
-	Server  ServerConfig  `mapstructure:"server"`
-	Storage StorageConfig `mapstructure:"storage"`
-	Agent   AgentConfig   `mapstructure:"agent"`
-	Plugins PluginsConfig `mapstructure:"plugins"`
-	Skills  SkillsConfig  `mapstructure:"skills"`
-	Log     LogConfig     `mapstructure:"log"`
+	Workspace WorkspaceConfig `mapstructure:"workspace"`
+	App       AppConfig       `mapstructure:"app"`
+	Server    ServerConfig    `mapstructure:"server"`
+	Agent     AgentConfig     `mapstructure:"agent"`
+	Skills    SkillsConfig    `mapstructure:"skills"`
+	Log       LogConfig       `mapstructure:"log"`
 }
 
 // Validate checks required configuration fields.
@@ -89,8 +83,8 @@ func (c *Config) Validate() error {
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		return fmt.Errorf("server.port must be between 1 and 65535, got %d", c.Server.Port)
 	}
-	if c.Storage.Path == "" {
-		return fmt.Errorf("storage.path is required")
+	if c.Workspace.Dir == "" {
+		return fmt.Errorf("workspace.dir is required")
 	}
 	if c.Log.File != "" {
 		// 中文：检查日志目录是否存在
@@ -158,6 +152,8 @@ func NewManager(cfgFile string, logger *zap.Logger) (*Manager, error) {
 
 // setDefaults applies safe default values.
 func setDefaults(v *viper.Viper) {
+	v.SetDefault("workspace.dir", "~/.gopaw")
+
 	v.SetDefault("app.name", "GoPaw")
 	v.SetDefault("app.language", "zh")
 	v.SetDefault("app.timezone", "Asia/Shanghai")
@@ -165,9 +161,6 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("server.host", "0.0.0.0")
 	v.SetDefault("server.port", 8088)
-
-	v.SetDefault("storage.type", "sqlite")
-	v.SetDefault("storage.path", "data/gopaw.db")
 
 	v.SetDefault("agent.max_steps", 20)
 	v.SetDefault("agent.memory.context_limit", 4000)
