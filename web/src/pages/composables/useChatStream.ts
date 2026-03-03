@@ -1,10 +1,8 @@
 import { ref } from 'vue'
 import { useMessage } from 'naive-ui'
-import { useI18n } from 'vue-i18n'
 import { sendChatStream } from '@/api/agent'
 
 export function useChatStream(onDone: () => void) {
-  const { t } = useI18n()
   const message = useMessage()
 
   const isThinking = ref(false)

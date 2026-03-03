@@ -89,22 +89,46 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
+@use '@/styles/variables.scss' as *;
+
 .setup-page {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: calc(100vh - 112px);
+  height: calc(100vh - 64px);
+  animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .setup-card {
   max-width: 600px;
   width: 100%;
-  border-radius: 20px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+  border-radius: $radius-2xl;
+  box-shadow: $shadow-xl;
+  animation: slideUp 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(40px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .setup-content {
-  padding: 40px 0;
+  padding: $spacing-12 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -114,18 +138,55 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: $spacing-6;
+  animation: bounceIn 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+  :deep(.n-icon) {
+    transition: all 0.3s ease;
+    
+    &:hover {
+      transform: scale(1.1) rotate(-5deg);
+    }
+  }
+}
+
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .hero-title {
-  margin-top: 16px;
+  margin-top: $spacing-4;
   font-size: 36px;
-  font-weight: 800;
+  font-weight: $font-weight-extrabold;
   letter-spacing: -1px;
+  color: $color-primary;
 }
 
 .action-btn {
   min-width: 160px;
-  border-radius: 8px;
+  border-radius: $radius-lg;
+  transition: all 0.2s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: $shadow-lg;
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
 }
 </style>

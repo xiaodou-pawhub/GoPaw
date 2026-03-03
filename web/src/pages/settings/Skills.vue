@@ -1,54 +1,55 @@
 <template>
-  <div class="skills-page">
-    <n-space vertical :size="24">
-      <div class="page-header">
-        <n-h2>{{ t('settings.skills.title') }}</n-h2>
-        <n-text depth="3">{{ t('settings.skills.description') }}</n-text>
+  <div class="skills-view">
+    <div class="view-header">
+      <div class="header-main">
+        <h1 class="title">{{ t('settings.skills.title') }}</h1>
+        <p class="description">{{ t('settings.skills.description') }}</p>
       </div>
+    </div>
 
-      <n-card bordered class="list-card" :loading="loading">
-        <n-space vertical :size="16">
-          <n-alert v-if="skills.length === 0" type="info">
-            {{ t('settings.skills.noSkills') }}
-          </n-alert>
+    <div class="skills-list" v-loading="loading" :class="{ 'is-loading': loading }">
+      <n-empty v-if="skills.length === 0" :description="t('settings.skills.noSkills')" size="large" class="empty-state">
+        <template #extra>
+          <p class="empty-tip">{{ t('settings.skills.noSkillsTip') }}</p>
+        </template>
+      </n-empty>
 
-          <n-list v-else hoverable>
-            <n-list-item v-for="skill in skills" :key="skill.name" class="skill-item">
-              <template #prefix>
-                <n-switch
-                  :value="skill.enabled"
-                  :loading="loadingSkills[skill.name]"
-                  @update:value="(val: boolean) => handleToggle(skill.name, val)"
-                />
-              </template>
-
-              <n-space vertical :size="4">
-                <div class="skill-header">
-                  <span class="skill-name">{{ skill.display_name }}</span>
-                  <n-tag size="small" quaternary type="info">{{ skill.name }}</n-tag>
-                </div>
-                <n-text depth="3" class="skill-desc">{{ skill.description }}</n-text>
-                <n-space :size="8">
-                  <n-text depth="3" style="font-size: 12px">
-                    v{{ skill.version }}
-                  </n-text>
-                  <n-divider vertical />
-                  <n-text depth="3" style="font-size: 12px">
-                    {{ t('settings.skills.level') }}: {{ skill.level }}
-                  </n-text>
-                  <template v-if="skill.author">
-                    <n-divider vertical />
-                    <n-text depth="3" style="font-size: 12px">
-                      {{ skill.author }}
-                    </n-text>
-                  </template>
-                </n-space>
-              </n-space>
-            </n-list-item>
-          </n-list>
-        </n-space>
-      </n-card>
-    </n-space>
+      <div v-else class="skill-grid">
+        <div v-for="skill in skills" :key="skill.name" class="skill-card">
+          <div class="skill-header">
+            <n-switch
+              :value="skill.enabled"
+              :loading="loadingSkills[skill.name]"
+              @update:value="(val: boolean) => handleToggle(skill.name, val)"
+              size="large"
+              class="skill-switch"
+            />
+            <div class="skill-info">
+              <div class="skill-title">
+                <h3 class="skill-name">{{ skill.display_name }}</h3>
+                <n-tag size="small" type="info" round>{{ skill.name }}</n-tag>
+              </div>
+              <p class="skill-desc">{{ skill.description }}</p>
+            </div>
+          </div>
+          
+          <div class="skill-meta">
+            <div class="meta-item">
+              <span class="meta-label">{{ t('settings.skills.version') }}</span>
+              <span class="meta-value">v{{ skill.version }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">{{ t('settings.skills.level') }}</span>
+              <span class="meta-value">{{ skill.level }}</span>
+            </div>
+            <div v-if="skill.author" class="meta-item">
+              <span class="meta-label">{{ t('settings.skills.author') }}</span>
+              <span class="meta-value">{{ skill.author }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -57,8 +58,7 @@
 // English: Import necessary dependencies
 import { ref, reactive, onMounted } from 'vue'
 import {
-  NCard, NList, NListItem, NSpace, NTag, NText, NSwitch,
-  NAlert, NDivider, NH2, useMessage
+  NTag, NSwitch, NEmpty, useMessage
 } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { getSkills, setSkillEnabled, type Skill } from '@/api/settings'
@@ -108,35 +108,180 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
-.skills-page {
-  padding: 12px;
+@use '@/styles/variables.scss' as *;
+
+.skills-view {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-8;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  animation: fadeIn 0.4s ease-out;
 }
 
-.page-header {
-  margin-bottom: 8px;
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.list-card {
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+.view-header {
+  padding-bottom: $spacing-6;
+  border-bottom: 1px solid $color-border-light;
+  animation: slideDown 0.5s ease-out;
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .title {
+    margin: 0 0 $spacing-2;
+    font-weight: $font-weight-bold;
+    font-size: $font-size-h1;
+    color: $color-text-primary;
+    letter-spacing: -0.5px;
+  }
+
+  .description {
+    margin: 0;
+    font-size: $font-size-base;
+    color: $color-text-secondary;
+  }
 }
 
-.skill-item {
-  padding: 16px 0;
+.skills-list {
+  margin-top: $spacing-6;
+
+  &.is-loading {
+    opacity: 0.6;
+  }
+}
+
+.empty-state {
+  padding: $spacing-20 0;
+
+  .empty-tip {
+    margin-top: $spacing-4;
+    color: $color-text-secondary;
+    font-size: $font-size-sm;
+  }
+}
+
+.skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
+  gap: $spacing-5;
+}
+
+.skill-card {
+  background: $color-bg-primary;
+  border: 1px solid $color-border-light;
+  border-radius: $radius-xl;
+  padding: $spacing-6;
+  transition: $transition-normal;
+  animation: slideUp 0.4s ease-out;
+  animation-fill-mode: both;
+
+  @for $i from 1 through 12 {
+    &:nth-child(#{$i}) {
+      animation-delay: #{$i * 0.05}s;
+    }
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: $shadow-hover;
+    border-color: $color-primary-light;
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }
 
 .skill-header {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: $spacing-4;
+  margin-bottom: $spacing-4;
+
+  .skill-info {
+    flex: 1;
+  }
+
+  .skill-switch {
+    transition: all 0.3s ease;
+
+    &:hover {
+      transform: scale(1.05);
+    }
+  }
 }
 
-.skill-name {
-  font-weight: 700;
-  font-size: 17px;
+.skill-title {
+  display: flex;
+  align-items: center;
+  gap: $spacing-2;
+  margin-bottom: $spacing-2;
+
+  .skill-name {
+    margin: 0;
+    font-weight: $font-weight-semibold;
+    font-size: $font-size-h4;
+    color: $color-text-primary;
+  }
 }
 
 .skill-desc {
-  font-size: 14px;
+  margin: 0;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+}
+
+.skill-meta {
+  display: flex;
+  gap: $spacing-6;
+  padding-top: $spacing-4;
+  border-top: 1px solid $color-border-light;
+  flex-wrap: wrap;
+}
+
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-1;
+
+  .meta-label {
+    font-size: $font-size-xs;
+    color: $color-text-tertiary;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .meta-value {
+    font-size: $font-size-sm;
+    color: $color-text-secondary;
+    font-weight: $font-weight-medium;
+  }
 }
 </style>

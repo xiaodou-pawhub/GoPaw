@@ -99,6 +99,7 @@ func (s *Server) registerRoutes(
 		agentG.GET("/sessions", agentH.ListSessions)
 		agentG.GET("/sessions/:id/messages", agentH.GetSessionMessages)
 		agentG.DELETE("/sessions/:id", agentH.DeleteSession)
+		agentG.PUT("/sessions/:id/name", agentH.UpdateSessionName)
 		agentG.GET("/sessions/:id/stats", agentH.GetSessionStats)
 		agentG.POST("/upload", uploadH.Upload)
 	}

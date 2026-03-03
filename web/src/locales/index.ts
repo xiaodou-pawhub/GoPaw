@@ -19,12 +19,12 @@ const messages = {
     nav: {
       chat: '聊天',
       settings: '设置',
-      providers: 'LLM 提供商',
+      providers: '模型配置',
       channels: '频道',
       agent: 'Agent 设定',
       cron: '定时任务',
-      logs: '系统日志',
-      skills: '技能管理'
+      skills: '技能管理',
+      logs: '系统日志'
     },
     chat: {
       title: '聊天',
@@ -34,7 +34,11 @@ const messages = {
       history: '历史会话',
       thinking: '思考中...',
       welcome: '你好！我是 GoPaw，你的 AI 助理。有什么可以帮你的吗？',
-      deleteConfirm: '删除后无法恢复该会话的所有消息，是否继续？'
+      deleteConfirm: '删除后无法恢复该会话的所有消息，是否继续？',
+      renameSession: '重命名会话',
+      sessionNamePlaceholder: '输入会话名称',
+      copied: '已复制',
+      copyFailed: '复制失败'
     },
     settings: {
       title: '设置',
@@ -43,19 +47,19 @@ const messages = {
       modifiedStatus: '未保存的修改',
       markdownTip: '支持 Markdown 语法，设定将作为 System Prompt 注入对话上下文',
       providers: {
-        title: 'LLM 提供商',
+        title: '模型配置',
         description: '配置并切换不同的大模型服务商，支持 OpenAI 格式的 API 接入',
-        add: '添加提供商',
-        edit: '编辑提供商',
+        add: '添加模型',
+        edit: '编辑模型',
         name: '名称',
         baseURL: 'API 地址',
         apiKey: 'API Key',
         model: '模型',
         active: '活跃',
         setActive: '设为活跃',
-        deleteConfirm: '确认删除此提供商吗？',
-        noProviders: '暂无 LLM 提供商',
-        addFirst: '请添加第一个 LLM 提供商以开始使用',
+        deleteConfirm: '确认删除此模型吗？',
+        noProviders: '暂无模型配置',
+        addFirst: '请添加第一个模型以开始使用',
         placeholder: {
           name: '例如：OpenAI',
           baseURL: 'https://api.openai.com/v1',
@@ -64,7 +68,7 @@ const messages = {
         }
       },
       agent: {
-        title: 'Agent 设定',
+        title: 'Agent 人设',
         description: '定制 Agent 的性格、知识背景与行为逻辑',
         placeholder: '在此输入 Agent 的系统提示词...'
       },
@@ -79,6 +83,18 @@ const messages = {
         configured: '已激活',
         notConfigured: '未配置',
         endpoint: '接收地址：'
+      },
+      skills: {
+        title: '技能管理',
+        description: '查看和管理 Agent 可用的技能模块',
+        noSkills: '暂无可用的技能',
+        level: '等级',
+        version: '版本',
+        author: '作者',
+        enabled: '已启用',
+        disabled: '未启用',
+        enable: '启用',
+        disable: '禁用'
       }
     },
     cron: {
@@ -155,7 +171,11 @@ const messages = {
       history: 'History',
       thinking: 'Thinking...',
       welcome: 'Hello! I\'m GoPaw, your AI assistant. How can I help you?',
-      deleteConfirm: 'Delete this session and all its messages? This action cannot be undone.'
+      deleteConfirm: 'Delete this session and all its messages? This action cannot be undone.',
+      renameSession: 'Rename Session',
+      sessionNamePlaceholder: 'Enter session name',
+      copied: 'Copied',
+      copyFailed: 'Copy failed'
     },
     settings: {
       title: 'Settings',
@@ -185,7 +205,7 @@ const messages = {
         }
       },
       agent: {
-        title: 'Agent Settings',
+        title: 'Agent Persona',
         description: 'Customize Agent personality, knowledge and behavior',
         placeholder: 'Enter System Prompt here...'
       },
@@ -200,6 +220,18 @@ const messages = {
         configured: 'Active',
         notConfigured: 'Not Configured',
         endpoint: 'Endpoint: '
+      },
+      skills: {
+        title: 'Skills',
+        description: 'View and manage available agent skill modules',
+        noSkills: 'No skills available',
+        level: 'Level',
+        version: 'Version',
+        author: 'Author',
+        enabled: 'Enabled',
+        disabled: 'Disabled',
+        enable: 'Enable',
+        disable: 'Disable'
       }
     },
     cron: {

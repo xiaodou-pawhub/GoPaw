@@ -47,8 +47,8 @@ export interface CronJob {
   session_id: string
   prompt: string
   enabled: boolean
-  active_from: string // "HH:MM"
-  active_until: string // "HH:MM"
+  active_from?: string | null // "HH:MM"
+  active_until?: string | null // "HH:MM"
   last_run?: number
   next_run?: number
   created_at?: number
@@ -85,6 +85,7 @@ export interface SessionStats {
 // 会话信息
 export interface SessionInfo {
   id: string
+  name: string
   user_id: string
   channel: string
   created_at: number

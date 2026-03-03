@@ -46,6 +46,11 @@ func NewManager(store *Store, llmClient llm.Client, contextLimit, historyLimit i
 	}
 }
 
+// Store returns the underlying store for direct SQL access.
+func (m *Manager) Store() *Store {
+	return m.store
+}
+
 // Add persists one user→assistant exchange to the store.
 func (m *Manager) Add(sessionID, userID, channel, userMsg, assistantMsg string) error {
 	if err := m.store.EnsureSession(sessionID, userID, channel); err != nil {

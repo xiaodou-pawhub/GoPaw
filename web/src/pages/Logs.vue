@@ -111,60 +111,97 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
+@use '@/styles/variables.scss' as *;
+
 .logs-page {
-  padding: 12px;
+  padding: $spacing-3;
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  margin-bottom: 8px;
+  margin-bottom: $spacing-2;
+
+  :deep(.n-h2) {
+    margin: 0 0 $spacing-1;
+    font-weight: $font-weight-bold;
+    color: $color-text-primary;
+  }
 }
 
 .logs-card {
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  border-radius: $radius-xl;
+  box-shadow: $shadow-md;
   overflow: hidden;
+  animation: slideUp 0.5s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .logs-container {
   height: calc(100vh - 240px);
-  background: #1e1e1e; // 代码风格背景
+  background: #1e1e1e;
   color: #d4d4d4;
-  padding: 16px;
+  padding: $spacing-4;
   overflow-y: auto;
-  font-family: 'Fira Code', 'Courier New', Courier, monospace;
-  font-size: 13px;
+  font-family: $font-family-mono;
+  font-size: $font-size-sm;
 }
 
 .log-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: $spacing-1;
 }
 
 .log-item {
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: $spacing-1 $spacing-2;
+  border-radius: $radius-sm;
   word-break: break-all;
   white-space: pre-wrap;
   border-left: 3px solid transparent;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
 
   &.level-error {
     background: rgba(240, 68, 68, 0.1);
-    border-left-color: #f04444;
+    border-left-color: $color-error;
     color: #ff8888;
   }
 
   &.level-warn {
     background: rgba(245, 158, 11, 0.1);
-    border-left-color: #f59e0b;
+    border-left-color: $color-warning;
     color: #fbbf24;
   }
 
   &.level-info {
-    border-left-color: #18a058;
+    border-left-color: $color-success;
   }
 }
 
@@ -176,6 +213,6 @@ onUnmounted(() => {
 }
 
 .auto-refresh-switch {
-  margin-right: 12px;
+  margin-right: $spacing-3;
 }
 </style>

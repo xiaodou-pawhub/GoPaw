@@ -31,33 +31,26 @@ const routes: RouteRecordRaw[] = [
         name: 'Logs',
         component: () => import('@/pages/Logs.vue')
       },
+      // 设置页面 - 扁平化路由，直接在 MainLayout 中显示
       {
-        path: 'settings',
-        name: 'Settings',
-        component: () => import('@/layouts/SettingsLayout.vue'),
-        redirect: '/settings/providers',
-        children: [
-          {
-            path: 'providers',
-            name: 'SettingsProviders',
-            component: () => import('@/pages/settings/Providers.vue')
-          },
-          {
-            path: 'agent',
-            name: 'SettingsAgent',
-            component: () => import('@/pages/settings/Agent.vue')
-          },
-          {
-            path: 'channels',
-            name: 'SettingsChannels',
-            component: () => import('@/pages/settings/Channels.vue')
-          },
-          {
-            path: 'skills',
-            name: 'SettingsSkills',
-            component: () => import('@/pages/settings/Skills.vue')
-          }
-        ]
+        path: 'settings/providers',
+        name: 'SettingsProviders',
+        component: () => import('@/pages/settings/Providers.vue')
+      },
+      {
+        path: 'settings/agent',
+        name: 'SettingsAgent',
+        component: () => import('@/pages/settings/Agent.vue')
+      },
+      {
+        path: 'settings/channels',
+        name: 'SettingsChannels',
+        component: () => import('@/pages/settings/Channels.vue')
+      },
+      {
+        path: 'settings/skills',
+        name: 'SettingsSkills',
+        component: () => import('@/pages/settings/Skills.vue')
       }
     ]
   }

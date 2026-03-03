@@ -2,19 +2,21 @@
   <div class="providers-view">
     <div class="view-header">
       <div class="header-main">
-        <n-h2 class="title">{{ t('settings.providers.title') }}</n-h2>
-        <n-text depth="3" class="description">{{ t('settings.providers.description') }}</n-text>
+        <h1 class="title">{{ t('settings.providers.title') }}</h1>
+        <p class="description">{{ t('settings.providers.description') }}</p>
       </div>
-      <n-button type="primary" size="large" round @click="openModal('create')">
-        <template #icon><n-icon :component="AddOutline" /></template>
+      <n-button type="primary" size="medium" round @click="openModal('create')" class="add-button">
+        <template #icon><n-icon :component="AddOutline" :size="18" /></template>
         {{ t('settings.providers.add') }}
       </n-button>
     </div>
 
     <div v-if="providers.length === 0" class="empty-state">
-      <n-empty :description="t('settings.providers.noProviders')">
+      <n-empty :description="t('settings.providers.noProviders')" size="large">
         <template #extra>
-          <n-button quaternary @click="openModal('create')">{{ t('settings.providers.addFirst') }}</n-button>
+          <n-button type="primary" round @click="openModal('create')" style="margin-top: 24px;">
+            {{ t('settings.providers.addFirst') }}
+          </n-button>
         </template>
       </n-empty>
     </div>
@@ -24,16 +26,15 @@
         v-for="provider in providers"
         :key="provider.id"
         class="provider-card"
-        :class="{ active: provider.isActive }"
+        :class="{ active: provider.is_active }"
       >
-        <div class="card-glow"></div>
         <div class="card-content">
           <div class="card-header">
             <div class="provider-info">
-              <div class="provider-name">{{ provider.name }}</div>
-              <div class="provider-model">{{ provider.model }}</div>
+              <h3 class="provider-name">{{ provider.name }}</h3>
+              <p class="provider-model">{{ provider.model }}</p>
             </div>
-            <n-tag v-if="provider.isActive" type="success" size="small" round ghost>
+            <n-tag v-if="provider.is_active" type="success" size="small" round>
               {{ t('settings.providers.active') }}
             </n-tag>
           </div>
@@ -41,19 +42,19 @@
           <div class="card-body">
             <div class="url-badge">
               <n-icon :component="LinkOutline" />
-              <span class="url-text">{{ provider.baseURL }}</span>
+              <span class="url-text">{{ provider.base_url }}</span>
             </div>
           </div>
 
           <div class="card-footer">
             <n-space>
-              <n-button quaternary circle size="small" @click="openModal('edit', provider)">
-                <template #icon><n-icon :component="CreateOutline" /></template>
+              <n-button quaternary circle size="small" @click="openModal('edit', provider)" class="action-btn">
+                <template #icon><n-icon :component="CreateOutline" :size="16" /></template>
               </n-button>
               <n-popconfirm @positive-click="handleDelete(provider.id)">
                 <template #trigger>
-                  <n-button quaternary circle size="small" type="error">
-                    <template #icon><n-icon :component="TrashOutline" /></template>
+                  <n-button quaternary circle size="small" type="error" class="action-btn">
+                    <template #icon><n-icon :component="TrashOutline" :size="16" /></template>
                   </n-button>
                 </template>
                 {{ t('settings.providers.deleteConfirm') }}
@@ -61,11 +62,12 @@
             </n-space>
             
             <n-button
-              v-if="!provider.isActive"
+              v-if="!provider.is_active"
               secondary
               size="small"
               round
               @click="handleSetActive(provider.id)"
+              class="activate-btn"
             >
               {{ t('settings.providers.setActive') }}
             </n-button>
@@ -78,9 +80,11 @@
       v-model:show="showModal"
       preset="card"
       :title="modalType === 'create' ? t('settings.providers.add') : t('settings.providers.edit')"
-      style="width: 500px; border-radius: 16px;"
+      style="width: 560px;"
+      :bordered="false"
+      size="medium"
     >
-      <n-form :model="formModel" label-placement="top">
+      <n-form :model="formModel" label-placement="top" label-width="auto">
         <n-form-item :label="t('settings.providers.name')">
           <n-input v-model:value="formModel.name" :placeholder="t('settings.providers.placeholder.name')" />
         </n-form-item>
@@ -102,7 +106,7 @@
       <template #footer>
         <n-space justify="end">
           <n-button @click="showModal = false">{{ t('common.cancel') }}</n-button>
-          <n-button type="primary" :loading="submitting" @click="handleSubmit" round style="padding: 0 24px;">
+          <n-button type="primary" :loading="submitting" @click="handleSubmit" round>
             {{ t('common.save') }}
           </n-button>
         </n-space>
@@ -113,14 +117,16 @@
 
 <script setup lang="ts">
 import { ref, onMounted, reactive } from 'vue'
-import { NH2, NText, NButton, NIcon, NEmpty, NTag, NSpace, NPopconfirm, NModal, NForm, NFormItem, NInput, useMessage } from 'naive-ui'
+import { NButton, NIcon, NEmpty, NTag, NSpace, NPopconfirm, NModal, NForm, NFormItem, NInput, useMessage } from 'naive-ui'
 import { AddOutline, LinkOutline, CreateOutline, TrashOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
+import { useAppStore } from '@/stores/app'
 import { getProviders, saveProvider, deleteProvider, setActiveProvider } from '@/api/settings'
 import type { BackendProvider } from '@/types'
 
 const { t } = useI18n()
 const message = useMessage()
+const appStore = useAppStore()
 
 const providers = ref<BackendProvider[]>([])
 const showModal = ref(false)
@@ -131,7 +137,10 @@ const formModel = reactive({ id: '', name: '', base_url: '', api_key: '', model:
 
 async function loadData() {
   try {
-    providers.value = await getProviders()
+    const backendProviders = await getProviders()
+    providers.value = backendProviders
+    // 修复 P1: 直接同步后端原始数据（snake_case）
+    appStore.setProviders(backendProviders)
   } catch (error) {
     console.error(error)
   }
@@ -172,7 +181,7 @@ async function handleSetActive(id: string) {
   try {
     await setActiveProvider(id)
     message.success(t('common.success'))
-    loadData()
+    await loadData()  // 重新加载数据并同步全局状态
   } catch (error) {
     message.error(t('common.error'))
   }
@@ -182,13 +191,186 @@ onMounted(loadData)
 </script>
 
 <style scoped lang="scss">
-.providers-view { display: flex; flex-direction: column; gap: 40px; }
-.view-header { display: flex; justify-content: space-between; align-items: flex-start; .title { margin: 0 0 8px; font-weight: 800; font-size: 32px; letter-spacing: -1px; } .description { font-size: 15px; } }
-.provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 24px; }
-.provider-card { position: relative; background: #fff; border-radius: 20px; padding: 24px; border: 1px solid rgba(0, 0, 0, 0.06); transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1); overflow: hidden; &:hover { transform: translateY(-4px); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08); border-color: rgba(24, 160, 88, 0.2); } &.active { background: #fdfdfd; border-color: rgba(24, 160, 88, 0.4); box-shadow: 0 8px 24px rgba(24, 160, 88, 0.06); .card-glow { opacity: 1; } } }
-.card-glow { position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(24, 160, 88, 0.03) 0%, transparent 70%); pointer-events: none; opacity: 0; transition: opacity 0.4s; }
-.card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; .provider-name { font-size: 20px; font-weight: 700; color: #1a1a1a; } .provider-model { font-size: 13px; color: #888; margin-top: 2px; } }
-.card-body { margin-bottom: 24px; .url-badge { display: inline-flex; align-items: center; gap: 6px; background: #f5f5f5; padding: 6px 12px; border-radius: 8px; font-family: monospace; font-size: 12px; color: #666; max-width: 100%; .url-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } } }
-.card-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(0, 0, 0, 0.04); padding-top: 20px; }
-.empty-state { padding: 80px 0; }
+@use '@/styles/variables.scss' as *;
+
+.providers-view {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.view-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: 24px;
+  border-bottom: 1px solid $color-border-light;
+
+  .title {
+    margin: 0 0 8px;
+    font-weight: $font-weight-bold;
+    font-size: $font-size-h1;
+    color: $color-text-primary;
+    letter-spacing: -0.5px;
+  }
+
+  .description {
+    font-size: $font-size-base;
+    color: $color-text-secondary;
+    margin: 0;
+  }
+}
+
+.add-button {
+  transition: all 0.2s ease;
+
+  &:hover {
+    transform: scale(1.02);
+  }
+
+  &:active {
+    transform: scale(0.98);
+  }
+}
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: $spacing-6;
+}
+
+.provider-card {
+  background: $color-bg-primary;
+  border-radius: $radius-xl;
+  padding: $spacing-6;
+  border: 1px solid $color-border-light;
+  transition: $transition-normal;
+  overflow: hidden;
+  animation: slideUp 0.4s ease-out;
+  animation-fill-mode: both;
+
+  @for $i from 1 through 10 {
+    &:nth-child(#{$i}) {
+      animation-delay: #{$i * 0.05}s;
+    }
+  }
+
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: $shadow-lg;
+    border-color: $color-primary-light;
+  }
+
+  &.active {
+    border-color: $color-success;
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.02) 0%, $color-bg-primary 100%);
+
+    &:hover {
+      box-shadow: 0 12px 32px rgba(16, 185, 129, 0.15);
+    }
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: $spacing-5;
+
+  .provider-name {
+    font-size: $font-size-h4;
+    font-weight: $font-weight-semibold;
+    color: $color-text-primary;
+    margin: 0 0 4px;
+  }
+
+  .provider-model {
+    font-size: $font-size-sm;
+    color: $color-text-secondary;
+    margin: 0;
+  }
+}
+
+.card-body {
+  margin-bottom: $spacing-6;
+
+  .url-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: $spacing-2;
+    background: $color-bg-tertiary;
+    padding: $spacing-2 $spacing-3;
+    border-radius: $radius-md;
+    font-family: $font-family-mono;
+    font-size: $font-size-xs;
+    color: $color-text-secondary;
+    max-width: 100%;
+
+    .url-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+}
+
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid $color-border-light;
+  padding-top: $spacing-5;
+
+  .action-btn {
+    transition: all 0.2s ease;
+
+    &:hover {
+      transform: scale(1.1);
+    }
+
+    &:active {
+      transform: scale(0.95);
+    }
+  }
+
+  .activate-btn {
+    transition: all 0.2s ease;
+
+    &:hover {
+      transform: translateY(-1px);
+      box-shadow: $shadow-md;
+    }
+  }
+}
+
+.empty-state {
+  padding: $spacing-20 0;
+  text-align: center;
+}
 </style>

@@ -37,6 +37,12 @@ export async function deleteSession(sessionId: string) {
 	return await api.delete(`/agent/sessions/${sessionId}`)
 }
 
+// 中文：更新会话名称
+// English: Update session name
+export async function updateSessionName(sessionId: string, name: string) {
+	return await api.put(`/agent/sessions/${sessionId}/name`, { name })
+}
+
 // 中文：获取流式对话的 SSE URL（已废弃，仅用于短消息）
 // English: Get SSE URL for streaming chat (deprecated, use only for short messages)
 // @deprecated Use sendChatStream for large content support

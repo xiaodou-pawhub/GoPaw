@@ -2,8 +2,8 @@
   <div class="channels-view">
     <div class="view-header">
       <div class="header-main">
-        <n-h2 class="title">{{ t('settings.channels.title') }}</n-h2>
-        <n-text depth="3" class="description">{{ t('settings.channels.description') }}</n-text>
+        <h1 class="title">{{ t('settings.channels.title') }}</h1>
+        <p class="description">{{ t('settings.channels.description') }}</p>
       </div>
     </div>
 
@@ -13,7 +13,7 @@
         <div class="channel-brand">
           <div class="brand-icon feishu"><n-icon :component="BusinessOutline" /></div>
           <div class="brand-info">
-            <div class="brand-name">{{ t('settings.channels.feishu') }}</div>
+            <h3 class="brand-name">{{ t('settings.channels.feishu') }}</h3>
             <div class="brand-status">
               <n-badge :type="getChannelHealth('feishu').running ? 'success' : 'default'" dot processing />
               <span>{{ getChannelHealth('feishu').running ? t('settings.channels.running') : t('settings.channels.stopped') }}</span>
@@ -22,7 +22,7 @@
         </div>
         
         <div class="channel-form-card">
-          <n-form :model="feishuForm" label-placement="top">
+          <n-form :model="feishuForm" label-placement="top" label-width="auto">
             <n-grid :cols="2" :x-gap="24">
               <n-gi>
                 <n-form-item label="App ID">
@@ -36,7 +36,7 @@
               </n-gi>
             </n-grid>
             <div class="form-actions">
-              <n-button type="primary" secondary round :loading="saving === 'feishu'" @click="saveConfig('feishu', feishuForm)">
+              <n-button type="primary" round :loading="saving === 'feishu'" @click="saveConfig('feishu', feishuForm)">
                 {{ t('common.save') }}
               </n-button>
             </div>
@@ -49,7 +49,7 @@
         <div class="channel-brand">
           <div class="brand-icon dingtalk"><n-icon :component="RocketOutline" /></div>
           <div class="brand-info">
-            <div class="brand-name">{{ t('settings.channels.dingtalk') }}</div>
+            <h3 class="brand-name">{{ t('settings.channels.dingtalk') }}</h3>
             <div class="brand-status">
               <n-badge :type="getChannelHealth('dingtalk').running ? 'success' : 'default'" dot processing />
               <span>{{ getChannelHealth('dingtalk').running ? t('settings.channels.running') : t('settings.channels.stopped') }}</span>
@@ -58,7 +58,7 @@
         </div>
         
         <div class="channel-form-card">
-          <n-form :model="dingtalkForm" label-placement="top">
+          <n-form :model="dingtalkForm" label-placement="top" label-width="auto">
             <n-grid :cols="2" :x-gap="24">
               <n-gi>
                 <n-form-item label="Client ID">
@@ -72,7 +72,7 @@
               </n-gi>
             </n-grid>
             <div class="form-actions">
-              <n-button type="primary" secondary round :loading="saving === 'dingtalk'" @click="saveConfig('dingtalk', dingtalkForm)">
+              <n-button type="primary" round :loading="saving === 'dingtalk'" @click="saveConfig('dingtalk', dingtalkForm)">
                 {{ t('common.save') }}
               </n-button>
             </div>
@@ -85,7 +85,7 @@
         <div class="channel-brand">
           <div class="brand-icon webhook"><n-icon :component="LinkOutline" /></div>
           <div class="brand-info">
-            <div class="brand-name">{{ t('settings.channels.webhook') }}</div>
+            <h3 class="brand-name">{{ t('settings.channels.webhook') }}</h3>
             <div class="brand-status">
               <n-badge :type="getChannelHealth('webhook').running ? 'success' : 'default'" dot processing />
               <span>{{ getChannelHealth('webhook').running ? t('settings.channels.configured') : t('settings.channels.notConfigured') }}</span>
@@ -94,7 +94,7 @@
         </div>
         
         <div class="channel-form-card">
-          <n-form :model="webhookForm" label-placement="top">
+          <n-form :model="webhookForm" label-placement="top" label-width="auto">
             <n-form-item label="Auth Token">
               <n-input v-model:value="webhookForm.token" placeholder="Token" />
             </n-form-item>
@@ -104,7 +104,7 @@
             </div>
 
             <div class="form-actions">
-              <n-button type="primary" secondary round :loading="saving === 'webhook'" @click="saveConfig('webhook', webhookForm)">
+              <n-button type="primary" round :loading="saving === 'webhook'" @click="saveConfig('webhook', webhookForm)">
                 {{ t('common.save') }}
               </n-button>
             </div>
@@ -117,7 +117,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, reactive } from 'vue'
-import { NH2, NText, NButton, NIcon, NBadge, NForm, NFormItem, NInput, NGrid, NGi, useMessage } from 'naive-ui'
+import { NButton, NIcon, NBadge, NForm, NFormItem, NInput, NGrid, NGi, useMessage } from 'naive-ui'
 import { BusinessOutline, RocketOutline, LinkOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { getChannelConfig, saveChannelConfig, getChannelsHealth } from '@/api/settings'
@@ -176,12 +176,186 @@ onUnmounted(() => { if (healthTimer) clearInterval(healthTimer) })
 </script>
 
 <style scoped lang="scss">
-.channels-view { display: flex; flex-direction: column; gap: 40px; }
-.view-header { .title { margin: 0 0 8px; font-weight: 800; font-size: 32px; letter-spacing: -1px; } }
-.channel-list { display: flex; flex-direction: column; gap: 48px; }
-.channel-item { display: flex; gap: 48px; @media (max-width: 1000px) { flex-direction: column; gap: 24px; } }
-.channel-brand { width: 200px; display: flex; flex-direction: column; gap: 16px; .brand-icon { width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 28px; color: #fff; &.feishu { background: linear-gradient(135deg, #2ecc71, #18a058); } &.dingtalk { background: linear-gradient(135deg, #3498db, #2080f0); } &.webhook { background: linear-gradient(135deg, #f39c12, #f0a020); } } .brand-name { font-weight: 700; font-size: 18px; color: #1a1a1a; } .brand-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #888; } }
-.channel-form-card { flex: 1; background: #fdfdfd; padding: 32px; border-radius: 24px; border: 1px solid rgba(0, 0, 0, 0.04); transition: all 0.3s; &:hover { background: #fff; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.03); border-color: rgba(0, 0, 0, 0.08); } }
-.endpoint-tip { margin-top: -8px; margin-bottom: 24px; font-size: 12px; color: #999; .code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-family: monospace; color: #e67e22; } }
-.form-actions { display: flex; justify-content: flex-end; }
+@use '@/styles/variables.scss' as *;
+
+.channels-view {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-8;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.view-header {
+  padding-bottom: $spacing-6;
+  border-bottom: 1px solid $color-border-light;
+
+  .title {
+    margin: 0 0 $spacing-2;
+    font-weight: $font-weight-bold;
+    font-size: $font-size-h1;
+    color: $color-text-primary;
+    letter-spacing: -0.5px;
+  }
+
+  .description {
+    margin: 0;
+    font-size: $font-size-base;
+    color: $color-text-secondary;
+  }
+}
+
+.channel-list {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-8;
+}
+
+.channel-item {
+  display: flex;
+  gap: $spacing-8;
+  padding: $spacing-8;
+  border: 1px solid $color-border-light;
+  border-radius: $radius-xl;
+  background: $color-bg-primary;
+  transition: $transition-normal;
+  animation: slideUp 0.5s ease-out;
+  animation-fill-mode: both;
+
+  @for $i from 1 through 6 {
+    &:nth-child(#{$i}) {
+      animation-delay: #{$i * 0.08}s;
+    }
+  }
+
+  &:hover {
+    transform: translateY(-3px);
+    box-shadow: $shadow-lg;
+    border-color: $color-border-medium;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.channel-brand {
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-4;
+  padding: $spacing-2;
+
+  .brand-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: $radius-lg;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: $color-white;
+    transition: all 0.3s ease;
+
+    &:hover {
+      transform: scale(1.1) rotate(5deg);
+    }
+
+    &.feishu {
+      background: linear-gradient(135deg, $color-success, $color-success-dark);
+    }
+
+    &.dingtalk {
+      background: linear-gradient(135deg, $color-info, $color-info-dark);
+    }
+
+    &.webhook {
+      background: linear-gradient(135deg, $color-warning, $color-warning-dark);
+    }
+  }
+
+  .brand-name {
+    font-weight: $font-weight-semibold;
+    font-size: $font-size-h4;
+    color: $color-text-primary;
+    margin: $spacing-1 0 0 0;
+  }
+
+  .brand-status {
+    display: flex;
+    align-items: center;
+    gap: $spacing-2;
+    font-size: $font-size-sm;
+    color: $color-text-secondary;
+  }
+}
+
+.channel-form-card {
+  flex: 1;
+  background: $color-bg-secondary;
+  padding: $spacing-6;
+  border-radius: $radius-lg;
+  border: 1px solid $color-border-light;
+  transition: $transition-normal;
+
+  &:hover {
+    background: $color-bg-primary;
+    box-shadow: $shadow-sm;
+  }
+}
+
+.endpoint-tip {
+  margin: $spacing-3 0 $spacing-5 0;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  line-height: $line-height-normal;
+
+  .code {
+    background: $color-bg-tertiary;
+    padding: $spacing-1 $spacing-2;
+    border-radius: $radius-sm;
+    font-family: $font-family-mono;
+    color: $color-primary;
+    font-weight: $font-weight-medium;
+  }
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: $spacing-4;
+
+  :deep(.n-button) {
+    transition: all 0.2s ease;
+
+    &:hover {
+      transform: translateY(-1px);
+      box-shadow: $shadow-md;
+    }
+
+    &:active {
+      transform: translateY(0);
+    }
+  }
+}
 </style>

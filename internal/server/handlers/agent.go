@@ -136,25 +136,14 @@ func (h *AgentHandler) processStream(c *gin.Context, sessionID, content string) 
 
 // ListSessions handles GET /api/agent/sessions.
 func (h *AgentHandler) ListSessions(c *gin.Context) {
-	sessions := h.agent.Sessions().All()
-	type sessionInfo struct {
-		ID        string `json:"id"`
-		UserID    string `json:"user_id"`
-		Channel   string `json:"channel"`
-		CreatedAt int64  `json:"created_at"`
-		UpdatedAt int64  `json:"updated_at"`
+	// 从数据库读取会话列表，而不是内存
+	sessions, err := h.mem.Store().ListSessions()
+	if err != nil {
+		h.logger.Error("failed to list sessions", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
-	out := make([]sessionInfo, 0, len(sessions))
-	for _, s := range sessions {
-		out = append(out, sessionInfo{
-			ID:        s.ID,
-			UserID:    s.UserID,
-			Channel:   s.Channel,
-			CreatedAt: s.CreatedAt.UnixMilli(),
-			UpdatedAt: s.UpdatedAt.UnixMilli(),
-		})
-	}
-	c.JSON(http.StatusOK, gin.H{"sessions": out})
+	c.JSON(http.StatusOK, gin.H{"sessions": sessions})
 }
 
 // DeleteSession handles DELETE /api/agent/sessions/:id.
@@ -171,6 +160,30 @@ func (h *AgentHandler) DeleteSession(c *gin.Context) {
 	}
 	h.agent.Sessions().Delete(sessionID)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "deleted_session_id": sessionID})
+}
+
+// UpdateSessionName handles PUT /api/agent/sessions/:id/name.
+func (h *AgentHandler) UpdateSessionName(c *gin.Context) {
+	sessionID := c.Param("id")
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "session id is required"})
+		return
+	}
+
+	var req struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
+
+	if err := h.mem.Store().UpdateSessionName(sessionID, req.Name); err != nil {
+		h.logger.Error("failed to update session name", zap.String("id", sessionID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新会话名称失败 / Failed to update session name"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "session_id": sessionID, "name": req.Name})
 }
 
 // GetSessionStats handles GET /api/agent/sessions/:id/stats.

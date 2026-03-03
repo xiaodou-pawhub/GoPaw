@@ -50,6 +50,7 @@ func (s *Store) migrate() error {
 -- Sessions table
 CREATE TABLE IF NOT EXISTS sessions (
     id          TEXT PRIMARY KEY,
+    name        TEXT DEFAULT '',
     user_id     TEXT NOT NULL,
     channel     TEXT NOT NULL,
     created_at  INTEGER NOT NULL,
@@ -172,6 +173,19 @@ END;
 		return fmt.Errorf("memory store: expected 3 FTS triggers, found %d", count)
 	}
 
+	// Migration: Add name column to sessions table if it doesn't exist
+	var nameColExists int
+	err = s.db.QueryRow(`SELECT count(*) FROM pragma_table_info('sessions') WHERE name='name'`).Scan(&nameColExists)
+	if err != nil {
+		return fmt.Errorf("memory store: check name column: %w", err)
+	}
+	if nameColExists == 0 {
+		_, err = s.db.Exec(`ALTER TABLE sessions ADD COLUMN name TEXT DEFAULT ''`)
+		if err != nil {
+			return fmt.Errorf("memory store: add name column: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -181,6 +195,16 @@ func (s *Store) EnsureSession(id, userID, channel string) error {
 	_, err := s.db.Exec(
 		`INSERT OR IGNORE INTO sessions (id, user_id, channel, created_at, updated_at) VALUES (?,?,?,?,?)`,
 		id, userID, channel, now, now,
+	)
+	return err
+}
+
+// UpdateSessionName updates the session's display name.
+func (s *Store) UpdateSessionName(sessionID, name string) error {
+	now := time.Now().UnixMilli()
+	_, err := s.db.Exec(
+		`UPDATE sessions SET name = ?, updated_at = ? WHERE id = ?`,
+		name, now, sessionID,
 	)
 	return err
 }
@@ -348,4 +372,41 @@ func (s *Store) GetSessionStats(sessionID string) (count, total, user, assist in
 // DB returns the raw *sql.DB for use by other storage layers (e.g. scheduler).
 func (s *Store) DB() *sql.DB {
 	return s.db
+}
+
+// ListSessions returns all sessions ordered by updated_at DESC.
+func (s *Store) ListSessions() ([]SessionInfo, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, user_id, channel, created_at, updated_at
+		FROM sessions
+		ORDER BY updated_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []SessionInfo
+	for rows.Next() {
+		var sess SessionInfo
+		var createdAtMs, updatedAtMs int64
+		err := rows.Scan(&sess.ID, &sess.Name, &sess.UserID, &sess.Channel, &createdAtMs, &updatedAtMs)
+		if err != nil {
+			return nil, err
+		}
+		sess.CreatedAt = time.UnixMilli(createdAtMs)
+		sess.UpdatedAt = time.UnixMilli(updatedAtMs)
+		sessions = append(sessions, sess)
+	}
+	return sessions, rows.Err()
+}
+
+// SessionInfo represents session metadata for API responses.
+type SessionInfo struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	UserID    string    `json:"user_id"`
+	Channel   string    `json:"channel"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
