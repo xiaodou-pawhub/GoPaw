@@ -32,9 +32,11 @@ type Server struct {
 }
 
 // New creates and configures the HTTP server without starting it.
+// adminToken is the resolved access token (from config or auto-generated).
 // staticFS is the embedded Vue frontend filesystem (pass nil to disable static serving).
 func New(
 	cfg *config.Config,
+	adminToken string,
 	agentInstance *agent.ReActAgent,
 	memMgr *memory.Manager,
 	channelMgr *channel.Manager,
@@ -60,7 +62,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(agentInstance, memMgr, channelMgr, skillMgr, scheduler, cfgMgr, settingsStore, wp, staticFS)
+	s.registerRoutes(adminToken, agentInstance, memMgr, channelMgr, skillMgr, scheduler, cfgMgr, settingsStore, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -74,6 +76,7 @@ func New(
 
 // registerRoutes wires all API routes and the SPA static file handler.
 func (s *Server) registerRoutes(
+	adminToken string,
 	agentInstance *agent.ReActAgent,
 	memMgr *memory.Manager,
 	channelMgr *channel.Manager,
@@ -84,10 +87,20 @@ func (s *Server) registerRoutes(
 	wp *workspace.Paths,
 	staticFS fs.FS,
 ) {
-	// WebSocket endpoint.
-	s.engine.GET("/ws", s.wsHandler.Handle)
+	// WebSocket endpoint — protected by WebAuth (cookie must be valid).
+	s.engine.GET("/ws", WebAuth(adminToken), s.wsHandler.Handle)
 
-	api := s.engine.Group("/api")
+	// /api/auth — public, no auth required
+	authH := handlers.NewAuthHandler(adminToken)
+	authG := s.engine.Group("/api/auth")
+	{
+		authG.POST("/login", authH.Login)
+		authG.POST("/logout", authH.Logout)
+		// /api/auth/status is behind WebAuth: 200 = logged in, 401 = not logged in
+		authG.GET("/status", WebAuth(adminToken), authH.Status)
+	}
+
+	api := s.engine.Group("/api", WebAuth(adminToken))
 
 	// /api/agent
 	agentH := handlers.NewAgentHandler(agentInstance, memMgr, s.logger)
@@ -166,22 +179,18 @@ func (s *Server) registerRoutes(
 		cronG.GET("/:id/runs", cronH.ListRuns)
 	}
 
-	// /api/system
+	// /api/system — all behind WebAuth (already inherited from api group)
 	sysH := handlers.NewSystemHandler(s.cfg)
 	sysG := api.Group("/system")
 	{
 		sysG.GET("/health", sysH.Health)
 		sysG.GET("/version", sysH.Version)
-		sysG.GET("/logs", sysH.AdminAuth(), sysH.ListLogs)
+		sysG.GET("/logs", sysH.ListLogs) // WebAuth already guards the group
 	}
 
-	// Health check at root for load balancers.
+	// Health check at root — public, for load balancers / uptime monitors.
+	// /api/system/health is already registered inside the api group above (behind WebAuth).
 	s.engine.GET("/health", sysH.Health)
-
-	// Webhook channel routes (no /api prefix, as agreed with external systems).
-	webhookH := handlers.NewWebhookHandler(channelMgr)
-	s.engine.POST("/webhook/:token", webhookH.Receive)
-	s.engine.GET("/webhook/:token/messages", webhookH.Poll)
 
 	// DingTalk channel routes (no /api prefix).
 	dingTalkH := handlers.NewDingTalkHandler(channelMgr)

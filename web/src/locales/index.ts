@@ -95,8 +95,9 @@ const messages = {
         notConfigured: '未配置',
         endpoint: '接收地址：',
         test: '测试',
-        callbackUrl: '回调地址 (可选)',
-        callbackUrlPlaceholder: 'https://your-server.com/webhook/callback'
+        webhookUrl: 'Webhook URL',
+        webhookUrlPlaceholder: 'https://your-server.com/webhook/gopaw',
+        webhookTip: 'GoPaw 将通过此 URL 推送消息到第三方系统'
       },
       skills: {
         title: '技能管理',
@@ -246,8 +247,9 @@ const messages = {
         notConfigured: 'Not Configured',
         endpoint: 'Endpoint: ',
         test: 'Test',
-        callbackUrl: 'Callback URL (Optional)',
-        callbackUrlPlaceholder: 'https://your-server.com/webhook/callback'
+        webhookUrl: 'Webhook URL',
+        webhookUrlPlaceholder: 'https://your-server.com/webhook/gopaw',
+        webhookTip: 'GoPaw will push messages to this URL'
       },
       skills: {
         title: 'Skills',

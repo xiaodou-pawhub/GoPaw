@@ -94,23 +94,19 @@
             <h3 class="brand-name">{{ t('settings.channels.webhook') }}</h3>
             <div class="brand-status">
               <n-badge :type="getChannelHealth('webhook').running ? 'success' : 'default'" dot processing />
-              <span>{{ getChannelHealth('webhook').running ? t('settings.channels.configured') : t('settings.channels.notConfigured') }}</span>
+              <span>{{ getChannelHealth('webhook').running ? t('settings.channels.running') : t('settings.channels.stopped') }}</span>
             </div>
           </div>
         </div>
-        
+
         <div class="channel-form-card">
           <n-form :model="webhookForm" label-placement="top" label-width="auto">
-            <n-form-item label="Auth Token">
-              <n-input v-model:value="webhookForm.token" placeholder="Token" />
+            <n-form-item :label="t('settings.channels.webhookUrl')">
+              <n-input v-model:value="webhookForm.url" :placeholder="t('settings.channels.webhookUrlPlaceholder')" />
             </n-form-item>
-            
-            <n-form-item :label="t('settings.channels.callbackUrl')">
-              <n-input v-model:value="webhookForm.callback_url" :placeholder="t('settings.channels.callbackUrlPlaceholder')" />
-            </n-form-item>
-            
+
             <div class="endpoint-tip">
-              {{ t('settings.channels.endpoint') }} <span class="code">/webhook/{{ webhookForm.token || '{token}' }}</span>
+              {{ t('settings.channels.webhookTip') }}
             </div>
 
             <div class="form-actions">
@@ -146,7 +142,7 @@ let healthTimer: ReturnType<typeof setInterval>
 
 const feishuForm = reactive({ app_id: '', app_secret: '' })
 const dingtalkForm = reactive({ client_id: '', client_secret: '' })
-const webhookForm = reactive({ token: '', callback_url: '' })
+const webhookForm = reactive({ url: '' })
 
 async function loadConfigs() {
   try {

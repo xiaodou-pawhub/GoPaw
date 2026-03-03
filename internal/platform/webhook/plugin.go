@@ -1,6 +1,5 @@
-// Package webhook implements the generic Webhook channel plugin for GoPaw.
-// It accepts arbitrary HTTP POST requests and can deliver responses via callback URL
-// or allow the caller to poll for responses.
+// Package webhook implements a simple Webhook channel plugin for GoPaw.
+// It pushes messages to a configured webhook URL.
 package webhook
 
 import (
@@ -10,7 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,26 +21,22 @@ import (
 
 func init() {
 	channel.Register(&Plugin{
-		inbound:  make(chan *types.Message, 256),
-		outbound: make(map[string][]*types.Message),
+		inbound: make(chan *types.Message, 256),
 	})
 }
 
+// webhookConfig holds the webhook configuration.
 type webhookConfig struct {
-	Token       string `json:"token"`
-	CallbackURL string `json:"callback_url"`
+	// URL is the target webhook endpoint to push messages to.
+	URL string `json:"url"`
 }
 
 // Plugin implements the Webhook channel.
 type Plugin struct {
-	cfg      webhookConfig
-	inbound  chan *types.Message
-	started  time.Time
-	logger   *zap.Logger
-
-	// outbound stores responses for polling (keyed by token).
-	mu       sync.Mutex
-	outbound map[string][]*types.Message
+	cfg     webhookConfig
+	inbound chan *types.Message
+	started time.Time
+	logger  *zap.Logger
 }
 
 func (p *Plugin) Name() string        { return "webhook" }
@@ -50,10 +45,12 @@ func (p *Plugin) DisplayName() string { return "Webhook" }
 // Init parses the webhook configuration.
 func (p *Plugin) Init(cfg json.RawMessage) error {
 	p.logger = zap.L().Named("channel.webhook")
+	p.inbound = make(chan *types.Message, 256)
+	
 	if err := json.Unmarshal(cfg, &p.cfg); err != nil {
 		return fmt.Errorf("webhook: parse config: %w", err)
 	}
-	if p.cfg.Token == "" {
+	if p.cfg.URL == "" {
 		return plugin.ErrMissingCredentials
 	}
 	return nil
@@ -62,9 +59,7 @@ func (p *Plugin) Init(cfg json.RawMessage) error {
 // Start activates the webhook channel.
 func (p *Plugin) Start(_ context.Context) error {
 	p.started = time.Now()
-	// Token 脱敏：只显示前后各 4 个字符
-	maskedToken := maskToken(p.cfg.Token)
-	p.logger.Info("webhook channel started", zap.String("token", maskedToken))
+	p.logger.Info("webhook channel started", zap.String("url", p.cfg.URL))
 	return nil
 }
 
@@ -74,22 +69,14 @@ func (p *Plugin) Stop() error {
 	return nil
 }
 
-// Receive returns the inbound message channel.
+// Receive returns the inbound message channel (not used for webhook).
 func (p *Plugin) Receive() <-chan *types.Message {
 	return p.inbound
 }
 
-// Send delivers a message. If callback_url is configured, it POSTs to the URL.
-// Otherwise, the message is queued for polling via the /webhook/{token}/messages endpoint.
+// Send pushes a message to the configured webhook URL.
 func (p *Plugin) Send(msg *types.Message) error {
-	if p.cfg.CallbackURL != "" {
-		return p.pushCallback(msg)
-	}
-	// Store for polling.
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.outbound[p.cfg.Token] = append(p.outbound[p.cfg.Token], msg)
-	return nil
+	return p.pushWebhook(msg)
 }
 
 // Health returns the current status.
@@ -102,40 +89,31 @@ func (p *Plugin) Health() plugin.HealthStatus {
 }
 
 // Test validates the webhook configuration by sending a test message.
-// The test message is sent to the callback_url if configured.
-// User should verify receipt of the test message to confirm configuration.
 func (p *Plugin) Test(ctx context.Context) plugin.TestResult {
-	// 检查 token 配置
-	if p.cfg.Token == "" {
+	// 检查 URL 配置
+	if p.cfg.URL == "" {
 		return plugin.TestResult{
 			Success: false,
-			Message: "请先配置 token",
+			Message: "请先配置 Webhook URL",
 		}
 	}
 
-	// 如果配置了 callback_url，发送测试消息
-	if p.cfg.CallbackURL != "" {
-		if err := p.sendTestMessage(ctx); err != nil {
-			return plugin.TestResult{
-				Success: false,
-				Message: "发送测试消息失败",
-				Details: err.Error(),
-			}
-		}
+	// 发送测试消息
+	if err := p.sendTestMessage(ctx); err != nil {
 		return plugin.TestResult{
-			Success: true,
-			Message: "测试消息已发送，请检查回调地址是否收到",
+			Success: false,
+			Message: "发送测试消息失败",
+			Details: err.Error(),
 		}
 	}
-
-	// 没有配置 callback_url，使用轮询模式
+	
 	return plugin.TestResult{
 		Success: true,
-		Message: "配置有效（轮询模式），可通过 /webhook/{token}/messages 获取消息",
+		Message: "测试消息已发送，请检查 Webhook 接收端是否收到",
 	}
 }
 
-// sendTestMessage sends a test message to the callback URL.
+// sendTestMessage sends a test message to the webhook URL.
 func (p *Plugin) sendTestMessage(ctx context.Context) error {
 	testMsg := &types.Message{
 		ID:        uuid.New().String(),
@@ -146,112 +124,88 @@ func (p *Plugin) sendTestMessage(ctx context.Context) error {
 		MsgType:   types.MsgTypeText,
 		Timestamp: time.Now().UnixMilli(),
 	}
-	return p.pushCallback(testMsg)
+	return p.pushWebhook(testMsg)
 }
 
-// HandleReceive processes POST /webhook/{token} requests.
-func (p *Plugin) HandleReceive(w http.ResponseWriter, r *http.Request, token string) {
-	if token != p.cfg.Token {
-		http.Error(w, "invalid token", http.StatusUnauthorized)
-		return
+// pushWebhook sends the message to the configured webhook URL.
+func (p *Plugin) pushWebhook(msg *types.Message) error {
+	// 智能适配不同平台的 Webhook 格式
+	var payload []byte
+	var err error
+	
+	if isFeishuWebhook(p.cfg.URL) {
+		// 飞书群机器人格式
+		payload, err = p.buildFeishuPayload(msg)
+	} else {
+		// 通用格式
+		payload, err = p.buildGenericPayload(msg)
 	}
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	
 	if err != nil {
-		http.Error(w, "read body", http.StatusBadRequest)
-		return
+		return fmt.Errorf("webhook: build payload: %w", err)
 	}
 
-	var payload struct {
-		UserID    string `json:"user_id"`
-		SessionID string `json:"session_id"`
-		Content   string `json:"content"`
-		MsgType   string `json:"msg_type"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
-		return
-	}
-	if payload.Content == "" {
-		http.Error(w, "content is required", http.StatusBadRequest)
-		return
-	}
-
-	sessionID := payload.SessionID
-	if sessionID == "" {
-		sessionID = "webhook-" + payload.UserID
-	}
-	msgType := types.MsgTypeText
-	if payload.MsgType != "" {
-		msgType = types.MessageType(payload.MsgType)
-	}
-
-	msg := &types.Message{
-		ID:        uuid.New().String(),
-		SessionID: sessionID,
-		UserID:    payload.UserID,
-		Channel:   p.Name(),
-		Content:   payload.Content,
-		MsgType:   msgType,
-		Timestamp: time.Now().UnixMilli(),
-	}
-
-	select {
-	case p.inbound <- msg:
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"id": msg.ID, "status": "queued"}) //nolint:errcheck
-	default:
-		// 队列满，返回 503 Service Unavailable
-		p.logger.Warn("webhook: inbound queue full, rejecting message")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"id": msg.ID, "status": "rejected", "error": "queue full"}) //nolint:errcheck
-	}
-}
-
-// HandlePoll serves GET /webhook/{token}/messages — returns queued outbound messages.
-func (p *Plugin) HandlePoll(w http.ResponseWriter, r *http.Request, token string) {
-	if token != p.cfg.Token {
-		http.Error(w, "invalid token", http.StatusUnauthorized)
-		return
-	}
-
-	p.mu.Lock()
-	msgs := p.outbound[token]
-	p.outbound[token] = nil
-	p.mu.Unlock()
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"messages": msgs}) //nolint:errcheck
-}
-
-// pushCallback sends the response to the configured callback URL.
-func (p *Plugin) pushCallback(msg *types.Message) error {
-	payload, _ := json.Marshal(msg)
-	req, err := http.NewRequest(http.MethodPost, p.cfg.CallbackURL, bytes.NewReader(payload))
+	req, err := http.NewRequest(http.MethodPost, p.cfg.URL, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("webhook: build callback request: %w", err)
+		return fmt.Errorf("webhook: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("webhook: callback http: %w", err)
+		return fmt.Errorf("webhook: http request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// 读取响应体用于错误信息
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("webhook: callback returned status %d", resp.StatusCode)
+		return fmt.Errorf("webhook: returned status %d, body: %s", resp.StatusCode, string(body))
 	}
+	
+	// 尝试解析响应检查是否有错误（飞书格式）
+	var respBody map[string]interface{}
+	if err := json.Unmarshal(body, &respBody); err == nil {
+		// 飞书：{"code":0,"msg":"ok","data":{}}
+		if code, ok := respBody["code"].(float64); ok && code != 0 {
+			return fmt.Errorf("webhook: api error code %d, msg: %v", int(code), respBody["msg"])
+		}
+		// 钉钉：{"errcode":0,"errmsg":"ok"}
+		if errcode, ok := respBody["errcode"].(float64); ok && errcode != 0 {
+			return fmt.Errorf("webhook: api error code %d, msg: %v", int(errcode), respBody["errmsg"])
+		}
+	}
+
+	p.logger.Debug("webhook message delivered",
+		zap.String("url", p.cfg.URL),
+		zap.Int("status", resp.StatusCode),
+	)
+	
 	return nil
 }
 
-// maskToken returns a masked version of the token for logging.
-// Shows first 4 and last 4 characters, with *** in between.
-func maskToken(token string) string {
-	if len(token) <= 8 {
-		return "****"
+// buildFeishuPayload builds payload for Feishu webhook.
+func (p *Plugin) buildFeishuPayload(msg *types.Message) ([]byte, error) {
+	payload := map[string]interface{}{
+		"msg_type": "text",
+		"content": map[string]string{
+			"text": msg.Content,
+		},
 	}
-	return token[:4] + "****" + token[len(token)-4:]
+	return json.Marshal(payload)
+}
+
+// buildGenericPayload builds generic JSON payload.
+func (p *Plugin) buildGenericPayload(msg *types.Message) ([]byte, error) {
+	return json.Marshal(msg)
+}
+
+// isFeishuWebhook checks if the URL is a Feishu webhook.
+func isFeishuWebhook(url string) bool {
+	// 飞书 Webhook URL 特征：https://open.feishu.cn/open-apis/bot/v2/hook/
+	return strings.Contains(url, "feishu.cn") || 
+		   strings.Contains(url, "open.feishu.cn") ||
+		   strings.Contains(url, "/bot/v2/hook/")
 }

@@ -8,6 +8,12 @@ import (
 	"github.com/gopaw/gopaw/internal/channel"
 )
 
+// HTTPHandler is the interface for channel plugins that handle HTTP requests directly.
+type HTTPHandler interface {
+	Name() string
+	HandleReceive(w http.ResponseWriter, r *http.Request, token string)
+}
+
 // DingTalkHandler handles DingTalk channel HTTP requests.
 type DingTalkHandler struct {
 	channelMgr *channel.Manager
