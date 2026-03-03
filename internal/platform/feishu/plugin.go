@@ -79,8 +79,7 @@ func (p *Plugin) Init(cfg json.RawMessage) error {
 		}
 	}
 	if p.cfg.AppID == "" || p.cfg.AppSecret == "" {
-		p.logger.Warn("feishu: app_id / app_secret not set")
-		return nil
+		return plugin.ErrMissingCredentials
 	}
 	p.configured = true
 	return nil

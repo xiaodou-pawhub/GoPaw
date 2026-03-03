@@ -4,6 +4,7 @@ package channel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -57,8 +58,13 @@ func (m *Manager) Start(ctx context.Context, pluginCfgs map[string]json.RawMessa
 		}
 
 		if err := p.Init(cfg); err != nil {
-			m.logger.Warn("channel plugin init failed, skipping",
-				zap.String("plugin", name), zap.Error(err))
+			if errors.Is(err, plugin.ErrMissingCredentials) {
+				m.logger.Info("channel not configured, skipping",
+					zap.String("plugin", name))
+			} else {
+				m.logger.Warn("channel plugin init failed, skipping",
+					zap.String("plugin", name), zap.Error(err))
+			}
 			continue
 		}
 		if err := p.Start(ctx); err != nil {

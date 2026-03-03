@@ -54,7 +54,7 @@ func (p *Plugin) Init(cfg json.RawMessage) error {
 		return fmt.Errorf("webhook: parse config: %w", err)
 	}
 	if p.cfg.Token == "" {
-		return fmt.Errorf("webhook: token is required")
+		return plugin.ErrMissingCredentials
 	}
 	return nil
 }

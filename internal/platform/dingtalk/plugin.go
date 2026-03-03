@@ -72,13 +72,12 @@ func (p *Plugin) Init(cfg json.RawMessage) error {
 	
 	if len(cfg) > 0 && string(cfg) != "{}" {
 		if err := json.Unmarshal(cfg, &p.cfg); err != nil {
-			p.logger.Warn("dingtalk: failed to parse config, running unconfigured", zap.Error(err))
+			p.logger.Warn("dingtalk: failed to parse config", zap.Error(err))
 			return nil
 		}
 	}
 	if p.cfg.ClientID == "" || p.cfg.ClientSecret == "" {
-		p.logger.Warn("dingtalk: client_id / client_secret not set — configure via Web UI → Settings → Channels")
-		return nil
+		return plugin.ErrMissingCredentials
 	}
 	p.configured = true
 	return nil
