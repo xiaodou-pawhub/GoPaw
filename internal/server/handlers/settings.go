@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/channel"
+	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/settings"
 	"go.uber.org/zap"
 )
@@ -37,6 +38,40 @@ func (h *SettingsHandler) ListProviders(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"providers": list})
 }
 
+// ListBuiltinProviders handles GET /api/settings/builtin-providers
+func (h *SettingsHandler) ListBuiltinProviders(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"providers": llm.BuiltinProviders})
+}
+
+// GetProvidersHealth handles GET /api/settings/providers/health
+func (h *SettingsHandler) GetProvidersHealth(c *gin.Context) {
+	list, err := h.store.ListProviders()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	type healthInfo struct {
+		ID            string             `json:"id"`
+		Status        llm.ProviderStatus `json:"status"`
+		LastError     string             `json:"last_error"`
+		CooldownUntil int64              `json:"cooldown_until"` // unix ms
+	}
+
+	results := make([]healthInfo, 0, len(list))
+	for _, p := range list {
+		status, lastErr, until := llm.GlobalHealthTracker.GetStatus(p.ID)
+		results = append(results, healthInfo{
+			ID:            p.ID,
+			Status:        status,
+			LastError:     lastErr,
+			CooldownUntil: until.UnixMilli(),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"health": results})
+}
+
 // SaveProvider handles POST /api/settings/providers (create or update)
 func (h *SettingsHandler) SaveProvider(c *gin.Context) {
 	var p settings.ProviderConfig
@@ -48,6 +83,12 @@ func (h *SettingsHandler) SaveProvider(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name, base_url, api_key and model are required"})
 		return
 	}
+
+	// 自动推断标签逻辑：如果用户没有手动设置标签，则根据模型名推断
+	if len(p.Tags) == 0 {
+		p.Tags = llm.InferTags(p.Model)
+	}
+
 	if err := h.store.SaveProvider(&p); err != nil {
 		h.logger.Error("settings: save provider", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -125,7 +166,7 @@ func (h *SettingsHandler) SetChannelConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"channel": name})
 }
 
-// ── Agent Persona (AGENT.md) ───────────────────────────────────────────────
+// ── AGENT.md ───────────────────────────────────────────────────────────────
 
 // GetAgentMD handles GET /api/settings/agent
 func (h *SettingsHandler) GetAgentMD(c *gin.Context) {

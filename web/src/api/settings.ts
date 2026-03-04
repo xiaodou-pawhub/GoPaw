@@ -13,6 +13,20 @@ export async function getProviders(): Promise<BackendProvider[]> {
   return res.providers || []
 }
 
+// 获取内置预置厂商库
+export async function getBuiltinProviders(): Promise<BuiltinProvider[]> {
+  const res = await api.get<{ providers: BuiltinProvider[] }>('/settings/builtin-providers')
+  // @ts-ignore - 响应拦截器返回response.data
+  return res.providers || []
+}
+
+// 获取所有提供商的实时健康状态
+export async function getProvidersHealth(): Promise<Record<string, any>> {
+  const res = await api.get<{ health: any[] }>('/settings/providers/health')
+  // @ts-ignore
+  return res.health || []
+}
+
 // 保存/更新提供商
 export async function saveProvider(data: Partial<BackendProvider>): Promise<{ id: string }> {
   return await api.post('/settings/providers', data)

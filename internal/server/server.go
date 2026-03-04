@@ -39,6 +39,7 @@ func New(
 	adminToken string,
 	agentInstance *agent.ReActAgent,
 	memMgr *memory.Manager,
+	ltmStore *memory.LTMStore,
 	channelMgr *channel.Manager,
 	skillMgr *skill.Manager,
 	scheduler *scheduler.Manager,
@@ -62,7 +63,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, agentInstance, memMgr, channelMgr, skillMgr, scheduler, cfgMgr, settingsStore, wp, staticFS)
+	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, scheduler, cfgMgr, settingsStore, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -79,6 +80,7 @@ func (s *Server) registerRoutes(
 	adminToken string,
 	agentInstance *agent.ReActAgent,
 	memMgr *memory.Manager,
+	ltmStore *memory.LTMStore,
 	channelMgr *channel.Manager,
 	skillMgr *skill.Manager,
 	sched *scheduler.Manager,
@@ -128,6 +130,8 @@ func (s *Server) registerRoutes(
 	{
 		settingsG.GET("/setup-status", settingsH.SetupStatus)
 		settingsG.GET("/providers", settingsH.ListProviders)
+		settingsG.GET("/builtin-providers", settingsH.ListBuiltinProviders)
+		settingsG.GET("/providers/health", settingsH.GetProvidersHealth)
 		settingsG.POST("/providers", settingsH.SaveProvider)
 		settingsG.PUT("/providers/:id/active", settingsH.SetActiveProvider)
 		settingsG.DELETE("/providers/:id", settingsH.DeleteProvider)
@@ -149,6 +153,33 @@ func (s *Server) registerRoutes(
 		workspaceG.PUT("/context", workspaceH.PutContext)
 		workspaceG.GET("/memory", workspaceH.GetMemory)
 		workspaceG.PUT("/memory", workspaceH.PutMemory)
+	}
+
+	// /api/memories — structured long-term memory CRUD
+	memH := handlers.NewMemoryHandler(ltmStore, s.logger)
+	memG := api.Group("/memories")
+	{
+		memG.GET("", memH.List)
+		memG.POST("", memH.Create)
+		memG.PUT("/:id", memH.Update)
+		memG.DELETE("/:id", memH.Delete)
+		memG.GET("/stats", memH.Stats)
+		memG.POST("/import-md", memH.ImportMD)
+	}
+
+	// /api/memory-files — MD file management (MEMORY.md, notes, archives)
+	memFilesH := handlers.NewMemoryFilesHandler(wp, s.logger)
+	memFilesG := api.Group("/memory-files")
+	{
+		memFilesG.GET("/memory", memFilesH.GetMemoryMD)
+		memFilesG.PUT("/memory", memFilesH.PutMemoryMD)
+		memFilesG.GET("/notes", memFilesH.ListNotes)
+		memFilesG.GET("/notes/:date", memFilesH.GetNote)
+		memFilesG.PUT("/notes/:date", memFilesH.PutNote)
+		memFilesG.POST("/notes/:date/append", memFilesH.AppendNote)
+		memFilesG.DELETE("/notes/:date", memFilesH.DeleteNote)
+		memFilesG.GET("/archives", memFilesH.ListArchives)
+		memFilesG.GET("/archives/:name", memFilesH.GetArchive)
 	}
 
 	// /api/skills

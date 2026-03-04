@@ -11,6 +11,7 @@ export interface Provider {
   maxTokens: number
   timeoutSec: number
   isActive: boolean
+  tags: string[]
   createdAt?: number
   updatedAt?: number
 }
@@ -25,8 +26,17 @@ export interface BackendProvider {
   max_tokens: number
   timeout_sec: number
   is_active: boolean
+  tags: string[]
   created_at: number
   updated_at: number
+}
+
+// 预置厂商
+export interface BuiltinProvider {
+  id: string
+  name: string
+  base_url: string
+  models: string[]
 }
 
 // 频道健康状态

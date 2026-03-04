@@ -16,16 +16,17 @@ import (
 
 // ProviderConfig holds the configuration for a single LLM provider.
 type ProviderConfig struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	BaseURL    string `json:"base_url"`
-	APIKey     string `json:"api_key,omitempty"` // omitted in list responses for safety
-	Model      string `json:"model"`
-	MaxTokens  int    `json:"max_tokens"`
-	TimeoutSec int    `json:"timeout_sec"`
-	IsActive   bool   `json:"is_active"`
-	CreatedAt  int64  `json:"created_at"`
-	UpdatedAt  int64  `json:"updated_at"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	BaseURL    string   `json:"base_url"`
+	APIKey     string   `json:"api_key,omitempty"` // omitted in list responses for safety
+	Model      string   `json:"model"`
+	MaxTokens  int      `json:"max_tokens"`
+	TimeoutSec int      `json:"timeout_sec"`
+	IsActive   bool     `json:"is_active"`
+	Tags       []string `json:"tags"` // capability tags like ["fc", "vision"]
+	CreatedAt  int64    `json:"created_at"`
+	UpdatedAt  int64    `json:"updated_at"`
 }
 
 // Store manages runtime settings backed by the shared SQLite database.
@@ -43,13 +44,14 @@ func NewStore(db *sql.DB) *Store {
 // GetActiveProvider returns the currently active LLM provider, or nil if none is set.
 func (s *Store) GetActiveProvider() (*ProviderConfig, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, created_at, updated_at
+		`SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, tags, created_at, updated_at
 		 FROM providers WHERE is_active = 1 LIMIT 1`,
 	)
 	p := &ProviderConfig{}
 	var isActive int
+	var tagsJSON string
 	err := row.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKey, &p.Model,
-		&p.MaxTokens, &p.TimeoutSec, &isActive, &p.CreatedAt, &p.UpdatedAt)
+		&p.MaxTokens, &p.TimeoutSec, &isActive, &tagsJSON, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -57,19 +59,24 @@ func (s *Store) GetActiveProvider() (*ProviderConfig, error) {
 		return nil, fmt.Errorf("settings: get active provider: %w", err)
 	}
 	p.IsActive = isActive == 1
+	_ = json.Unmarshal([]byte(tagsJSON), &p.Tags)
+	if p.Tags == nil {
+		p.Tags = []string{}
+	}
 	return p, nil
 }
 
 // GetProvider returns a single provider by ID with the real (unmasked) API key.
 func (s *Store) GetProvider(id string) (*ProviderConfig, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, created_at, updated_at
+		`SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, tags, created_at, updated_at
 		 FROM providers WHERE id = ?`, id,
 	)
 	p := &ProviderConfig{}
 	var isActive int
+	var tagsJSON string
 	err := row.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKey, &p.Model,
-		&p.MaxTokens, &p.TimeoutSec, &isActive, &p.CreatedAt, &p.UpdatedAt)
+		&p.MaxTokens, &p.TimeoutSec, &isActive, &tagsJSON, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -77,13 +84,17 @@ func (s *Store) GetProvider(id string) (*ProviderConfig, error) {
 		return nil, fmt.Errorf("settings: get provider: %w", err)
 	}
 	p.IsActive = isActive == 1
+	_ = json.Unmarshal([]byte(tagsJSON), &p.Tags)
+	if p.Tags == nil {
+		p.Tags = []string{}
+	}
 	return p, nil
 }
 
 // ListProviders returns all configured LLM providers. APIKey is masked for safety.
 func (s *Store) ListProviders() ([]ProviderConfig, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, created_at, updated_at
+		`SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, tags, created_at, updated_at
 		 FROM providers ORDER BY created_at`,
 	)
 	if err != nil {
@@ -95,11 +106,16 @@ func (s *Store) ListProviders() ([]ProviderConfig, error) {
 	for rows.Next() {
 		p := ProviderConfig{}
 		var isActive int
+		var tagsJSON string
 		if err := rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKey, &p.Model,
-			&p.MaxTokens, &p.TimeoutSec, &isActive, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.MaxTokens, &p.TimeoutSec, &isActive, &tagsJSON, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("settings: scan provider: %w", err)
 		}
 		p.IsActive = isActive == 1
+		_ = json.Unmarshal([]byte(tagsJSON), &p.Tags)
+		if p.Tags == nil {
+			p.Tags = []string{}
+		}
 		// Mask API key in list view
 		if len(p.APIKey) > 8 {
 			p.APIKey = p.APIKey[:4] + "****" + p.APIKey[len(p.APIKey)-4:]
@@ -143,15 +159,21 @@ func (s *Store) SaveProvider(p *ProviderConfig) error {
 	if p.IsActive {
 		isActive = 1
 	}
+
+	tagsData, _ := json.Marshal(p.Tags)
+	if len(p.Tags) == 0 {
+		tagsData = []byte("[]")
+	}
+
 	_, err := s.db.Exec(
-		`INSERT INTO providers (id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO providers (id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, tags, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   name=excluded.name, base_url=excluded.base_url,
 		   model=excluded.model, max_tokens=excluded.max_tokens, timeout_sec=excluded.timeout_sec,
-		   is_active=excluded.is_active, updated_at=excluded.updated_at`,
+		   is_active=excluded.is_active, tags=excluded.tags, updated_at=excluded.updated_at`,
 		p.ID, p.Name, p.BaseURL, p.APIKey, p.Model,
-		p.MaxTokens, p.TimeoutSec, isActive, p.CreatedAt, p.UpdatedAt,
+		p.MaxTokens, p.TimeoutSec, isActive, string(tagsData), p.CreatedAt, p.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("settings: save provider: %w", err)
@@ -180,6 +202,38 @@ func (s *Store) SetActiveProvider(id string) error {
 		return fmt.Errorf("settings: provider %q not found", id)
 	}
 	return tx.Commit()
+}
+
+// GetProvidersByPriority returns all configured providers ordered by priority:
+// the active provider first, then others ordered by creation time.
+// Unlike ListProviders, the API key is NOT masked, so callers can use the configs directly.
+func (s *Store) GetProvidersByPriority() ([]ProviderConfig, error) {
+	rows, err := s.db.Query(
+		`SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, tags, created_at, updated_at
+		 FROM providers ORDER BY is_active DESC, created_at ASC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("settings: list providers by priority: %w", err)
+	}
+	defer rows.Close()
+
+	var list []ProviderConfig
+	for rows.Next() {
+		p := ProviderConfig{}
+		var isActive int
+		var tagsJSON string
+		if err := rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKey, &p.Model,
+			&p.MaxTokens, &p.TimeoutSec, &isActive, &tagsJSON, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("settings: scan provider: %w", err)
+		}
+		p.IsActive = isActive == 1
+		_ = json.Unmarshal([]byte(tagsJSON), &p.Tags)
+		if p.Tags == nil {
+			p.Tags = []string{}
+		}
+		list = append(list, p)
+	}
+	return list, rows.Err()
 }
 
 // DeleteProvider removes a provider by ID.

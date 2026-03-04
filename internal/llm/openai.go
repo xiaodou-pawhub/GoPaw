@@ -31,12 +31,19 @@ func min(a, b int) int {
 
 // openAIChatRequest is the wire format sent to the OpenAI Chat Completions endpoint.
 type openAIChatRequest struct {
-	Model       string            `json:"model"`
-	Messages    []openAIMessage   `json:"messages"`
-	Tools       []ToolDefinition  `json:"tools,omitempty"`
-	MaxTokens   int               `json:"max_tokens,omitempty"`
-	Temperature float32           `json:"temperature,omitempty"`
-	Stream      bool              `json:"stream"`
+	Model         string            `json:"model"`
+	Messages      []openAIMessage   `json:"messages"`
+	Tools         []ToolDefinition  `json:"tools,omitempty"`
+	MaxTokens     int               `json:"max_tokens,omitempty"`
+	Temperature   float32           `json:"temperature,omitempty"`
+	Stream        bool              `json:"stream"`
+	StreamOptions *streamOptions    `json:"stream_options,omitempty"`
+}
+
+// streamOptions requests additional data in the streaming response (e.g. token usage).
+// Supported by Dashscope and OpenAI-compatible APIs.
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type openAIMessage struct {
@@ -64,11 +71,23 @@ type openAIResponse struct {
 	} `json:"error,omitempty"`
 }
 
+// streamToolCallDelta is the per-delta fragment of a tool call in a streaming response.
+// The index field identifies which tool call in the batch this fragment belongs to.
+type streamToolCallDelta struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
 type openAIStreamChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content   string     `json:"content"`
-			ToolCalls []ToolCall `json:"tool_calls"`
+			Content   string                `json:"content"`
+			ToolCalls []streamToolCallDelta `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -76,6 +95,7 @@ type openAIStreamChunk struct {
 
 // OpenAIClient implements Client against any OpenAI-compatible endpoint.
 type OpenAIClient struct {
+	providerID string
 	baseURL    string
 	apiKey     string
 	model      string
@@ -86,15 +106,16 @@ type OpenAIClient struct {
 }
 
 // NewOpenAIClient creates an OpenAIClient.
-func NewOpenAIClient(baseURL, apiKey, model string, maxTokens, timeoutSec int, logger *zap.Logger) *OpenAIClient {
+func NewOpenAIClient(providerID, baseURL, apiKey, model string, maxTokens, timeoutSec int, logger *zap.Logger) *OpenAIClient {
 	return &OpenAIClient{
-		baseURL:   strings.TrimRight(baseURL, "/"),
-		apiKey:    apiKey,
-		model:     model,
-		maxTokens: maxTokens,
-		timeout:   time.Duration(timeoutSec) * time.Second,
+		providerID: providerID,
+		baseURL:    strings.TrimRight(baseURL, "/"),
+		apiKey:     apiKey,
+		model:      model,
+		maxTokens:  maxTokens,
+		timeout:    time.Duration(timeoutSec) * time.Second,
 		httpClient: &http.Client{Timeout: time.Duration(timeoutSec) * time.Second},
-		logger:    logger,
+		logger:     logger,
 	}
 }
 
@@ -120,16 +141,34 @@ func (c *OpenAIClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 		}
 
 		resp, lastErr = c.doChat(ctx, payload)
-		if lastErr == nil {
+		if lastErr == nil && resp != nil && resp.Error == nil {
+			break
+		}
+		// 如果是业务错误（如 API 密钥错误），不重试
+		if resp != nil && resp.Error != nil && (resp.Error.Type == "invalid_request_error" || resp.Error.Type == "authentication_error") {
+			lastErr = fmt.Errorf("api error [%s]: %s", resp.Error.Type, resp.Error.Message)
 			break
 		}
 	}
+
 	if lastErr != nil {
+		// 记录失败并判断是否为持久错误
+		isPersistent := strings.Contains(lastErr.Error(), "authentication") || 
+						strings.Contains(lastErr.Error(), "401") ||
+						strings.Contains(lastErr.Error(), "quota")
+		GlobalHealthTracker.RecordFailure(c.providerID, lastErr, isPersistent)
 		return nil, fmt.Errorf("llm: chat: %w", lastErr)
 	}
+
 	if resp.Error != nil {
-		return nil, fmt.Errorf("llm: api error [%s]: %s", resp.Error.Type, resp.Error.Message)
+		err := fmt.Errorf("llm: api error [%s]: %s", resp.Error.Type, resp.Error.Message)
+		GlobalHealthTracker.RecordFailure(c.providerID, err, false)
+		return nil, err
 	}
+
+	// 记录成功
+	GlobalHealthTracker.RecordSuccess(c.providerID)
+
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("llm: empty choices in response")
 	}
@@ -240,6 +279,14 @@ func (c *OpenAIClient) Stream(ctx context.Context, req ChatRequest) (<-chan Stre
 	go func() {
 		defer close(ch)
 		defer httpResp.Body.Close()
+
+		streamStart := time.Now()
+		firstDelta := true
+
+		// toolCallAcc accumulates incremental tool_call fragments by index.
+		// OpenAI streams tool_calls as: first delta has id+name, subsequent deltas append arguments.
+		toolCallAcc := map[int]*ToolCall{}
+
 		scanner := bufio.NewScanner(httpResp.Body)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -248,7 +295,7 @@ func (c *OpenAIClient) Stream(ctx context.Context, req ChatRequest) (<-chan Stre
 			}
 			data := strings.TrimPrefix(line, "data: ")
 			if data == "[DONE]" {
-				return
+				break
 			}
 			var chunk openAIStreamChunk
 			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
@@ -259,14 +306,55 @@ func (c *OpenAIClient) Stream(ctx context.Context, req ChatRequest) (<-chan Stre
 				continue
 			}
 			choice := chunk.Choices[0]
-			ch <- StreamDelta{
-				Content:      choice.Delta.Content,
-				ToolCalls:    choice.Delta.ToolCalls,
-				FinishReason: choice.FinishReason,
+
+			// Content delta → emit immediately for smooth streaming.
+			if choice.Delta.Content != "" {
+				if firstDelta {
+					firstDelta = false
+					c.logger.Debug("llm: stream first delta received",
+						zap.String("model", c.model),
+						zap.Duration("ttft", time.Since(streamStart)),
+					)
+				}
+				ch <- StreamDelta{Content: choice.Delta.Content}
+			}
+
+			// Tool call delta → accumulate by index.
+			for _, tcd := range choice.Delta.ToolCalls {
+				if tc, ok := toolCallAcc[tcd.Index]; ok {
+					tc.Function.Arguments += tcd.Function.Arguments
+					if tcd.ID != "" {
+						tc.ID = tcd.ID
+					}
+					if tcd.Function.Name != "" {
+						tc.Function.Name = tcd.Function.Name
+					}
+				} else {
+					toolCallAcc[tcd.Index] = &ToolCall{
+						ID:   tcd.ID,
+						Type: tcd.Type,
+						Function: ToolCallFunction{
+							Name:      tcd.Function.Name,
+							Arguments: tcd.Function.Arguments,
+						},
+					}
+				}
 			}
 		}
 		if err := scanner.Err(); err != nil {
 			ch <- StreamDelta{Error: fmt.Errorf("llm: stream: scanner: %w", err)}
+			return
+		}
+
+		// Emit accumulated tool calls as a single final delta, in index order.
+		if len(toolCallAcc) > 0 {
+			calls := make([]ToolCall, len(toolCallAcc))
+			for idx, tc := range toolCallAcc {
+				if idx < len(calls) {
+					calls[idx] = *tc
+				}
+			}
+			ch <- StreamDelta{ToolCalls: calls, FinishReason: "tool_calls"}
 		}
 	}()
 	return ch, nil
@@ -287,11 +375,15 @@ func (c *OpenAIClient) buildPayload(req ChatRequest, stream bool) openAIChatRequ
 	if req.MaxTokens > 0 {
 		maxTok = req.MaxTokens
 	}
-	return openAIChatRequest{
+	r := openAIChatRequest{
 		Model:     c.model,
 		Messages:  msgs,
 		Tools:     req.Tools,
 		MaxTokens: maxTok,
 		Stream:    stream,
 	}
+	if stream {
+		r.StreamOptions = &streamOptions{IncludeUsage: true}
+	}
+	return r
 }

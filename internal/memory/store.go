@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS providers (
     max_tokens  INTEGER DEFAULT 4096,
     timeout_sec INTEGER DEFAULT 60,
     is_active   INTEGER DEFAULT 0,
+    tags        TEXT DEFAULT '[]',
     created_at  INTEGER NOT NULL,
     updated_at  INTEGER NOT NULL
 );
@@ -184,6 +185,13 @@ END;
 		if err != nil {
 			return fmt.Errorf("memory store: add name column: %w", err)
 		}
+	}
+
+	// Migration: Add tags column to providers table if it doesn't exist
+	var tagsColExists int
+	err = s.db.QueryRow(`SELECT count(*) FROM pragma_table_info('providers') WHERE name='tags'`).Scan(&tagsColExists)
+	if err == nil && tagsColExists == 0 {
+		_, _ = s.db.Exec(`ALTER TABLE providers ADD COLUMN tags TEXT DEFAULT '[]'`)
 	}
 
 	return nil
