@@ -95,6 +95,11 @@ CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
     VALUES ('delete', old.rowid, old.key, old.content);
     INSERT INTO memories_fts(rowid, key, content) VALUES (new.rowid, new.key, new.content);
 END;
+
+CREATE TABLE IF NOT EXISTS distilled_notes (
+    date         TEXT PRIMARY KEY,
+    distilled_at INTEGER NOT NULL
+);
 `
 	if _, err := s.db.Exec(ddl); err != nil {
 		return fmt.Errorf("ltm: ddl: %w", err)
@@ -263,6 +268,23 @@ func (s *LTMStore) DeleteByCategory(category Category, olderThan time.Time) (int
 // DB returns the raw *sql.DB for direct access when needed.
 func (s *LTMStore) DB() *sql.DB {
 	return s.db
+}
+
+// MarkDistilled records that a daily-note file (identified by YYYYMMDD date string)
+// has been processed by the distillation pipeline.
+func (s *LTMStore) MarkDistilled(date string) error {
+	_, err := s.db.Exec(
+		`INSERT OR REPLACE INTO distilled_notes (date, distilled_at) VALUES (?, ?)`,
+		date, time.Now().UnixMilli(),
+	)
+	return err
+}
+
+// IsDistilled returns true if the given date has already been distilled.
+func (s *LTMStore) IsDistilled(date string) (bool, error) {
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM distilled_notes WHERE date = ?`, date).Scan(&count)
+	return count > 0, err
 }
 
 // --- helpers ---

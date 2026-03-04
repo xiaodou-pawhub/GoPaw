@@ -1,157 +1,223 @@
 <template>
-  <div class="page-container narrow">
-    <div class="page-header">
-      <div class="header-main">
-        <h1 class="page-title">{{ t('settings.memory.title') }}</h1>
-        <p class="page-description">{{ t('settings.memory.description') }}</p>
+  <div class="memory-layout">
+    <!-- Left Sidebar -->
+    <aside class="memory-sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-label">{{ t('settings.memory.structured') }}</div>
+        <nav class="sidebar-nav">
+          <button
+            v-for="cat in structuredCategories"
+            :key="cat.key"
+            class="sidebar-item"
+            :class="{ active: selectedView === cat.key }"
+            @click="selectView(cat.key)"
+          >
+            <span class="item-label">{{ cat.label }}</span>
+            <span v-if="stats" class="item-badge">{{ getCatCount(cat.key) }}</span>
+          </button>
+        </nav>
       </div>
-      <n-button type="primary" size="medium" round :loading="saving" @click="handleSave">
-        {{ t('common.save') }}
-      </n-button>
-    </div>
 
-    <div v-if="isEmpty" class="page-empty">
-      <n-empty :description="t('settings.memory.emptyTip')" />
-    </div>
+      <div class="sidebar-divider" />
 
-    <div v-else class="page-card">
-      <div class="editor-header">
-        <div class="status-indicator" :class="{ modified: isModified }">
-          <div class="status-dot"></div>
-          <span class="status-text">{{ isModified ? t('settings.modifiedStatus') : t('settings.syncStatus') }}</span>
-        </div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">{{ t('settings.memory.memoryFiles') }}</div>
+        <nav class="sidebar-nav">
+          <button
+            class="sidebar-item"
+            :class="{ active: selectedView === 'memory-md' }"
+            @click="selectView('memory-md')"
+          >
+            <span class="item-icon">📝</span>
+            <span class="item-label">{{ t('settings.memory.memoryMD') }}</span>
+          </button>
+          <button
+            class="sidebar-item"
+            :class="{ active: selectedView === 'daily-notes' }"
+            @click="selectView('daily-notes')"
+          >
+            <span class="item-icon">📅</span>
+            <span class="item-label">{{ t('settings.memory.dailyNotes') }}</span>
+          </button>
+          <button
+            class="sidebar-item"
+            :class="{ active: selectedView === 'archives' }"
+            @click="selectView('archives')"
+          >
+            <span class="item-icon">📦</span>
+            <span class="item-label">{{ t('settings.memory.archives') }}</span>
+          </button>
+        </nav>
       </div>
-      
-      <n-input
-        v-model:value="content"
-        type="textarea"
-        class="markdown-editor"
-        :placeholder="t('settings.memory.placeholder')"
-        :autosize="{ minRows: 15, maxRows: 30 }"
-        @input="isModified = true"
+    </aside>
+
+    <!-- Main Content -->
+    <main class="memory-main">
+      <!-- Structured Memory List -->
+      <StructuredMemoryPanel
+        v-if="isStructuredView"
+        :category="currentCategory"
+        @stats-change="loadStats"
       />
-    </div>
+
+      <!-- MEMORY.md Editor -->
+      <MemoryMDPanel v-else-if="selectedView === 'memory-md'" />
+
+      <!-- Daily Notes -->
+      <DailyNotesPanel v-else-if="selectedView === 'daily-notes'" />
+
+      <!-- Archives -->
+      <ArchivesPanel v-else-if="selectedView === 'archives'" />
+    </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { NButton, NInput, NEmpty, useMessage } from 'naive-ui'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { getAgentMemory, saveAgentMemory } from '@/api/settings'
+import { getMemoryStats } from '@/api/memory'
+import type { MemoryStats } from '@/api/memory'
+import StructuredMemoryPanel from './memory/StructuredMemoryPanel.vue'
+import MemoryMDPanel from './memory/MemoryMDPanel.vue'
+import DailyNotesPanel from './memory/DailyNotesPanel.vue'
+import ArchivesPanel from './memory/ArchivesPanel.vue'
 
 const { t } = useI18n()
-const message = useMessage()
 
-const content = ref('')
-const saving = ref(false)
-const isModified = ref(false)
-const loading = ref(false)
+const selectedView = ref<string>('all')
+const stats = ref<MemoryStats | null>(null)
 
-const isEmpty = computed(() => !content.value.trim())
+const structuredCategories = computed(() => [
+  { key: 'all', label: t('settings.memory.all') },
+  { key: 'core', label: t('settings.memory.core') },
+  { key: 'daily', label: t('settings.memory.daily') },
+  { key: 'conversation', label: t('settings.memory.conversation') },
+])
 
-async function loadData() {
-  loading.value = true
+const isStructuredView = computed(() =>
+  ['all', 'core', 'daily', 'conversation'].includes(selectedView.value)
+)
+
+const currentCategory = computed(() =>
+  selectedView.value === 'all' ? '' : selectedView.value
+)
+
+function selectView(key: string) {
+  selectedView.value = key
+}
+
+function getCatCount(key: string): number {
+  if (!stats.value) return 0
+  if (key === 'all') return stats.value.total
+  return (stats.value as any)[key] ?? 0
+}
+
+async function loadStats() {
   try {
-    const res = await getAgentMemory()
-    content.value = res.content || ''
-    isModified.value = false
-  } catch (error) {
-    console.error(error)
-    content.value = ''
-  } finally {
-    loading.value = false
+    const res = await getMemoryStats()
+    // @ts-ignore
+    stats.value = res.stats
+  } catch {
+    // ignore
   }
 }
 
-async function handleSave() {
-  saving.value = true
-  try {
-    await saveAgentMemory(content.value)
-    message.success(t('common.success'))
-    isModified.value = false
-  } catch (error) {
-    message.error(t('common.error'))
-  } finally {
-    saving.value = false
-  }
-}
-
-onMounted(loadData)
+onMounted(loadStats)
 </script>
 
 <style scoped lang="scss">
 @use '@/styles/variables.scss' as *;
-@use '@/styles/page-layout' as *;
 
-.markdown-editor {
-  :deep(.n-input-wrapper) {
-    padding: $spacing-8;
-  }
-
-  :deep(.n-input__border),
-  :deep(.n-input__state-border) {
-    border: none !important;
-  }
-
-  :deep(textarea) {
-    font-family: $font-family-mono;
-    font-size: $font-size-sm;
-    line-height: $line-height-relaxed;
-    color: $color-text-primary;
-  }
-}
-
-.editor-header {
-  padding: $spacing-4 $spacing-5;
-  background: $color-bg-secondary;
-  border-bottom: 1px solid $color-border-light;
+.memory-layout {
   display: flex;
-  justify-content: flex-end;
+  height: 100%;
+  overflow: hidden;
 }
 
-.status-indicator {
+.memory-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: $color-bg-primary;
+  border-right: 1px solid $color-border-light;
+  overflow-y: auto;
+  padding: $spacing-4 0;
+}
+
+.sidebar-section {
+  padding: 0 $spacing-3;
+}
+
+.sidebar-label {
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+  color: $color-text-secondary;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: $spacing-2 $spacing-2;
+  margin-bottom: $spacing-1;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-item {
   display: flex;
   align-items: center;
   gap: $spacing-2;
+  width: 100%;
+  padding: $spacing-2 $spacing-3;
+  border: none;
+  background: none;
+  border-radius: $radius-md;
+  cursor: pointer;
+  color: $color-text-primary;
+  font-size: $font-size-sm;
+  text-align: left;
+  transition: background 0.15s;
+
+  &:hover {
+    background: $color-bg-tertiary;
+  }
+
+  &.active {
+    background: $color-gray-100;
+    color: $color-primary;
+    font-weight: $font-weight-medium;
+  }
+}
+
+.item-icon {
+  font-size: 14px;
+}
+
+.item-label {
+  flex: 1;
+}
+
+.item-badge {
   font-size: $font-size-xs;
-  color: $color-text-secondary;
-
-  .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: $color-success;
-    animation: pulse 2s infinite;
-  }
-
-  &.modified .status-dot {
-    background: $color-warning;
-    animation: pulse-warning 1.5s infinite;
-  }
+  color: $color-text-tertiary;
+  background: $color-bg-secondary;
+  border-radius: 10px;
+  padding: 0 $spacing-2;
+  min-width: 20px;
+  text-align: center;
+  line-height: 18px;
 }
 
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+.sidebar-divider {
+  height: 1px;
+  background: $color-border-light;
+  margin: $spacing-3 $spacing-3;
 }
 
-@keyframes pulse-warning {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.8;
-    transform: scale(1.2);
-  }
-}
-
-.status-text {
-  font-weight: $font-weight-medium;
+.memory-main {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 </style>

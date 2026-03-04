@@ -2,12 +2,23 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"time"
 
 	"go.uber.org/zap"
 )
+
+// DistilledItem is one memory entry extracted from daily notes by the LLM.
+type DistilledItem struct {
+	Key     string `json:"key"`
+	Content string `json:"content"`
+}
+
+// DistillFn is called by HygieneRunner to distil raw note text into structured memories.
+// Inject this from main.go via SetDistiller to keep the memory package free of LLM imports.
+type DistillFn func(ctx context.Context, notes string) ([]DistilledItem, error)
 
 // HygieneConfig controls the automatic memory cleanup schedule.
 type HygieneConfig struct {
@@ -36,7 +47,14 @@ type HygieneRunner struct {
 	notesDir   string // memory/notes/
 	archiveDir string // memory/archive/
 	cfg        HygieneConfig
+	distiller  DistillFn // optional; injected from main.go
 	logger     *zap.Logger
+}
+
+// SetDistiller injects the LLM-backed distillation function.
+// Call this from main.go after creating the HygieneRunner.
+func (r *HygieneRunner) SetDistiller(fn DistillFn) {
+	r.distiller = fn
 }
 
 // NewHygieneRunner creates a HygieneRunner. Use zero HygieneConfig for defaults.
@@ -101,7 +119,93 @@ func (r *HygieneRunner) run() {
 		}
 	}
 
+	// 4. Distil recent daily notes into structured LTM entries (if distiller is set).
+	if r.distiller != nil && r.ltm != nil && r.notesDir != "" {
+		r.distillRecentNotes()
+	}
+
 	r.logger.Debug("memory hygiene: done")
+}
+
+// distillRecentNotes reads the last 3 days of daily notes (excluding today),
+// skips already-distilled dates, calls the LLM distiller, and stores results in LTM.
+func (r *HygieneRunner) distillRecentNotes() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	now := time.Now()
+	for i := 1; i <= 3; i++ {
+		date := now.AddDate(0, 0, -i)
+		dateStr := date.Format("20060102")
+
+		// Skip if already processed.
+		done, err := r.ltm.IsDistilled(dateStr)
+		if err != nil || done {
+			continue
+		}
+
+		// Read the note file.
+		dayFile := filepath.Join(r.notesDir, date.Format("200601"), dateStr+".md")
+		data, err := os.ReadFile(dayFile)
+		if err != nil {
+			// File may not exist (no activity that day); mark as done so we don't retry.
+			_ = r.ltm.MarkDistilled(dateStr)
+			continue
+		}
+		if len(data) < 50 {
+			// Too short to distil; mark done.
+			_ = r.ltm.MarkDistilled(dateStr)
+			continue
+		}
+
+		items, err := r.distiller(ctx, string(data))
+		if err != nil {
+			r.logger.Warn("memory hygiene: distillation failed", zap.String("date", dateStr), zap.Error(err))
+			continue // will retry next hygiene run
+		}
+
+		for _, item := range items {
+			if item.Key == "" || item.Content == "" {
+				continue
+			}
+			if storeErr := r.ltm.Store(item.Key, item.Content, CategoryDaily); storeErr != nil {
+				r.logger.Warn("memory hygiene: store distilled item failed", zap.String("key", item.Key), zap.Error(storeErr))
+			}
+		}
+
+		_ = r.ltm.MarkDistilled(dateStr)
+		r.logger.Info("memory hygiene: distilled daily notes",
+			zap.String("date", dateStr),
+			zap.Int("items", len(items)),
+		)
+	}
+}
+
+// ParseDistilledItems parses a JSON array of DistilledItem from an LLM response.
+// It is tolerant of extra text before/after the JSON array.
+func ParseDistilledItems(raw string) ([]DistilledItem, error) {
+	start := -1
+	for i, c := range raw {
+		if c == '[' {
+			start = i
+			break
+		}
+	}
+	end := -1
+	for i := len(raw) - 1; i >= 0; i-- {
+		if raw[i] == ']' {
+			end = i
+			break
+		}
+	}
+	if start < 0 || end < 0 || end < start {
+		return nil, nil // LLM returned no array (e.g. "[]" or free text)
+	}
+	var items []DistilledItem
+	if err := json.Unmarshal([]byte(raw[start:end+1]), &items); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 // archiveDailyNotes moves daily note files older than ArchiveDailyAfterDays
