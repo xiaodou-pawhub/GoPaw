@@ -4,6 +4,9 @@ package memory
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,11 +31,13 @@ type MemorySnippet struct {
 // Manager is the primary entry point for the memory subsystem.
 // It coordinates the SQLite store, token counting and LLM-based compression.
 type Manager struct {
-	store        *Store
-	compressor   *Compressor
-	contextLimit int // token limit that triggers compression
-	historyLimit int // max messages returned for context window
-	logger       *zap.Logger
+	store          *Store
+	compressor     *Compressor
+	contextLimit   int    // token limit that triggers compression
+	historyLimit   int    // max messages returned for context window
+	memoryArchDir  string // path to memory/archive/ for auto-archiving summaries
+	compressing    sync.Map // sessionID → struct{}, prevents concurrent compression
+	logger         *zap.Logger
 }
 
 // NewManager creates a Manager.
@@ -44,6 +49,11 @@ func NewManager(store *Store, llmClient llm.Client, contextLimit, historyLimit i
 		historyLimit: historyLimit,
 		logger:       logger,
 	}
+}
+
+// SetArchiveDir 设置对话摘要归档目录（memory/archive/）。
+func (m *Manager) SetArchiveDir(dir string) {
+	m.memoryArchDir = dir
 }
 
 // Store returns the underlying store for direct SQL access.
@@ -123,28 +133,81 @@ func (m *Manager) GetContext(sessionID string, limit int) ([]MemoryMessage, erro
 }
 
 // MaybeCompress checks if the current session's token count exceeds the context limit.
-// If it does, it triggers compression to reduce context size.
+// If so, it launches an async goroutine to compress. Non-blocking; does not return errors.
 // This should be called by the Agent before processing each user message.
-func (m *Manager) MaybeCompress(ctx context.Context, sessionID string) error {
-	// Get messages to check token count
+func (m *Manager) MaybeCompress(sessionID string) {
 	msgs, err := m.store.GetRecentMessages(sessionID, m.historyLimit)
 	if err != nil {
-		return fmt.Errorf("memory: maybe compress: get messages: %w", err)
+		m.logger.Warn("memory: maybe compress: get messages", zap.Error(err))
+		return
 	}
 
 	tokenCount := CountTokens(convertToMemoryMessages(msgs))
-
 	if tokenCount < m.contextLimit {
-		return nil // 未超限，跳过压缩
+		return
 	}
 
-	m.logger.Info("context token limit reached, compressing",
+	// 极端情况：超出 2 倍上限，执行同步强制压缩（不依赖 LLM）
+	if tokenCount >= m.contextLimit*2 {
+		m.logger.Warn("context far exceeds limit, force compressing",
+			zap.String("session_id", sessionID),
+			zap.Int("token_count", tokenCount),
+		)
+		m.forceCompression(sessionID)
+		return
+	}
+
+	// 防止对同一 session 并发压缩
+	if _, loaded := m.compressing.LoadOrStore(sessionID, struct{}{}); loaded {
+		return
+	}
+
+	m.logger.Info("context token limit reached, async compressing",
 		zap.String("session_id", sessionID),
 		zap.Int("token_count", tokenCount),
 		zap.Int("limit", m.contextLimit),
 	)
 
-	return m.Compress(ctx, sessionID)
+	go func() {
+		defer m.compressing.Delete(sessionID)
+		if err := m.Compress(context.Background(), sessionID); err != nil {
+			m.logger.Warn("memory: async compress failed", zap.Error(err))
+		}
+	}()
+}
+
+// forceCompression is an emergency fallback that drops the oldest 50% of messages
+// without invoking the LLM. It adds a note to the session so the AI is aware.
+func (m *Manager) forceCompression(sessionID string) {
+	msgs, err := m.store.GetRecentMessages(sessionID, m.historyLimit*2)
+	if err != nil || len(msgs) <= 4 {
+		return
+	}
+
+	half := len(msgs) / 2
+	older := msgs[:half]
+	fromTime := older[0].CreatedAt
+	toTime := older[len(older)-1].CreatedAt
+
+	if _, err := m.store.DB().Exec(
+		`DELETE FROM messages WHERE session_id = ? AND created_at BETWEEN ? AND ?`,
+		sessionID, fromTime, toTime,
+	); err != nil {
+		m.logger.Error("memory: force compression delete failed", zap.Error(err))
+		return
+	}
+
+	note := fmt.Sprintf("[系统：上下文超出限制，已自动丢弃最旧的 %d 条消息以释放空间]", half)
+	_ = m.store.AddMessage(StoredMessage{
+		ID:         uuid.New().String(),
+		SessionID:  sessionID,
+		Role:       "system",
+		Content:    note,
+		TokenCount: CountTokens([]MemoryMessage{{Role: "system", Content: note}}),
+		CreatedAt:  time.Now().UnixMilli(),
+	})
+
+	m.logger.Info("force compression done", zap.String("session_id", sessionID), zap.Int("dropped", half))
 }
 
 // convertToMemoryMessages converts StoredMessage slice to MemoryMessage slice for token counting.
@@ -224,7 +287,32 @@ func (m *Manager) Compress(ctx context.Context, sessionID string) error {
 		zap.Int("compressed_count", half),
 		zap.String("summary_id", summaryID),
 	)
+
+	// 将摘要追加到 memory/archive/YYYY-MM.md
+	if m.memoryArchDir != "" {
+		if err := m.appendToArchive(summary); err != nil {
+			m.logger.Warn("memory: archive summary failed", zap.Error(err))
+		}
+	}
+
 	return nil
+}
+
+// appendToArchive 将摘要追加到当月归档文件 memory/archive/YYYY-MM.md。
+func (m *Manager) appendToArchive(summary string) error {
+	if err := os.MkdirAll(m.memoryArchDir, 0o755); err != nil {
+		return fmt.Errorf("archive: create dir: %w", err)
+	}
+	now := time.Now()
+	archFile := filepath.Join(m.memoryArchDir, now.Format("2006-01")+".md")
+	entry := fmt.Sprintf("\n## [%s]\n%s\n", now.Format("2006-01-02 15:04"), summary)
+	f, err := os.OpenFile(archFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("archive: open %q: %w", archFile, err)
+	}
+	defer f.Close()
+	_, err = f.WriteString(entry)
+	return err
 }
 
 // Clear removes all memory for a session.
