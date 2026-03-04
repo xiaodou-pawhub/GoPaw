@@ -36,7 +36,7 @@ server:
 agent:
   max_steps: 20       # ReAct 循环最大步数（防止死循环）
   memory:
-    context_limit: 4000   # Session 内估算 token 超过此值时触发记忆压缩
+    context_limit: 20000   # Session 内估算 token 超过此值时触发记忆压缩
     history_limit: 50     # 每次调用最多取最近多少条消息作为上下文
 
 # ---------------------------------------------------------------------------

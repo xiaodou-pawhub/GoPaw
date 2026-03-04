@@ -27,6 +27,7 @@ import (
 	"github.com/gopaw/gopaw/internal/settings"
 	"github.com/gopaw/gopaw/internal/skill"
 	"github.com/gopaw/gopaw/internal/tool"
+	"github.com/gopaw/gopaw/internal/tools"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"github.com/gopaw/gopaw/pkg/types"
 	"github.com/gopaw/gopaw/web"
@@ -39,8 +40,7 @@ import (
 	_ "github.com/gopaw/gopaw/internal/platform/feishu"
 	_ "github.com/gopaw/gopaw/internal/platform/webhook"
 
-	// Import built-in tools so their init() functions register them.
-	_ "github.com/gopaw/gopaw/internal/tools"
+	// tools 包已通过具名 import 引入，init() 自动注册所有内置工具。
 )
 
 const appVersion = "0.1.0"
@@ -192,17 +192,28 @@ func runStart() {
 	settingsStore := settings.NewStore(store.DB())
 
 	// ---------- LLM Client ----------
-	// LiveClient reads the active provider from the DB on each call,
-	// enabling model switching via Web UI without restart.
-	llmClient := llm.NewLiveClient(func() (string, string, string, int, int, error) {
-		p, err := settingsStore.GetActiveProvider()
+	// FallbackClient resolves providers on each call (hot-reload) and tries
+	// them in priority order (active first) when a provider fails.
+	llmClient := llm.NewFallbackClient(func() ([]llm.ProviderEntry, error) {
+		providers, err := settingsStore.GetProvidersByPriority()
 		if err != nil {
-			return "", "", "", 0, 0, fmt.Errorf("读取 LLM 配置失败: %w", err)
+			return nil, fmt.Errorf("读取 LLM 配置失败: %w", err)
 		}
-		if p == nil {
-			return "", "", "", 0, 0, fmt.Errorf("LLM 未配置，请在 Web UI → 设置 → LLM 提供商 中添加配置")
+		if len(providers) == 0 {
+			return nil, fmt.Errorf("LLM 未配置，请在 Web UI → 设置 → LLM 提供商 中添加配置")
 		}
-		return p.BaseURL, p.APIKey, p.Model, p.MaxTokens, p.TimeoutSec, nil
+		entries := make([]llm.ProviderEntry, len(providers))
+		for i, p := range providers {
+			entries[i] = llm.ProviderEntry{
+				Name:       p.Name,
+				BaseURL:    p.BaseURL,
+				APIKey:     p.APIKey,
+				Model:      p.Model,
+				MaxTokens:  p.MaxTokens,
+				TimeoutSec: p.TimeoutSec,
+			}
+		}
+		return entries, nil
 	}, logger)
 
 	if settingsStore.IsSetupRequired() {
@@ -223,9 +234,30 @@ func runStart() {
 		cfg.Agent.Memory.HistoryLimit,
 		logger,
 	)
+	memMgr.SetArchiveDir(wp.MemoryArchDir)
+
+	// ---------- Long-term Memory (structured) ----------
+	ltmStore, err := memory.NewLTMStore(wp.MemoriesDBFile)
+	if err != nil {
+		logger.Fatal("failed to open memories.db", zap.Error(err))
+	}
+	defer ltmStore.Close()
+
+	// ---------- Memory Hygiene ----------
+	hygieneRunner := memory.NewHygieneRunner(
+		ltmStore,
+		wp.MemoryNotesDir,
+		wp.MemoryArchDir,
+		memory.HygieneConfig{}, // use defaults
+		logger,
+	)
 
 	// ---------- Skills ----------
 	toolReg := tool.Global()
+	// 配置记忆工具路径
+	tools.SetMemoryDir(wp.MemoryDir)
+	tools.SetLTMStore(ltmStore)
+	tools.SetMemoryNotesDir(wp.MemoryNotesDir)
 	skillMgr := skill.NewManager(cfg.Skills.Dir, toolReg, logger)
 	if err := skillMgr.Load(cfg.Skills.Enabled); err != nil {
 		logger.Warn("skill load error (continuing)", zap.Error(err))
@@ -245,13 +277,59 @@ func runStart() {
 		skillMgr,
 		memMgr,
 		agent.Config{
-			DefaultPrompt: basePrompt,
-			AgentMDPath:   wp.AgentMDFile,
-			MaxSteps:      cfg.Agent.MaxSteps,
-			ConvLog:       convLogger,
+			DefaultPrompt:  basePrompt,
+			AgentMDPath:    wp.AgentMDFile,
+			LTMStore:       ltmStore,
+			MemoryNotesDir: wp.MemoryNotesDir,
+			MaxSteps:       cfg.Agent.MaxSteps,
+			Hooks: agent.Hooks{
+				PreReasoning: []agent.HookPreReasoning{
+					agent.InjectCurrentTime(),
+				},
+				PostTool: []agent.HookPostTool{
+					agent.AutoJournalHook(wp.MemoryNotesDir),
+				},
+			},
+			ConvLog: convLogger,
 		},
 		logger,
 	)
+
+	// ---------- Memory Distillation ----------
+	// Inject an LLM-backed distiller into HygieneRunner so daily notes are
+	// automatically summarised into structured LTM entries each hygiene cycle.
+	hygieneRunner.SetDistiller(func(ctx context.Context, notes string) ([]memory.DistilledItem, error) {
+		prompt := "你是一个记忆提炼助手。以下是用户近期的工具使用日志，记录了 AI 助手帮用户完成的各种任务。\n" +
+			"请从中提炼出值得长期记住的用户偏好、项目信息、工作习惯或重要事实。\n" +
+			"要求：\n" +
+			"1. 只提炼有实际价值的信息，忽略临时性、一次性操作\n" +
+			"2. 每条记忆必须独立完整，无需上下文即可理解\n" +
+			"3. 以 JSON 数组返回，格式：[{\"key\": \"简短标识\", \"content\": \"完整描述\"}]\n" +
+			"4. 最多 5 条，如无有价值的信息请返回空数组 []\n\n" +
+			"日志内容：\n" + notes
+
+		resp, err := llmClient.Chat(ctx, llm.ChatRequest{
+			Messages: []llm.ChatMessage{
+				{Role: llm.RoleUser, Content: prompt},
+			},
+			MaxTokens: 512,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return memory.ParseDistilledItems(resp.Message.Content)
+	})
+
+	// ---------- Sub-Agent injection ----------
+	// Inject the agent process function into the spawn_agent tool.
+	// This avoids a circular import between internal/tools and internal/agent.
+	tools.SetSubAgentFn(func(ctx context.Context, req *types.Request) (string, error) {
+		resp, err := agentInstance.Process(ctx, req)
+		if err != nil {
+			return "", err
+		}
+		return resp.Content, nil
+	})
 
 	// ---------- Channels ----------
 	// All channel plugins are imported via _ import in main.go.
@@ -263,6 +341,9 @@ func runStart() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start memory hygiene background task
+	hygieneRunner.Start(ctx)
 
 	if err := channelMgr.Start(ctx, pluginCfgs); err != nil {
 		logger.Fatal("failed to start channels", zap.Error(err))
@@ -337,7 +418,7 @@ func runStart() {
 	}
 
 	// ---------- HTTP Server ----------
-	srv := server.New(cfg, adminToken, agentInstance, memMgr, channelMgr, skillMgr, schedMgr, cfgMgr, settingsStore, wp, web.FS(), logger)
+	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, schedMgr, cfgMgr, settingsStore, wp, web.FS(), logger)
 
 	go func() {
 		if err := srv.Start(); err != nil {

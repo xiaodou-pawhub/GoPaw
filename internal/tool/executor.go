@@ -20,6 +20,10 @@ func NewExecutor(registry *Registry, logger *zap.Logger) *Executor {
 	return &Executor{registry: registry, logger: logger}
 }
 
+// maxToolOutputRunes is the maximum size of a tool result sent back to the LLM.
+// Outputs larger than this are truncated to avoid context overflow.
+const maxToolOutputRunes = 50_000
+
 // Execute finds the named tool and runs it with the provided JSON-encoded arguments.
 // argsJSON should be the raw JSON string from the LLM function-call arguments field.
 func (e *Executor) Execute(ctx context.Context, toolName, argsJSON string) (string, error) {
@@ -46,5 +50,12 @@ func (e *Executor) Execute(ctx context.Context, toolName, argsJSON string) (stri
 			zap.String("tool", toolName), zap.Error(err))
 		return "", fmt.Errorf("executor: %s: %w", toolName, err)
 	}
+
+	// Truncate oversized output to prevent context overflow.
+	if runes := []rune(result); len(runes) > maxToolOutputRunes {
+		result = string(runes[:maxToolOutputRunes]) + fmt.Sprintf("\n\n[output truncated: %d chars omitted]", len(runes)-maxToolOutputRunes)
+		e.logger.Warn("tool output truncated", zap.String("tool", toolName), zap.Int("original_len", len(runes)))
+	}
+
 	return result, nil
 }

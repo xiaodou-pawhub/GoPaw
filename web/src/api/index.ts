@@ -30,14 +30,21 @@ api.interceptors.response.use(
     return response.data
   },
   (error) => {
-    // 中文：脱敏日志，只记录必要信息
-    // English: Desensitized log, only record necessary information
-    console.error('API Error:', {
-      url: error.config?.url,
-      method: error.config?.method,
-      status: error.response?.status,
-      message: error.message
-    })
+    // 401 = cookie 过期或未登录，强制刷新页面触发 App.vue 的认证检查
+    if (error.response?.status === 401) {
+      const url = error.config?.url ?? ''
+      // 排除登录接口本身，避免循环
+      if (!url.includes('/auth/login') && !url.includes('/auth/status')) {
+        window.location.reload()
+      }
+    } else {
+      console.error('API Error:', {
+        url: error.config?.url,
+        method: error.config?.method,
+        status: error.response?.status,
+        message: error.message
+      })
+    }
     return Promise.reject(error)
   }
 )

@@ -2,87 +2,94 @@
 
 ## 职责
 
-LLM 模块提供统一的语言模型调用接口，屏蔽不同提供商之间的 API 差异。具体负责：
-- 定义 `Client` 接口，供 Agent 和 Memory 模块调用
-- 实现 OpenAI Chat Completions 兼容端点（支持普通调用、流式调用、工具调用）
-- 实现自定义适配器，通过模板+路径映射支持任意 LLM API
-- 内置重试机制（指数退避，最多 3 次）
+LLM 模块是 GoPaw 的核心能力适配层，负责屏蔽不同大模型提供商的接口差异，并提供稳定、可靠的调用环境。它采用“策略-健康-适配”三层架构，确保 Agent 运行的韧性。
 
-LLM 模块**不负责**：
-- Token 计数（由 Memory 模块用 tiktoken-go 完成）
-- 上下文窗口管理
-- Prompt 构建
+### 核心特性
+
+1.  **统一接口 (Client Interface)**：定义标准的 `Chat` 和 `Stream` 方法，支持 Function Calling、流式输出和视觉理解。
+2.  **能力画像 (Capability Tags)**：为每个模型建立画像（`fc`, `vision`, `reasoning`），支持自动推断与手动覆盖，指导 Agent 决策。
+3.  **健康追踪 (Health Management)**：全局单例 `HealthTracker` 实时监控所有 Provider。
+    *   **状态模型**：`Healthy` (正常), `Cooldown` (冷却), `Degraded` (失效)。
+    *   **故障隔离**：支持 429 限流指数退避与持久授权错误（401）的物理隔离。
+4.  **弹性重试与回退 (Fallback & Retry)**：
+    *   内置 3 次指数退避重试。
+    *   `FallbackClient` 自动跳过冷却中的节点，尝试优先级链中的下一个可用模型。
+5.  **厂商注册表 (Builtin Registry)**：预置主流厂商（OpenAI, Anthropic, 阿里云, DeepSeek, Google）的配置模板，简化用户配置负担。
+
+---
 
 ## 架构图
 
 ```mermaid
-classDiagram
-    class Client {
-        <<interface>>
-        +Chat(ctx, req) ChatResponse
-        +Stream(ctx, req) chan StreamDelta
-        +ModelName() string
-    }
+graph TD
+    Agent[Agent / Memory] --> Fallback[FallbackClient: Strategy Layer]
+    
+    subgraph "Resilience Layer (Internal)"
+        Fallback --> Tracker[HealthTracker: State Monitor]
+        Fallback --> Retry[Retry Loop: 3 Attempts]
+    end
 
-    class OpenAIClient {
-        -baseURL string
-        -apiKey string
-        -model string
-        -httpClient *http.Client
-        +Chat(ctx, req) ChatResponse
-        +Stream(ctx, req) chan StreamDelta
-    }
+    subgraph "Provider Adapters"
+        Retry --> OpenAI[OpenAIClient: Standard FC]
+        Retry --> Custom[CustomClient: Template Based]
+    end
 
-    class CustomClient {
-        -endpoint string
-        -requestTemplate string
-        -responsePath string
-        +Chat(ctx, req) ChatResponse
-        +Stream(ctx, req) chan StreamDelta
-    }
+    subgraph "Knowledge Base"
+        Registry[Registry: Builtin Vendors]
+        Inferrer[TagInferrer: Auto Discovery]
+    end
 
-    Client <|.. OpenAIClient
-    Client <|.. CustomClient
+    Tracker -.-> OpenAI
+    Inferrer -.-> Agent
 ```
 
-## 核心接口
+---
 
-```go
-type Client interface {
-    Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
-    Stream(ctx context.Context, req ChatRequest) (<-chan StreamDelta, error)
-    ModelName() string
+## 核心算法
+
+### 1. 冷却算法 (Exponential Backoff)
+当模型报错或限流时，`HealthTracker` 会计算下一次可尝试的时间点：
+*   **公式**：`wait = 60s * 2^(failures-1)`
+*   **范围**：1 分钟起步，最高冷却 1 小时。
+*   **重置**：任何一次成功请求都会立即清除该 Provider 的失败计数和冷却时间。
+
+### 2. 标签推断 (Tag Inference)
+根据模型标识符自动赋予能力：
+*   `gpt-4*`, `claude-3*`, `qwen-*` → **fc** (Function Calling)
+*   `*-vision`, `gpt-4o`, `gemini-1.5` → **vision**
+*   `r1`, `o1-*`, `reasoner` → **reasoning** (Thinking Process)
+
+---
+
+## 关键代码映射
+
+| 功能 | 对应文件 | 核心逻辑 |
+| :--- | :--- | :--- |
+| 接口定义 | `client.go` | `Client` interface, `ChatRequest/Response` |
+| 健康监控 | `health.go` | `HealthTracker`, `RecordFailure()`, `IsAvailable()` |
+| 容错分发 | `fallback.go` | `FallbackClient`, `Chat()`, `GetChainFunc` |
+| 标准适配 | `openai.go` | `OpenAIClient`, SSE Stream Parser, Tool Mapping |
+| 预置厂商 | `registry.go` | `BuiltinProviders`, `InferTags()` |
+
+---
+
+## 治理策略
+
+1.  **错误分类**：区分临时错误（重试+冷却）与持久错误（直接降级为 Degraded）。
+2.  **零感知回退**：`FallbackClient` 在执行时如果主模型不可用，会默默尝试备用模型，只有当整个候选链都失效时才向 Agent 抛出错误。
+3.  **影子变量保护**：在日志中严禁打印完整的 API Key，仅保留前 8 位用于审计。
+
+---
+
+## 配置项 (数据库 providers 表)
+
+```json
+{
+  "id": "uuid",
+  "name": "阿里云百炼-QwenMax",
+  "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "model": "qwen-max",
+  "tags": ["fc", "vision"],
+  "is_active": true
 }
-```
-
-## 关键设计决策
-
-1. **接口抽象**：Agent 只依赖 `Client` 接口，切换模型提供商无需修改 Agent 代码。
-2. **流式 SSE 解析**：Stream 方法在独立 goroutine 中解析 Server-Sent Events，通过 channel 返回给调用方，调用方可随时通过 context 取消。
-3. **重试策略**：仅在 Chat（非流式）中实现重试（网络瞬断场景），流式请求不重试（已部分输出）。
-4. **自定义适配器**：CustomClient 通过 `{{messages}}` 模板占位符和 dot-path 响应提取，无需修改代码即可对接非 OpenAI 格式的 API。
-
-## 依赖关系
-
-- **依赖**：标准库 `net/http`、`encoding/json`、`go.uber.org/zap`
-- **被依赖**：`internal/agent`（主调用方）、`internal/memory`（压缩调用）
-
-## 验收标准
-
-- [ ] 能正确调用 OpenAI /chat/completions 并返回 ChatResponse
-- [ ] 流式调用每个 delta 都通过 channel 正常传递
-- [ ] 工具调用（function calling）的 ToolCalls 字段被正确解析
-- [ ] 网络超时时触发重试，最多 3 次，间隔符合指数退避
-- [ ] CustomClient 能通过 responsePath 提取嵌套 JSON 字段
-
-## 配置项
-
-```yaml
-llm:
-  provider: openai_compatible   # openai_compatible | custom
-  base_url: https://api.openai.com/v1
-  api_key: ${OPENAI_API_KEY}
-  model: gpt-4o-mini
-  timeout: 60
-  max_tokens: 4096
 ```

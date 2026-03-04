@@ -9,7 +9,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// ZapLogger returns a Gin middleware that logs every request using zap.
+// ZapLogger returns a Gin middleware that logs HTTP requests using zap.
+// 2xx/3xx → Debug（正常请求不打扰控制台）
+// 4xx     → Warn
+// 5xx     → Error
 func ZapLogger(logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -17,13 +20,24 @@ func ZapLogger(logger *zap.Logger) gin.HandlerFunc {
 
 		c.Next()
 
-		logger.Info("http request",
+		status := c.Writer.Status()
+		fields := []zap.Field{
 			zap.String("method", c.Request.Method),
 			zap.String("path", path),
-			zap.Int("status", c.Writer.Status()),
+			zap.Int("status", status),
 			zap.Duration("latency", time.Since(start)),
 			zap.String("client_ip", c.ClientIP()),
-		)
+		}
+
+		switch {
+		case status >= 500:
+			logger.Error("http request", fields...)
+		case status >= 400:
+			logger.Warn("http request", fields...)
+		default:
+			// 2xx/3xx: debug only, keeps info log clean during normal operation
+			logger.Debug("http request", fields...)
+		}
 	}
 }
 
@@ -41,6 +55,20 @@ func Recovery(logger *zap.Logger) gin.HandlerFunc {
 				})
 			}
 		}()
+		c.Next()
+	}
+}
+
+// WebAuth returns a middleware that enforces session-cookie authentication for the Web UI.
+// Requests carrying a valid gopaw_session cookie are allowed through.
+// Returns 401 for unauthenticated API calls so the frontend can redirect to the login overlay.
+func WebAuth(adminToken string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cookie, err := c.Cookie("gopaw_session")
+		if err != nil || cookie != adminToken {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "未登录，请输入访问 Token"})
+			return
+		}
 		c.Next()
 	}
 }
