@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -104,9 +105,18 @@ func (h *AgentHandler) ChatStreamPost(c *gin.Context) {
 	h.processStream(c, req.SessionID, req.Content)
 }
 
-// processStream is the common logic for streaming responses.
-// 中文：流式响应的通用逻辑
-// English: Common logic for streaming responses
+// writeSSE marshals v to JSON and writes a single SSE data line to w.
+func writeSSE(w interface {
+	Write([]byte) (int, error)
+	Flush()
+}, v any) {
+	data, _ := json.Marshal(v)
+	fmt.Fprintf(w, "data: %s\n\n", data)
+	w.Flush()
+}
+
+// processStream is the common logic for streaming responses using Server-Sent Events.
+// Emits structured events: tool_call, tool_result, delta, done, error.
 func (h *AgentHandler) processStream(c *gin.Context, sessionID, content string) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -120,18 +130,23 @@ func (h *AgentHandler) processStream(c *gin.Context, sessionID, content string) 
 		Channel:   "console",
 	}
 
-	resp, err := h.agent.Process(c.Request.Context(), agentReq)
+	w := c.Writer
+
+	progressFn := func(evt agent.ProgressEvent) {
+		writeSSE(w, evt)
+	}
+
+	deltaFn := func(chunk string) {
+		writeSSE(w, map[string]any{"type": "delta", "delta": chunk})
+	}
+
+	_, err := h.agent.ProcessStream(c.Request.Context(), agentReq, progressFn, deltaFn)
 	if err != nil {
-		fmt.Fprintf(c.Writer, "data: {\"error\":%q}\n\n", err.Error())
-		c.Writer.Flush()
+		writeSSE(w, map[string]any{"type": "error", "error": err.Error()})
 		return
 	}
 
-	// Simulate streaming by sending the full response as a single delta.
-	// Real streaming requires the LLM client's Stream method to be wired here.
-	fmt.Fprintf(c.Writer, "data: {\"delta\":%q}\n\n", resp.Content)
-	fmt.Fprintf(c.Writer, "data: {\"done\":true}\n\n")
-	c.Writer.Flush()
+	writeSSE(w, map[string]any{"type": "done", "done": true})
 }
 
 // ListSessions handles GET /api/agent/sessions.

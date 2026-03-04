@@ -56,6 +56,10 @@ export interface StreamCallbacks {
 	onDelta: (delta: string) => void
 	onDone: () => void
 	onError: (error: string) => void
+	/** Called when the agent is about to invoke a tool. */
+	onToolCall?: (toolName: string, args: string) => void
+	/** Called when a tool execution completes. */
+	onToolResult?: (toolName: string, result: string, isError: boolean) => void
 }
 
 // 中文：流式请求控制选项
@@ -101,12 +105,6 @@ export async function sendChatStream(sessionId: string, content: string, callbac
 
 	try {
 		while (true) {
-			// 检查是否被取消
-			if (options?.signal?.aborted) {
-				callbacks.onError('Request cancelled')
-				break
-			}
-			
 			const { done, value } = await reader.read()
 			if (done) break
 
@@ -115,23 +113,37 @@ export async function sendChatStream(sessionId: string, content: string, callbac
 			buffer = lines.pop() || ''
 
 			for (const line of lines) {
-				if (line.startsWith('data: ')) {
-					try {
-						const data = JSON.parse(line.slice(6))
-						if (data.delta) {
-							callbacks.onDelta(data.delta)
-						}
-						if (data.done) {
-							callbacks.onDone()
-						}
-						if (data.error) {
-							callbacks.onError(data.error)
-						}
-					} catch {
-						// 中文：忽略解析错误 / English: Ignore parse errors
+				const trimmed = line.trim()
+				if (!trimmed || !trimmed.startsWith('data: ')) continue
+				
+				try {
+					const data = JSON.parse(trimmed.slice(6))
+					// 根据显式 type 分发，兼容旧格式
+					if (data.type === 'delta' || data.delta) {
+						if (data.delta) callbacks.onDelta(data.delta)
+					} else if (data.type === 'tool_call') {
+						if (callbacks.onToolCall) callbacks.onToolCall(data.tool_name, data.args || '')
+					} else if (data.type === 'tool_result') {
+						if (callbacks.onToolResult) callbacks.onToolResult(data.tool_name, data.result || '', !!data.is_error)
+					} else if (data.type === 'done' || data.done) {
+						callbacks.onDone()
+						return // 显式退出，不再处理后续
+					} else if (data.type === 'error' || data.error) {
+						callbacks.onError(data.error)
+						return
 					}
+				} catch (e) {
+					console.warn('SSE Parse error:', e, trimmed)
 				}
 			}
+		}
+		// 如果循环正常结束但没收到 done 信号（网络截断）
+		callbacks.onDone()
+	} catch (e: any) {
+		if (e.name === 'AbortError') {
+			// 忽略用户取消
+		} else {
+			callbacks.onError(e.message || 'Stream interrupted')
 		}
 	} finally {
 		reader.releaseLock()
