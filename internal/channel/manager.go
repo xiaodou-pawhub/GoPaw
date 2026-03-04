@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/gopaw/gopaw/pkg/plugin"
 	"github.com/gopaw/gopaw/pkg/types"
@@ -14,14 +15,13 @@ import (
 )
 
 // MessageHandler is a function that processes an inbound message and returns a response.
-// Returning a non-nil response causes the manager to send it back via the originating channel.
 type MessageHandler func(ctx context.Context, msg *types.Message) (*types.Message, error)
 
 // Manager starts and monitors all enabled channel plugins.
-// It aggregates messages from all channels into a single stream and hands them to the agent.
 type Manager struct {
 	registry *Registry
 	logger   *zap.Logger
+	store    *MediaStore
 
 	// active holds the plugins that were successfully initialised and started.
 	active []plugin.ChannelPlugin
@@ -31,22 +31,20 @@ type Manager struct {
 	aggregated chan *types.Message
 
 	// ctx is the process-level lifecycle context for plugin background tasks.
-	// It should not be tied to HTTP request contexts.
 	ctx context.Context
 }
 
-// NewManager creates a Manager backed by the given registry.
-func NewManager(registry *Registry, logger *zap.Logger) *Manager {
+// NewManager creates a Manager backed by the given registry and store.
+func NewManager(registry *Registry, store *MediaStore, logger *zap.Logger) *Manager {
 	return &Manager{
 		registry:   registry,
 		logger:     logger,
+		store:      store,
 		aggregated: make(chan *types.Message, 1000),
 	}
 }
 
 // Start initialises and starts all registered channel plugins.
-// All plugins in the registry are started automatically.
-// Plugins that fail to initialize (e.g., missing config) are skipped with a warning.
 func (m *Manager) Start(ctx context.Context, pluginCfgs map[string]json.RawMessage) error {
 	m.ctx = ctx
 
@@ -57,19 +55,22 @@ func (m *Manager) Start(ctx context.Context, pluginCfgs map[string]json.RawMessa
 			cfg = json.RawMessage("{}")
 		}
 
+		// Inject MediaStore if the plugin supports it.
+		if msr, ok := p.(plugin.MediaStoreReceiver); ok && m.store != nil {
+			msr.SetMediaStore(m.store)
+		}
+
 		if err := p.Init(cfg); err != nil {
 			if errors.Is(err, plugin.ErrMissingCredentials) {
-				m.logger.Info("channel not configured, skipping",
-					zap.String("plugin", name))
+				m.logger.Info("channel not configured, skipping", zap.String("plugin", name))
 			} else {
-				m.logger.Warn("channel plugin init failed, skipping",
-					zap.String("plugin", name), zap.Error(err))
+				m.logger.Warn("channel plugin init failed, skipping", zap.String("plugin", name), zap.Error(err))
 			}
 			continue
 		}
+		
 		if err := p.Start(ctx); err != nil {
-			m.logger.Warn("channel plugin start failed, skipping",
-				zap.String("plugin", name), zap.Error(err))
+			m.logger.Warn("channel plugin start failed, skipping", zap.String("plugin", name), zap.Error(err))
 			continue
 		}
 
@@ -77,15 +78,52 @@ func (m *Manager) Start(ctx context.Context, pluginCfgs map[string]json.RawMessa
 		m.active = append(m.active, p)
 		m.mu.Unlock()
 
-		go m.fanIn(ctx, p)
+		go m.supervisedFanIn(ctx, p)
 
 		m.logger.Info("channel started", zap.String("plugin", name))
 	}
 	return nil
 }
 
-// fanIn copies messages from a single plugin's Receive() channel into m.aggregated.
-func (m *Manager) fanIn(ctx context.Context, p plugin.ChannelPlugin) {
+// supervisedFanIn copies messages from a plugin into m.aggregated with backoff.
+func (m *Manager) supervisedFanIn(ctx context.Context, p plugin.ChannelPlugin) {
+	const maxAttempts = 10
+	bo := defaultBackoff()
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		healthy := m.drainMessages(ctx, p)
+		if ctx.Err() != nil {
+			return 
+		}
+		if healthy {
+			bo.Reset()
+		}
+		if attempt == maxAttempts-1 {
+			m.logger.Error("channel plugin max restart attempts reached, giving up",
+				zap.String("plugin", p.Name()), zap.Int("attempts", maxAttempts))
+			return
+		}
+
+		delay := bo.Next()
+		m.logger.Warn("channel plugin disconnected, restarting",
+			zap.String("plugin", p.Name()), zap.Int("attempt", attempt+1), zap.Duration("delay", delay))
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(delay):
+		}
+
+		_ = p.Stop()
+		if err := p.Start(ctx); err != nil {
+			m.logger.Error("channel plugin restart failed", zap.String("plugin", p.Name()), zap.Error(err))
+			continue
+		}
+		m.logger.Info("channel plugin restarted", zap.String("plugin", p.Name()))
+	}
+}
+
+func (m *Manager) drainMessages(ctx context.Context, p plugin.ChannelPlugin) (healthy bool) {
 	recv := p.Receive()
 	for {
 		select {
@@ -95,17 +133,17 @@ func (m *Manager) fanIn(ctx context.Context, p plugin.ChannelPlugin) {
 			if !ok {
 				return
 			}
+			healthy = true
 			select {
 			case m.aggregated <- msg:
 			default:
-				m.logger.Warn("aggregated channel full, dropping message",
-					zap.String("channel", p.Name()))
+				m.logger.Warn("aggregated channel full, dropping message", zap.String("channel", p.Name()))
 			}
 		}
 	}
 }
 
-// Messages returns a read-only channel of all inbound messages across all channels.
+// Messages returns a read-only channel of all inbound messages.
 func (m *Manager) Messages() <-chan *types.Message {
 	return m.aggregated
 }
@@ -125,8 +163,7 @@ func (m *Manager) Stop() {
 	defer m.mu.RUnlock()
 	for _, p := range m.active {
 		if err := p.Stop(); err != nil {
-			m.logger.Warn("channel stop error",
-				zap.String("plugin", p.Name()), zap.Error(err))
+			m.logger.Warn("channel stop error", zap.String("plugin", p.Name()), zap.Error(err))
 		}
 	}
 }
@@ -156,13 +193,8 @@ func (m *Manager) GetPlugin(name string) (plugin.ChannelPlugin, error) {
 	return m.registry.Get(name)
 }
 
-// GetActivePlugin returns an active (initialized and started) plugin by name.
+// GetActivePlugin returns an active plugin by name.
 func (m *Manager) GetActivePlugin(name string) (plugin.ChannelPlugin, error) {
-	_, err := m.registry.Get(name)
-	if err != nil {
-		return nil, err
-	}
-
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, ap := range m.active {
@@ -196,10 +228,11 @@ func (m *Manager) Reinit(name string, cfg json.RawMessage) error {
 	m.mu.Unlock()
 
 	if oldPlugin != nil {
-		if err := oldPlugin.Stop(); err != nil {
-			m.logger.Warn("channel: stop old plugin failed",
-				zap.String("name", name), zap.Error(err))
-		}
+		_ = oldPlugin.Stop()
+	}
+
+	if msr, ok := p.(plugin.MediaStoreReceiver); ok && m.store != nil {
+		msr.SetMediaStore(m.store)
 	}
 
 	if err := p.Init(cfg); err != nil {
@@ -214,8 +247,7 @@ func (m *Manager) Reinit(name string, cfg json.RawMessage) error {
 	m.active = append(m.active, p)
 	m.mu.Unlock()
 
-	go m.fanIn(m.ctx, p)
+	go m.supervisedFanIn(m.ctx, p)
 
-	m.logger.Info("channel: reinit completed", zap.String("name", name))
 	return nil
 }

@@ -14,6 +14,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gopaw/gopaw/internal/channel"
+	"github.com/gopaw/gopaw/internal/platform/feishu"
+	"github.com/gopaw/gopaw/internal/renderer"
 	"github.com/gopaw/gopaw/pkg/plugin"
 	"github.com/gopaw/gopaw/pkg/types"
 	"go.uber.org/zap"
@@ -188,12 +190,22 @@ func (p *Plugin) pushWebhook(msg *types.Message) error {
 
 // buildFeishuPayload builds payload for Feishu webhook.
 func (p *Plugin) buildFeishuPayload(msg *types.Message) ([]byte, error) {
-	payload := map[string]interface{}{
-		"msg_type": "text",
-		"content": map[string]string{
-			"text": msg.Content,
-		},
+	// 1. 解析 Markdown 块
+	blocks := renderer.ParseMarkdown(msg.Content)
+
+	// 2. 构造飞书卡片 JSON (交互式消息)
+	cardJSON, err := feishu.BuildCard("🤖 GoPaw 智能助手", blocks, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to build feishu card: %w", err)
 	}
+
+	// 3. 构建 Webhook 专用格式
+	// 飞书 Webhook 要求卡片放在 "card" 字段中，且 "msg_type" 为 "interactive"
+	payload := map[string]interface{}{
+		"msg_type": "interactive",
+		"card":     json.RawMessage(cardJSON),
+	}
+
 	return json.Marshal(payload)
 }
 

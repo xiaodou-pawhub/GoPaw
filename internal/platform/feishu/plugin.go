@@ -1,6 +1,4 @@
 // Package feishu implements the Feishu (Lark) channel plugin for GoPaw.
-// It uses Feishu Stream Mode (WebSocket) to receive events, eliminating the need
-// for public IP or reverse proxy.
 package feishu
 
 import (
@@ -9,11 +7,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gopaw/gopaw/internal/channel"
+	"github.com/gopaw/gopaw/internal/renderer"
 	"github.com/gopaw/gopaw/pkg/plugin"
 	"github.com/gopaw/gopaw/pkg/types"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -23,27 +26,27 @@ import (
 	"go.uber.org/zap"
 )
 
-// ── 常量定义 / Constants ───────────────────────────────────────────────────
-
 const (
-	tokenEndpoint   = "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal"
-	sendEndpoint    = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
-	tokenRefreshSkew = 5 * time.Minute // 提前 5 分钟刷新
-	defaultTimeout  = 10 * time.Second
+	tokenEndpoint    = "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal"
+	sendEndpoint     = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
+	uploadEndpoint   = "https://open.feishu.cn/open-apis/im/v1/images"
+	tokenRefreshSkew = 5 * time.Minute
+	defaultTimeout   = 30 * time.Second
 )
 
 func init() {
 	channel.Register(&Plugin{
 		inbound: make(chan *types.Message, 256),
+		deduper: NewDeduper(30 * time.Minute),
 	})
 }
 
 type feishuConfig struct {
 	AppID     string `json:"app_id"`
 	AppSecret string `json:"app_secret"`
+	Domain    string `json:"domain"` // feishu.cn or larksuite.com
 }
 
-// Plugin implements the Feishu channel using Stream Mode (WebSocket).
 type Plugin struct {
 	cfg        feishuConfig
 	inbound    chan *types.Message
@@ -51,316 +54,461 @@ type Plugin struct {
 	configured bool
 	logger     *zap.Logger
 	httpClient *http.Client
-	
-	// 状态控制 / State Control
+	deduper    *Deduper
+	store      plugin.MediaStore
+
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 	connected  bool
 	mu         sync.RWMutex
 
-	// Token 缓存 / Token Cache
-	tokenMu      sync.RWMutex
-	cachedToken  string
-	tokenExpiry  time.Time
+	tokenMu     sync.RWMutex
+	cachedToken string
+	tokenExpiry time.Time
 }
+
+var _ plugin.MediaStoreReceiver = (*Plugin)(nil)
+var _ plugin.TypingCapable = (*Plugin)(nil)
+var _ plugin.ReactionCapable = (*Plugin)(nil)
+var _ plugin.MessageEditor = (*Plugin)(nil)
+var _ plugin.PlaceholderCapable = (*Plugin)(nil)
 
 func (p *Plugin) Name() string        { return "feishu" }
 func (p *Plugin) DisplayName() string { return "飞书" }
 
-// Init parses Feishu credentials.
 func (p *Plugin) Init(cfg json.RawMessage) error {
 	p.logger = zap.L().Named("channel.feishu")
 	p.httpClient = &http.Client{Timeout: defaultTimeout}
-	
+
 	if len(cfg) > 0 && string(cfg) != "{}" {
 		if err := json.Unmarshal(cfg, &p.cfg); err != nil {
 			p.logger.Warn("feishu: failed to parse config", zap.Error(err))
-			return nil
 		}
 	}
 	if p.cfg.AppID == "" || p.cfg.AppSecret == "" {
 		return plugin.ErrMissingCredentials
 	}
+	if p.cfg.Domain == "" {
+		p.cfg.Domain = "feishu.cn"
+	}
 	p.configured = true
 	return nil
 }
 
-// Start establishes the WebSocket connection to Feishu.
+func (p *Plugin) SetMediaStore(s plugin.MediaStore) {
+	p.mu.Lock()
+	p.store = s
+	p.mu.Unlock()
+}
+
 func (p *Plugin) Start(ctx context.Context) error {
 	if !p.configured {
 		return nil
 	}
 	p.started = time.Now()
-	
-	// 中文：绑定生命周期上下文
-	// English: Bind lifecycle context
 	p.ctx, p.cancelFunc = context.WithCancel(ctx)
 
-	// 中文：创建事件处理器
-	// English: Create event dispatcher
 	eventHandler := dispatcher.NewEventDispatcher("", "")
 	eventHandler.OnP2MessageReceiveV1(func(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
 		p.handleIncomingMessage(event)
 		return nil
 	})
 
-	// 中文：初始化 WebSocket 客户端
-	// English: Initialize WebSocket client
 	wsClient := larkws.NewClient(p.cfg.AppID, p.cfg.AppSecret,
 		larkws.WithEventHandler(eventHandler),
 		larkws.WithLogLevel(larkcore.LogLevelInfo),
 	)
 
-	// 中文：启动长连接
-	// English: Start long connection
 	go func() {
-		// 中文：启动时先标记为已连接，SDK Start 会阻塞直到连接断开
-		// English: Mark as connected on start, SDK Start blocks until disconnected
 		p.mu.Lock()
 		p.connected = true
 		p.mu.Unlock()
+
+		if err := wsClient.Start(p.ctx); err != nil && p.ctx.Err() == nil {
+			p.logger.Error("feishu ws client failed", zap.Error(err))
+		}
 		
-		p.logger.Info("feishu stream mode connecting")
-		
-		err := wsClient.Start(p.ctx)
-		
-		// 中文：连接断开，标记状态
-		// English: Connection closed, update status
 		p.mu.Lock()
 		p.connected = false
 		p.mu.Unlock()
-		
-		if err != nil && p.ctx.Err() == nil {
-			p.logger.Error("feishu ws client failed", zap.Error(err))
-		} else {
-			p.logger.Info("feishu ws client stopped")
-		}
 	}()
 
-	p.logger.Info("feishu stream mode started")
 	return nil
 }
 
-// Stop closes the WebSocket connection.
 func (p *Plugin) Stop() error {
-	p.logger.Info("feishu channel stopping")
 	if p.cancelFunc != nil {
 		p.cancelFunc()
 	}
 	return nil
 }
 
-// Receive returns the inbound message channel.
 func (p *Plugin) Receive() <-chan *types.Message {
 	return p.inbound
 }
 
-// handleIncomingMessage converts a Feishu event to GoPaw Message.
 func (p *Plugin) handleIncomingMessage(event *larkim.P2MessageReceiveV1) {
-	// 中文：严格的 nil 检查，防止 SDK 字段解引用 panic
-	// English: Strict nil checks to prevent SDK field dereference panic
 	if event == nil || event.Event == nil || event.Event.Message == nil {
 		return
 	}
-	
+
 	msgData := event.Event.Message
-	if msgData.MessageType == nil || *msgData.MessageType != "text" {
+	msgID := strVal(msgData.MessageId)
+	if p.deduper.Seen(msgID) {
 		return
 	}
 
-	if msgData.Content == nil {
-		return
+	msgType := strVal(msgData.MessageType)
+	
+	var text string
+	var files []types.FileAttachment
+
+	switch msgType {
+	case "text":
+		var content map[string]string
+		if err := json.Unmarshal([]byte(strVal(msgData.Content)), &content); err == nil {
+			text = content["text"]
+		}
+	case "image", "file":
+		p.mu.RLock()
+		store := p.store
+		p.mu.RUnlock()
+
+		if store != nil {
+			localPath, meta, err := p.downloadResource(msgID, msgData)
+			if err == nil {
+				ref, storeErr := store.Store(localPath, plugin.MediaMeta{
+					Filename:    meta.Filename,
+					ContentType: meta.ContentType,
+					Source:      "feishu",
+				}, strVal(msgData.ChatId))
+				if storeErr == nil {
+					files = append(files, types.FileAttachment{
+						Name: meta.Filename,
+						URL:  ref,
+					})
+					text = fmt.Sprintf("[媒体消息: %s]", meta.Filename)
+				}
+			}
+		}
 	}
 
-	var content map[string]string
-	if err := json.Unmarshal([]byte(*msgData.Content), &content); err != nil {
-		p.logger.Error("feishu: failed to unmarshal message content", zap.Error(err))
-		return
-	}
-	text := content["text"]
-
-	if event.Event.Sender == nil || event.Event.Sender.SenderId == nil || event.Event.Sender.SenderId.OpenId == nil {
-		return
+	peerKind := types.PeerDirect
+	if msgData.ChatType != nil && *msgData.ChatType == "group" {
+		peerKind = types.PeerGroup
 	}
 
-	userID := *event.Event.Sender.SenderId.OpenId
-	chatID := ""
-	if msgData.ChatId != nil {
-		chatID = *msgData.ChatId
-	}
-	msgID := ""
-	if msgData.MessageId != nil {
-		msgID = *msgData.MessageId
+	userID := ""
+	if event.Event.Sender != nil && event.Event.Sender.SenderId != nil {
+		userID = strVal(event.Event.Sender.SenderId.OpenId)
 	}
 
 	msg := &types.Message{
-		ID:        msgID,
-		SessionID: chatID,
-		UserID:    userID,
-		Channel:   p.Name(),
-		Content:   text,
-		MsgType:   types.MsgTypeText,
-		Timestamp: time.Now().UnixMilli(),
-		Metadata:  map[string]string{"chat_id": chatID},
+		ID:          msgID,
+		ChatID:      strVal(msgData.ChatId),
+		UserID:      userID,
+		Channel:     p.Name(),
+		Content:     text,
+		MsgType:     types.MessageType(msgType),
+		Timestamp:   time.Now().UnixMilli(),
+		IsMentioned: len(msgData.Mentions) > 0,
+		ThreadID:    strVal(msgData.ThreadId),
+		PeerKind:    peerKind,
+		Files:       files,
 	}
 
 	select {
 	case p.inbound <- msg:
 	default:
-		p.logger.Warn("feishu: inbound queue full, dropping message")
+		p.logger.Warn("feishu: inbound queue full")
 	}
 }
 
-// Send delivers a message via the Feishu REST API.
-func (p *Plugin) Send(msg *types.Message) error {
-	if !p.configured {
-		return fmt.Errorf("feishu: channel not configured")
+// strVal safely dereferences a *string to a string, returning "" if nil.
+func strVal(s *string) string {
+	if s == nil {
+		return ""
 	}
-	receiveID := msg.SessionID
-	if receiveID == "" {
-		receiveID = msg.UserID
-	}
+	return *s
+}
 
-	token, err := p.getToken()
-	if err != nil {
-		return fmt.Errorf("feishu: get token: %w", err)
-	}
+// ── Capabilities Implementation ─────────────────────────────────────────────
 
+func (p *Plugin) StartTyping(ctx context.Context, chatID string) (func(), error) {
+	return func() {}, nil
+}
+
+func (p *Plugin) AddReaction(ctx context.Context, chatID, messageID, reactionType string) error {
+	emoji := p.mapReaction(reactionType)
+	if emoji == "" {
+		return nil
+	}
+	token, _ := p.getToken()
+	url := fmt.Sprintf("https://open.feishu.cn/open-apis/im/v1/messages/%s/reactions", messageID)
+	
+	// 修正请求体结构 / Correct request body structure
 	payload := map[string]interface{}{
-		"receive_id": receiveID,
-		"msg_type":   "text",
-		"content":    fmt.Sprintf(`{"text":%q}`, msg.Content),
+		"reaction_type": map[string]string{
+			"emoji_type": emoji,
+		},
 	}
-	body, err := json.Marshal(payload)
+	body, _ := json.Marshal(payload)
+	
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	
+	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("feishu: marshal payload: %w", err)
+		p.logger.Error("feishu add reaction failed", zap.Error(err))
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		p.logger.Warn("feishu add reaction api error", 
+			zap.Int("status", resp.StatusCode), 
+			zap.String("body", string(respBody)))
+	}
+	return nil
+}
+
+func (p *Plugin) RemoveReaction(ctx context.Context, chatID, messageID, reactionType string) error {
+	return nil
+}
+
+func (p *Plugin) SendPlaceholder(ctx context.Context, chatID string) (string, error) {
+	card, _ := BuildPlaceholderCard()
+	msg := &types.Message{
+		ChatID:  chatID,
+		Channel: p.Name(),
+		Content: card,
+		MsgType: types.MsgTypeMarkdown,
+	}
+	return p.sendInternal(ctx, msg, true)
+}
+
+func (p *Plugin) EditMessage(ctx context.Context, chatID, messageID, content string) error {
+	blocks := renderer.ParseMarkdown(content)
+	p.processOutboundImages(ctx, blocks)
+
+	card, err := BuildCard("🤖 智能回复", blocks, "success")
+	if err != nil {
+		return err
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		sendEndpoint, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("feishu: create request: %w", err)
-	}
+	token, _ := p.getToken()
+	url := fmt.Sprintf("https://open.feishu.cn/open-apis/im/v1/messages/%s", messageID)
+	payload := map[string]string{"content": card}
+	body, _ := json.Marshal(payload)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPatch, url, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("feishu: http send: %w", err)
+		return err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("feishu api error (status %d): %s", resp.StatusCode, string(b))
-	}
 	return nil
 }
 
-// Health returns the current operational status.
-func (p *Plugin) Health() plugin.HealthStatus {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	
-	if !p.configured {
-		return plugin.HealthStatus{Running: false, Message: "未配置", Since: p.started}
-	}
-	if !p.connected {
-		return plugin.HealthStatus{Running: false, Message: "长连接未建立或已断开", Since: p.started}
-	}
-	return plugin.HealthStatus{Running: true, Message: "长连接运行中", Since: p.started}
+func (p *Plugin) Send(msg *types.Message) error {
+	_, err := p.sendInternal(context.Background(), msg, false)
+	return err
 }
 
-// Test validates the Feishu connection and credentials.
-// It checks: 1) configuration completeness, 2) token validity, 3) WebSocket connection status.
-func (p *Plugin) Test(ctx context.Context) plugin.TestResult {
-	// 检查配置是否完整
-	if !p.configured || p.cfg.AppID == "" || p.cfg.AppSecret == "" {
-		return plugin.TestResult{
-			Success: false,
-			Message: "请先配置 app_id 和 app_secret",
-		}
-	}
-
-	// 尝试获取 token（验证凭证有效性）
-	_, err := p.getToken()
+func (p *Plugin) sendInternal(ctx context.Context, msg *types.Message, isCard bool) (string, error) {
+	token, err := p.getToken()
 	if err != nil {
-		return plugin.TestResult{
-			Success: false,
-			Message: "凭证验证失败，请检查 app_id 和 app_secret",
-			Details: err.Error(),
-		}
+		return "", err
 	}
 
-	// 检查 WebSocket 连接状态
-	p.mu.RLock()
-	connected := p.connected
-	p.mu.RUnlock()
+	var content string
+	msgType := "interactive"
 
-	if !connected {
-		return plugin.TestResult{
-			Success: false,
-			Message: "长连接未建立，请稍后重试或检查网络",
-		}
+	if isCard || msg.MsgType == types.MsgTypeMarkdown {
+		content = msg.Content
+	} else {
+		blocks := renderer.ParseMarkdown(msg.Content)
+		p.processOutboundImages(ctx, blocks)
+		card, _ := BuildCard("🤖 智能回复", blocks, "success")
+		content = card
 	}
 
-	return plugin.TestResult{
-		Success: true,
-		Message: "连接正常，凭证有效",
+	payload := map[string]interface{}{
+		"receive_id": msg.ChatID,
+		"msg_type":   msgType,
+		"content":    content,
+	}
+	
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, sendEndpoint, bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var res struct {
+		Data struct {
+			MessageId string `json:"message_id"`
+		} `json:"data"`
+	}
+	json.NewDecoder(resp.Body).Decode(&res)
+	return res.Data.MessageId, nil
+}
+
+// ── Multi-modal Support ─────────────────────────────────────────────────────
+
+func (p *Plugin) downloadResource(msgID string, msgData *larkim.EventMessage) (string, plugin.MediaMeta, error) {
+	msgType := strVal(msgData.MessageType)
+	var fileKey string
+	var filename string
+	
+	var content map[string]string
+	if err := json.Unmarshal([]byte(strVal(msgData.Content)), &content); err != nil {
+		return "", plugin.MediaMeta{}, err
+	}
+
+	if msgType == "image" {
+		fileKey = content["image_key"]
+		filename = "image.png"
+	} else {
+		fileKey = content["file_key"]
+		filename = content["file_name"]
+	}
+
+	token, _ := p.getToken()
+	url := fmt.Sprintf("https://open.feishu.cn/open-apis/im/v1/messages/%s/resources/%s?type=%s", 
+		msgID, fileKey, msgType)
+	
+	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	
+	resp, err := p.httpClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return "", plugin.MediaMeta{}, fmt.Errorf("feishu api error")
+	}
+	defer resp.Body.Close()
+
+	tmpPath := p.store.TempPath(filepath.Ext(filename))
+	f, _ := os.Create(tmpPath)
+	defer f.Close()
+	io.Copy(f, resp.Body)
+
+	return tmpPath, plugin.MediaMeta{Filename: filename, ContentType: resp.Header.Get("Content-Type")}, nil
+}
+
+func (p *Plugin) processOutboundImages(ctx context.Context, blocks []renderer.MessageBlock) {
+	for i, b := range blocks {
+		if b.Type == renderer.BlockImage && strings.HasPrefix(b.Content, "media://") {
+			localPath, err := p.store.Resolve(b.Content)
+			if err == nil {
+				imageKey, err := p.uploadImage(ctx, localPath)
+				if err == nil {
+					blocks[i].Content = imageKey
+				}
+			}
+		}
 	}
 }
 
-// getToken handles thread-safe token retrieval and lazy refreshing.
+func (p *Plugin) uploadImage(ctx context.Context, path string) (string, error) {
+	token, _ := p.getToken()
+	file, _ := os.Open(path)
+	defer file.Close()
+
+	var b bytes.Buffer
+	w := multipart.NewWriter(&b)
+	w.WriteField("image_type", "message")
+	part, _ := w.CreateFormFile("image", filepath.Base(path))
+	io.Copy(part, file)
+	w.Close()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, uploadEndpoint, &b)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var res struct {
+		Code int `json:"code"`
+		Data struct {
+			ImageKey string `json:"image_key"`
+		} `json:"data"`
+	}
+	json.NewDecoder(resp.Body).Decode(&res)
+	if res.Code != 0 {
+		return "", fmt.Errorf("upload failed: %d", res.Code)
+	}
+	return res.Data.ImageKey, nil
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+func (p *Plugin) mapReaction(rt string) string {
+	switch rt {
+	case plugin.ReactionWait:
+		return "Get" // 飞书中的“了解/Get”表情
+	case plugin.ReactionSuccess:
+		return "DONE" // 飞书中的“完成”表情
+	case plugin.ReactionError:
+		return "WRONG" // 飞书中的“错误”表情
+	default:
+		return ""
+	}
+}
+
 func (p *Plugin) getToken() (string, error) {
 	p.tokenMu.RLock()
 	if p.cachedToken != "" && time.Now().Before(p.tokenExpiry.Add(-tokenRefreshSkew)) {
-		token := p.cachedToken
+		t := p.cachedToken
 		p.tokenMu.RUnlock()
-		return token, nil
+		return t, nil
 	}
 	p.tokenMu.RUnlock()
 
 	p.tokenMu.Lock()
 	defer p.tokenMu.Unlock()
-
-	// Double-check after acquiring write lock
+	
 	if p.cachedToken != "" && time.Now().Before(p.tokenExpiry.Add(-tokenRefreshSkew)) {
 		return p.cachedToken, nil
 	}
 
-	if err := p.refreshToken(); err != nil {
-		return "", err
-	}
-	return p.cachedToken, nil
-}
-
-func (p *Plugin) refreshToken() error {
-	payload := map[string]string{
-		"app_id":     p.cfg.AppID,
-		"app_secret": p.cfg.AppSecret,
-	}
-	body, _ := json.Marshal(payload)
-
-	resp, err := p.httpClient.Post(tokenEndpoint, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("feishu: token http post: %w", err)
-	}
+	payload := map[string]string{"app_id": p.cfg.AppID, "app_secret": p.cfg.AppSecret}
+	b, _ := json.Marshal(payload)
+	resp, err := p.httpClient.Post(tokenEndpoint, "application/json", bytes.NewReader(b))
+	if err != nil { return "", err }
 	defer resp.Body.Close()
 
-	var result struct {
-		Code           int    `json:"code"`
+	var res struct {
 		AppAccessToken string `json:"app_access_token"`
 		Expire         int    `json:"expire"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("feishu: decode token response: %w", err)
-	}
+	json.NewDecoder(resp.Body).Decode(&res)
+	p.cachedToken = res.AppAccessToken
+	p.tokenExpiry = time.Now().Add(time.Duration(res.Expire) * time.Second)
+	return p.cachedToken, nil
+}
 
-	if result.Code != 0 {
-		return fmt.Errorf("feishu: token error code %d", result.Code)
-	}
+func (p *Plugin) Health() plugin.HealthStatus {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return plugin.HealthStatus{Running: p.connected, Since: p.started}
+}
 
-	p.cachedToken = result.AppAccessToken
-	p.tokenExpiry = time.Now().Add(time.Duration(result.Expire) * time.Second)
-	return nil
+func (p *Plugin) Test(ctx context.Context) plugin.TestResult {
+	_, err := p.getToken()
+	if err != nil { return plugin.TestResult{Success: false, Message: err.Error()} }
+	return plugin.TestResult{Success: true, Message: "OK"}
 }

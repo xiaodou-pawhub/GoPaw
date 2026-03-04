@@ -366,19 +366,31 @@ func (p *Plugin) HandleReceive(w http.ResponseWriter, r *http.Request, _ string)
 
 	senderStaff, _ := event["senderStaffId"].(string)
 	conversationID, _ := event["conversationId"].(string)
+	conversationType, _ := event["conversationType"].(string)
 	msgID, _ := event["msgId"].(string)
 	if msgID == "" {
 		msgID = uuid.New().String()
 	}
 
+	// 解析聊天类型（"1" → direct，"2" → group）
+	peerKind := types.PeerDirect
+	if conversationType == "2" {
+		peerKind = types.PeerGroup
+	}
+
+	// 群聊时检查 @mention（钉钉群聊消息均为 @机器人 触发）
+	isMentioned := peerKind == types.PeerGroup
+
 	msg := &types.Message{
-		ID:        msgID,
-		SessionID: conversationID,
-		UserID:    senderStaff,
-		Channel:   p.Name(),
-		Content:   content,
-		MsgType:   types.MsgTypeText,
-		Timestamp: time.Now().UnixMilli(),
+		ID:          msgID,
+		SessionID:   conversationID,
+		UserID:      senderStaff,
+		Channel:     p.Name(),
+		Content:     content,
+		MsgType:     types.MsgTypeText,
+		Timestamp:   time.Now().UnixMilli(),
+		IsMentioned: isMentioned,
+		PeerKind:    peerKind,
 	}
 
 	select {

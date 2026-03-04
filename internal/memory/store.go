@@ -362,6 +362,34 @@ func (s *Store) DeleteSession(sessionID string) error {
 	return tx.Commit()
 }
 
+// DeleteInactiveSessions removes all data for sessions that haven't been updated since olderThan.
+func (s *Store) DeleteInactiveSessions(olderThan time.Time) (int64, error) {
+	cutoff := olderThan.UnixMilli()
+	
+	// Get IDs of sessions to delete
+	rows, err := s.db.Query(`SELECT id FROM sessions WHERE updated_at < ?`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+
+	var totalDeleted int64
+	for _, id := range ids {
+		if err := s.DeleteSession(id); err == nil {
+			totalDeleted++
+		}
+	}
+	return totalDeleted, nil
+}
+
 // GetSessionStats calculates message count and token usage for a session.
 func (s *Store) GetSessionStats(sessionID string) (count, total, user, assist int, err error) {
 	err = s.db.QueryRow(`

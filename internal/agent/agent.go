@@ -255,10 +255,16 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 	}
 
 	// Retrieve (or create) the session.
-	_, err := a.sessionManager.GetOrCreate(req.SessionID, req.UserID, req.Channel)
+	s, err := a.sessionManager.GetOrCreate(req.SessionID, req.UserID, req.Channel)
 	if err != nil {
 		return nil, fmt.Errorf("agent: session: %w", err)
 	}
+
+	// [P0] Acquire session lock to prevent concurrent requests to the same session.
+	if err := s.Acquire(); err != nil {
+		return nil, err
+	}
+	defer s.Release()
 
 	// Log user message.
 	if a.convlog != nil {
@@ -435,10 +441,16 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 		req.SessionID = "default"
 	}
 
-	_, err := a.sessionManager.GetOrCreate(req.SessionID, req.UserID, req.Channel)
+	s, err := a.sessionManager.GetOrCreate(req.SessionID, req.UserID, req.Channel)
 	if err != nil {
 		return "", fmt.Errorf("agent: session: %w", err)
 	}
+
+	// [P0] Acquire session lock to prevent concurrent requests to the same session.
+	if err := s.Acquire(); err != nil {
+		return "", err
+	}
+	defer s.Release()
 
 	if a.convlog != nil {
 		if err := a.convlog.LogUserMessage(req.SessionID, req.Content); err != nil {
