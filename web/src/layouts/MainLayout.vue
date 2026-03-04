@@ -47,9 +47,11 @@
         <div class="content-container">
           <div class="page-layout">
             <div class="right-content full-width">
-              <transition name="fade-slide" mode="out-in">
-                <router-view />
-              </transition>
+              <router-view v-slot="{ Component }">
+                <transition name="fade-slide" mode="out-in">
+                  <component :is="Component" />
+                </transition>
+              </router-view>
             </div>
           </div>
         </div>
