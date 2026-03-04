@@ -57,6 +57,9 @@ type Plugin struct {
 	deduper    *Deduper
 	store      plugin.MediaStore
 
+	// reactionCache maps "messageID:reactionType" -> "reactionID"
+	reactionCache sync.Map
+
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 	connected  bool
@@ -246,7 +249,6 @@ func (p *Plugin) AddReaction(ctx context.Context, chatID, messageID, reactionTyp
 	token, _ := p.getToken()
 	url := fmt.Sprintf("https://open.feishu.cn/open-apis/im/v1/messages/%s/reactions", messageID)
 	
-	// 修正请求体结构 / Correct request body structure
 	payload := map[string]interface{}{
 		"reaction_type": map[string]string{
 			"emoji_type": emoji,
@@ -265,7 +267,18 @@ func (p *Plugin) AddReaction(ctx context.Context, chatID, messageID, reactionTyp
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode == http.StatusOK {
+		var res struct {
+			Data struct {
+				ReactionId string `json:"reaction_id"`
+			} `json:"data"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err == nil && res.Data.ReactionId != "" {
+			// Store the reaction_id so we can remove it later
+			key := fmt.Sprintf("%s:%s", messageID, reactionType)
+			p.reactionCache.Store(key, res.Data.ReactionId)
+		}
+	} else {
 		respBody, _ := io.ReadAll(resp.Body)
 		p.logger.Warn("feishu add reaction api error", 
 			zap.Int("status", resp.StatusCode), 
@@ -275,6 +288,32 @@ func (p *Plugin) AddReaction(ctx context.Context, chatID, messageID, reactionTyp
 }
 
 func (p *Plugin) RemoveReaction(ctx context.Context, chatID, messageID, reactionType string) error {
+	key := fmt.Sprintf("%s:%s", messageID, reactionType)
+	val, ok := p.reactionCache.LoadAndDelete(key)
+	if !ok {
+		return nil // Nothing to remove
+	}
+	reactionID := val.(string)
+
+	token, _ := p.getToken()
+	url := fmt.Sprintf("https://open.feishu.cn/open-apis/im/v1/messages/%s/reactions/%s", messageID, reactionID)
+	
+	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		p.logger.Error("feishu remove reaction failed", zap.Error(err))
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		p.logger.Warn("feishu remove reaction api error", 
+			zap.Int("status", resp.StatusCode), 
+			zap.String("body", string(respBody)))
+	}
 	return nil
 }
 
