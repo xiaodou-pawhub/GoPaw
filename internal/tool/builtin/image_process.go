@@ -69,10 +69,9 @@ func (t *ImageProcessTool) SetMediaStore(s plugin.MediaStore) {
 	t.store = s
 }
 
-func (t *ImageProcessTool) SetContext(channel, session, user string) {
+func (t *ImageProcessTool) SetContext(channel, chatID, session, user string) {
 	t.session = session
 }
-
 func (t *ImageProcessTool) Execute(_ context.Context, args map[string]interface{}) *plugin.ToolResult {
 	path, _ := args["path"].(string)
 	action, _ := args["action"].(string)

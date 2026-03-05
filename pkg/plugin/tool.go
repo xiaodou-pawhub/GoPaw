@@ -45,12 +45,11 @@ type Tool interface {
 }
 
 // ContextualTool is an optional interface for tools that need to know
-// the message context (channel, session, user) they are running in.
+// the message context (channel, chatID, session, user) they are running in.
 type ContextualTool interface {
 	Tool
-	SetContext(channelID, sessionID, userID string)
+	SetContext(channelID, chatID, sessionID, userID string)
 }
-
 // GuardedTool is an optional interface for tools that require manual
 // user approval before execution.
 type GuardedTool interface {

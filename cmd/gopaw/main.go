@@ -19,9 +19,9 @@ import (
 	"github.com/gopaw/gopaw/internal/channel"
 	"github.com/gopaw/gopaw/internal/config"
 	"github.com/gopaw/gopaw/internal/convlog"
+	"github.com/gopaw/gopaw/internal/cron"
 	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/memory"
-	"github.com/gopaw/gopaw/internal/scheduler"
 	"github.com/gopaw/gopaw/internal/server"
 	"github.com/gopaw/gopaw/internal/settings"
 	"github.com/gopaw/gopaw/internal/skill"
@@ -204,10 +204,75 @@ func runStart() {
 	channelMgr := channel.NewManager(channel.Global(), mediaStore, logger)
 	pluginCfgs := buildPluginConfigsFromDB(settingsStore, logger)
 
+	// --- Cron System Setup ---
+	cronService := cron.NewCronService(wp.Root, logger)
+	cronService.SetHandler(func(job *cron.CronJob) (string, error) {
+		// Create an isolated session for this execution
+		sessionID := fmt.Sprintf("cron:%s", job.ID)
+		
+		logger.Info("cron: executing job", 
+			zap.String("job", job.Name), 
+			zap.String("task", job.Task),
+			zap.String("target", job.TargetID))
+
+		// Construct a request for the agent
+		// Note: We use the job's TargetID as both UserID and ChatID to ensure tools
+		// like send_to_user route messages back to the correct chat.
+		req := &types.Request{
+			SessionID: sessionID,
+			Channel:   job.Channel,
+			ChatID:    job.TargetID, // Critical: this must be the real ChatID for Feishu
+			UserID:    "cron",       // Virtual user
+			Content:   job.Task,
+		}
+
+		// Run the agent. We use a background context with a timeout to prevent stuck jobs.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+
+		resp, err := agentInstance.Process(ctx, req)
+		if err != nil {
+			logger.Error("cron: job execution failed", zap.Error(err))
+			return "", err
+		}
+		
+		// If the agent produced a final textual answer (and didn't just use tools silently),
+		// deliver it to the user.
+		if resp.Content != "" {
+			msg := &types.Message{
+				Channel:   job.Channel,
+				ChatID:    job.TargetID,
+				Content:   resp.Content,
+				MsgType:   types.MsgTypeText,
+				SessionID: sessionID,
+			}
+			if err := channelMgr.Send(msg); err != nil {
+				logger.Error("cron: failed to send final answer", zap.Error(err))
+				// We don't fail the job execution itself if sending fails, but we log it.
+				// Returning the content so it's recorded in history.
+				return fmt.Sprintf("Executed. Content: %s. Send Error: %v", resp.Content, err), nil
+			}
+		}
+		
+		return resp.Content, nil
+	})
+
+	// Inject CronService into built-in tools
+	for _, t := range toolReg.All() {
+		if ct, ok := t.(interface{ SetCronService(*cron.CronService) }); ok {
+			ct.SetCronService(cronService)
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	hygieneRunner.Start(ctx)
+	if err := cronService.Start(); err != nil {
+		logger.Error("failed to start cron service", zap.Error(err))
+	}
+	defer cronService.Stop()
+
 	channelMgr.Start(ctx, pluginCfgs)
 	defer channelMgr.Stop()
 
@@ -294,17 +359,13 @@ func runStart() {
 		}
 	}()
 
-	jobStore := scheduler.NewJobStore(store.DB())
-	schedMgr := scheduler.NewManager(jobStore, func(sCtx context.Context, req *types.Request) (*types.Response, error) {
-		return agentInstance.Process(sCtx, req)
-	}, channelMgr.Send, logger)
-	schedMgr.Start(ctx)
-	defer schedMgr.Stop()
-
 	adminToken := cfg.App.AdminToken
-	if adminToken == "" { adminToken = generateToken(); logger.Info("⚡ Admin token", zap.String("token", adminToken)) }
+	if adminToken == "" {
+		adminToken = generateToken()
+		logger.Info("⚡ Admin token", zap.String("token", adminToken))
+	}
 
-	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, schedMgr, cfgMgr, settingsStore, wp, web.FS(), logger)
+	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, wp, web.FS(), logger)
 	go srv.Start()
 
 	quit := make(chan os.Signal, 1)

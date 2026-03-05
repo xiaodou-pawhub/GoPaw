@@ -44,7 +44,7 @@ func (t *SendToUserTool) Parameters() plugin.ToolParameters {
 	}
 }
 
-func (t *SendToUserTool) SetContext(channel, session, user string) {
+func (t *SendToUserTool) SetContext(channel, chatID, session, user string) {
 	t.channel = channel
 	t.session = session
 	t.user = user

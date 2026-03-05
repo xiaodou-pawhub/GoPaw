@@ -13,8 +13,8 @@ import (
 	"github.com/gopaw/gopaw/internal/agent"
 	"github.com/gopaw/gopaw/internal/channel"
 	"github.com/gopaw/gopaw/internal/config"
+	"github.com/gopaw/gopaw/internal/cron"
 	"github.com/gopaw/gopaw/internal/memory"
-	"github.com/gopaw/gopaw/internal/scheduler"
 	"github.com/gopaw/gopaw/internal/server/handlers"
 	"github.com/gopaw/gopaw/internal/settings"
 	"github.com/gopaw/gopaw/internal/skill"
@@ -42,7 +42,7 @@ func New(
 	ltmStore *memory.LTMStore,
 	channelMgr *channel.Manager,
 	skillMgr *skill.Manager,
-	scheduler *scheduler.Manager,
+	cronService *cron.CronService,
 	cfgMgr *config.Manager,
 	settingsStore *settings.Store,
 	wp *workspace.Paths,
@@ -63,7 +63,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, scheduler, cfgMgr, settingsStore, wp, staticFS)
+	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -83,7 +83,7 @@ func (s *Server) registerRoutes(
 	ltmStore *memory.LTMStore,
 	channelMgr *channel.Manager,
 	skillMgr *skill.Manager,
-	sched *scheduler.Manager,
+	cronService *cron.CronService,
 	cfgMgr *config.Manager,
 	settingsStore *settings.Store,
 	wp *workspace.Paths,
@@ -199,7 +199,7 @@ func (s *Server) registerRoutes(
 	}
 
 	// /api/cron
-	cronH := handlers.NewCronHandler(sched, s.logger)
+	cronH := handlers.NewCronHandler(cronService, s.logger)
 	cronG := api.Group("/cron")
 	{
 		cronG.GET("", cronH.List)

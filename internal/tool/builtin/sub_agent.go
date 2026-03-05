@@ -53,7 +53,7 @@ func (t *SubAgentTool) Parameters() plugin.ToolParameters {
 	}
 }
 
-func (t *SubAgentTool) SetContext(channel, session, user string) {
+func (t *SubAgentTool) SetContext(channel, chatID, session, user string) {
 	t.channel = channel
 	t.session = session
 	t.user = user

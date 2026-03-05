@@ -105,7 +105,7 @@ func (e *Executor) Execute(ctx context.Context, toolName, argsJSON, channel, cha
 				result = plugin.ErrorResult(fmt.Sprintf("internal tool error: %v", r))
 			}
 		}()
-		result = e.registry.Execute(ctx, toolName, args, channel, session, user)
+		result = e.registry.Execute(ctx, toolName, args, channel, chatID, session, user)
 	}()
 
 	if result.IsError {

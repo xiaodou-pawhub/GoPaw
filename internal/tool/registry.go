@@ -173,7 +173,7 @@ func (r *Registry) LoadMCPServers(ctx context.Context, configs []MCPServerConfig
 }
 
 // Execute calls a tool by name with the provided context and arguments.
-func (r *Registry) Execute(ctx context.Context, name string, args map[string]interface{}, channel, session, user string) *plugin.ToolResult {
+func (r *Registry) Execute(ctx context.Context, name string, args map[string]interface{}, channel, chatID, session, user string) *plugin.ToolResult {
 	r.mu.RLock()
 	allowed := r.isAllowed(name)
 	r.mu.RUnlock()
@@ -189,8 +189,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 
 	// Inject context if the tool requires it.
 	if ct, ok := t.(plugin.ContextualTool); ok {
-		ct.SetContext(channel, session, user)
+		ct.SetContext(channel, chatID, session, user)
 	}
 
 	return t.Execute(ctx, args)
 }
+
