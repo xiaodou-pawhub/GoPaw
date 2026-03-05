@@ -329,6 +329,10 @@ func (p *Plugin) SendPlaceholder(ctx context.Context, chatID string) (string, er
 }
 
 func (p *Plugin) EditMessage(ctx context.Context, chatID, messageID, content string) error {
+	if messageID == "" {
+		return fmt.Errorf("feishu edit: empty messageID")
+	}
+
 	blocks := renderer.ParseMarkdown(content)
 	p.processOutboundImages(ctx, blocks)
 
@@ -339,6 +343,8 @@ func (p *Plugin) EditMessage(ctx context.Context, chatID, messageID, content str
 
 	token, _ := p.getToken()
 	url := fmt.Sprintf("https://open.feishu.cn/open-apis/im/v1/messages/%s", messageID)
+	
+	// Feishu PATCH expects the card JSON inside the "content" field
 	payload := map[string]string{"content": card}
 	body, _ := json.Marshal(payload)
 
@@ -348,9 +354,20 @@ func (p *Plugin) EditMessage(ctx context.Context, chatID, messageID, content str
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
+		p.logger.Error("feishu edit request failed", zap.Error(err))
 		return err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		p.logger.Warn("feishu edit api error", 
+			zap.Int("status", resp.StatusCode), 
+			zap.String("body", string(respBody)))
+		return fmt.Errorf("feishu api returned %d", resp.StatusCode)
+	}
+
+	p.logger.Info("feishu message updated successfully", zap.String("msg_id", messageID))
 	return nil
 }
 
@@ -365,28 +382,142 @@ func (p *Plugin) sendInternal(ctx context.Context, msg *types.Message, isCard bo
 		return "", err
 	}
 
-	var content string
-	msgType := "interactive"
+	// 1. Send text/metadata via Interactive Card if content is present
+	var cardMsgID string
+	if msg.Content != "" || isCard || msg.MsgType == types.MsgTypeMarkdown {
+		content := msg.Content
+		if !isCard && msg.MsgType != types.MsgTypeMarkdown {
+			blocks := renderer.ParseMarkdown(msg.Content)
+			card, _ := BuildCard("🤖 智能回复", blocks, "success")
+			content = card
+		}
 
-	if isCard || msg.MsgType == types.MsgTypeMarkdown {
-		content = msg.Content
-	} else {
-		blocks := renderer.ParseMarkdown(msg.Content)
-		p.processOutboundImages(ctx, blocks)
-		card, _ := BuildCard("🤖 智能回复", blocks, "success")
-		content = card
+		payload := map[string]interface{}{
+			"receive_id": msg.ChatID,
+			"msg_type":   "interactive",
+			"content":    content,
+		}
+		
+		body, _ := json.Marshal(payload)
+		resp, err := p.postWithToken(ctx, sendEndpoint, body, token)
+		if err == nil {
+			var res struct {
+				Code int `json:"code"`
+				Data struct{ MessageId string `json:"message_id"` } `json:"data"`
+			}
+			json.Unmarshal(resp, &res)
+			if res.Code == 0 {
+				cardMsgID = res.Data.MessageId
+			}
+		}
 	}
 
-	payload := map[string]interface{}{
-		"receive_id": msg.ChatID,
-		"msg_type":   msgType,
-		"content":    content,
+	// 2. Send each file as a native message bubble
+	for _, f := range msg.Files {
+		p.logger.Info("feishu: processing attachment", zap.String("name", f.Name), zap.String("url", f.URL))
+		
+		localPath, err := p.store.Resolve(f.URL)
+		if err != nil {
+			p.logger.Error("feishu: attachment resolve failed", zap.Error(err))
+			continue
+		}
+
+		isImage := strings.HasPrefix(f.MIMEType, "image/") || 
+				   strings.Contains(strings.ToLower(f.Name), ".png") || 
+				   strings.Contains(strings.ToLower(f.Name), ".jpg")
+
+		var msgType string
+		var contentMap map[string]string
+
+		if isImage {
+			key, err := p.uploadImage(ctx, localPath)
+			if err != nil {
+				p.logger.Error("feishu: image upload failed", zap.String("file", f.Name), zap.Error(err))
+				continue
+			}
+			msgType = "image"
+			contentMap = map[string]string{"image_key": key}
+		} else {
+			key, err := p.uploadFile(ctx, localPath, f.Name)
+			if err != nil {
+				p.logger.Error("feishu: file upload failed", zap.String("file", f.Name), zap.Error(err))
+				continue
+			}
+			msgType = "file"
+			contentMap = map[string]string{"file_key": key}
+		}
+
+		contentBody, _ := json.Marshal(contentMap)
+		payload := map[string]interface{}{
+			"receive_id": msg.ChatID,
+			"msg_type":   msgType,
+			"content":    string(contentBody),
+		}
+		
+		sendBody, _ := json.Marshal(payload)
+		_, err = p.postWithToken(ctx, sendEndpoint, sendBody, token)
+		if err != nil {
+			p.logger.Error("feishu: native bubble send failed", zap.String("type", msgType), zap.Error(err))
+		}
 	}
-	
-	body, _ := json.Marshal(payload)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, sendEndpoint, bytes.NewReader(body))
+
+	return cardMsgID, nil
+}
+
+func (p *Plugin) postWithToken(ctx context.Context, url string, body []byte, token string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("feishu api error: %d, body: %s", resp.StatusCode, string(respBody))
+	}
+	return respBody, nil
+}
+
+func (p *Plugin) uploadFile(ctx context.Context, path, filename string) (string, error) {
+	token, _ := p.getToken()
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	var b bytes.Buffer
+	w := multipart.NewWriter(&b)
+	
+	// Determine file_type for Feishu (stream, doc, xls, ppt, pdf)
+	ft := "stream"
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".pdf": ft = "pdf"
+	case ".doc", ".docx": ft = "doc"
+	case ".xls", ".xlsx": ft = "xls"
+	case ".ppt", ".pptx": ft = "ppt"
+	}
+
+	w.WriteField("file_type", ft)
+	w.WriteField("file_name", filename)
+	part, _ := w.CreateFormFile("file", filename)
+	io.Copy(part, file)
+	w.Close()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://open.feishu.cn/open-apis/im/v1/files", &b)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", w.FormDataContentType())
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
@@ -394,13 +525,17 @@ func (p *Plugin) sendInternal(ctx context.Context, msg *types.Message, isCard bo
 	}
 	defer resp.Body.Close()
 
+	respBody, _ := io.ReadAll(resp.Body)
 	var res struct {
-		Data struct {
-			MessageId string `json:"message_id"`
-		} `json:"data"`
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct{ FileKey string `json:"file_key"` } `json:"data"`
 	}
-	json.NewDecoder(resp.Body).Decode(&res)
-	return res.Data.MessageId, nil
+	json.Unmarshal(respBody, &res)
+	if res.Code != 0 {
+		return "", fmt.Errorf("feishu file upload failed (code %d): %s, body: %s", res.Code, res.Msg, string(respBody))
+	}
+	return res.Data.FileKey, nil
 }
 
 // ── Multi-modal Support ─────────────────────────────────────────────────────
@@ -447,30 +582,53 @@ func (p *Plugin) downloadResource(msgID string, msgData *larkim.EventMessage) (s
 func (p *Plugin) processOutboundImages(ctx context.Context, blocks []renderer.MessageBlock) {
 	for i, b := range blocks {
 		if b.Type == renderer.BlockImage && strings.HasPrefix(b.Content, "media://") {
+			p.logger.Debug("feishu: resolving outbound image", zap.String("ref", b.Content))
 			localPath, err := p.store.Resolve(b.Content)
-			if err == nil {
-				imageKey, err := p.uploadImage(ctx, localPath)
-				if err == nil {
-					blocks[i].Content = imageKey
-				}
+			if err != nil {
+				p.logger.Warn("feishu: failed to resolve media ref", zap.String("ref", b.Content), zap.Error(err))
+				continue
 			}
+			
+			imageKey, err := p.uploadImage(ctx, localPath)
+			if err != nil {
+				p.logger.Error("feishu: failed to upload image", zap.String("path", localPath), zap.Error(err))
+				continue
+			}
+			
+			p.logger.Debug("feishu: image uploaded", zap.String("ref", b.Content), zap.String("key", imageKey))
+			blocks[i].Content = imageKey
 		}
 	}
 }
 
 func (p *Plugin) uploadImage(ctx context.Context, path string) (string, error) {
-	token, _ := p.getToken()
-	file, _ := os.Open(path)
+	token, err := p.getToken()
+	if err != nil {
+		return "", err
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("feishu upload: failed to open file: %w", err)
+	}
 	defer file.Close()
 
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
 	w.WriteField("image_type", "message")
-	part, _ := w.CreateFormFile("image", filepath.Base(path))
-	io.Copy(part, file)
+	part, err := w.CreateFormFile("image", filepath.Base(path))
+	if err != nil {
+		return "", fmt.Errorf("feishu upload: failed to create form file: %w", err)
+	}
+	if _, err = io.Copy(part, file); err != nil {
+		return "", fmt.Errorf("feishu upload: failed to copy file content: %w", err)
+	}
 	w.Close()
 
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, uploadEndpoint, &b)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadEndpoint, &b)
+	if err != nil {
+		return "", err
+	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
@@ -481,15 +639,21 @@ func (p *Plugin) uploadImage(ctx context.Context, path string) (string, error) {
 	defer resp.Body.Close()
 
 	var res struct {
-		Code int `json:"code"`
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
 		Data struct {
 			ImageKey string `json:"image_key"`
 		} `json:"data"`
 	}
-	json.NewDecoder(resp.Body).Decode(&res)
-	if res.Code != 0 {
-		return "", fmt.Errorf("upload failed: %d", res.Code)
+	
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", fmt.Errorf("feishu upload: decode response: %w", err)
 	}
+
+	if res.Code != 0 {
+		return "", fmt.Errorf("feishu upload failed (code %d): %s", res.Code, res.Msg)
+	}
+	
 	return res.Data.ImageKey, nil
 }
 

@@ -60,11 +60,14 @@ func BuildCard(title string, blocks []renderer.MessageBlock, status string) (str
 			card.Body.Elements = append(card.Body.Elements, map[string]string{"tag": "hr"})
 		
 		case renderer.BlockImage:
-			// Placeholder for image handling (image_key required)
 			element := map[string]interface{}{
-				"tag": "img",
-				"img_key": b.Content, // Needs to be image_key
-				"mode": "large",
+				"tag":     "img",
+				"img_key": b.Content,
+				"alt": map[string]string{
+					"tag":     "plain_text",
+					"content": b.Title,
+				},
+				"mode": "fit_horizontal", // Better for large images
 			}
 			card.Body.Elements = append(card.Body.Elements, element)
 		}
