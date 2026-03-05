@@ -207,7 +207,7 @@ type toolCallResult struct {
 }
 
 // executeToolCallsParallel runs all tool calls from one LLM response concurrently.
-func (a *ReActAgent) executeToolCallsParallel(ctx context.Context, calls []llm.ToolCall, detector *loopDetector, channel, session, user string) []toolCallResult {
+func (a *ReActAgent) executeToolCallsParallel(ctx context.Context, calls []llm.ToolCall, detector *loopDetector, channel, chatID, session, user string) []toolCallResult {
 	results := make([]toolCallResult, len(calls))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -228,7 +228,7 @@ func (a *ReActAgent) executeToolCallsParallel(ctx context.Context, calls []llm.T
 				return
 			}
 
-			output, execErr := a.toolExecutor.Execute(ctx, call.Function.Name, call.Function.Arguments, channel, session, user)
+			output, execErr := a.toolExecutor.Execute(ctx, call.Function.Name, call.Function.Arguments, channel, chatID, session, user)
 
 			mu.Lock()
 			if execErr != nil {
@@ -285,11 +285,12 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 
 	// Build system prompt (reads from AGENT.md + memory on each call for hot-reload).
 	// Tools are passed via the API Tools field, not embedded in the system prompt.
-	systemPrompt := buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.SystemPromptFragment())
-	toolDefs := buildToolDefinitions(a.toolRegistry.All())
+	allTools := a.toolRegistry.All()
+	systemPrompt := buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.SystemPromptFragment(), buildCapabilityFragment(allTools))
+	toolDefs := buildToolDefinitions(allTools)
 
-	// Assemble the initial message list.
-	messages := buildMessages(systemPrompt, history, req.Content)
+	// Assemble the initial message list (req.Files triggers media manifest injection).
+	messages := buildMessages(systemPrompt, history, req.Content, req.Files)
 
 	maxSteps := a.maxSteps
 	if maxSteps <= 0 {
@@ -362,7 +363,7 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 			zap.String("session", req.SessionID),
 		)
 
-		results := a.executeToolCallsParallel(ctx, resp.Message.ToolCalls, detector, req.Channel, req.SessionID, req.UserID)
+		results := a.executeToolCallsParallel(ctx, resp.Message.ToolCalls, detector, req.Channel, req.ChatID, req.SessionID, req.UserID)
 
 		// Check failure streak after the batch.
 		if streakErr := detector.checkFailureStreak(); streakErr != nil {
@@ -416,8 +417,14 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 		}
 	}
 
-	// Persist the exchange to memory (user question + final answer only).
-	if memErr := a.memoryManager.Add(req.SessionID, req.UserID, req.Channel, req.Content, finalAnswer); memErr != nil {
+	// Persist the exchange to memory.
+	// We save the enriched user content (including media manifest) so that media://
+	// references remain visible in conversation history for follow-up turns.
+	userContentForMemory := req.Content
+	if manifest := buildMediaManifest(req.Files); manifest != "" {
+		userContentForMemory += manifest
+	}
+	if memErr := a.memoryManager.Add(req.SessionID, req.UserID, req.Channel, userContentForMemory, finalAnswer); memErr != nil {
 		a.logger.Warn("agent: failed to save memory", zap.Error(memErr))
 	}
 
@@ -465,9 +472,10 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 	a.memoryManager.MaybeCompress(req.SessionID)
 	history, _ = a.memoryManager.GetContext(req.SessionID, 0)
 
-	systemPrompt := buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.SystemPromptFragment())
-	toolDefs := buildToolDefinitions(a.toolRegistry.All())
-	messages := buildMessages(systemPrompt, history, req.Content)
+	allTools := a.toolRegistry.All()
+	systemPrompt := buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.SystemPromptFragment(), buildCapabilityFragment(allTools))
+	toolDefs := buildToolDefinitions(allTools)
+	messages := buildMessages(systemPrompt, history, req.Content, req.Files)
 
 	maxSteps := a.maxSteps
 	if maxSteps <= 0 {
@@ -554,7 +562,7 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 			}
 		}
 
-		results := a.executeToolCallsParallel(ctx, resp.Message.ToolCalls, detector, req.Channel, req.SessionID, req.UserID)
+		results := a.executeToolCallsParallel(ctx, resp.Message.ToolCalls, detector, req.Channel, req.ChatID, req.SessionID, req.UserID)
 		if streakErr := detector.checkFailureStreak(); streakErr != nil {
 			return "", streakErr
 		}
