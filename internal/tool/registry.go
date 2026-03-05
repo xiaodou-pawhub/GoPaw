@@ -16,6 +16,7 @@ type Registry struct {
 	mu     sync.RWMutex
 	tools  map[string]plugin.Tool
 	logger *zap.Logger
+	store  plugin.MediaStore
 
 	// Filter settings
 	allowedTools map[string]struct{}
@@ -43,6 +44,19 @@ func Register(t plugin.Tool) {
 // Global returns the process-wide tool registry.
 func Global() *Registry {
 	return globalRegistry
+}
+
+// SetMediaStore configures the media store and injects it into all registered tools.
+func (r *Registry) SetMediaStore(s plugin.MediaStore) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.store = s
+	for _, t := range r.tools {
+		if msr, ok := t.(plugin.MediaStoreReceiver); ok {
+			msr.SetMediaStore(s)
+		}
+	}
 }
 
 // SetFilter configures which tools are allowed or denied.
@@ -84,6 +98,14 @@ func (r *Registry) Register(t plugin.Tool) {
 	if _, exists := r.tools[name]; exists {
 		r.logger.Warn("tool already registered, overwriting", zap.String("tool", name))
 	}
+
+	// Inject MediaStore if already available
+	if r.store != nil {
+		if msr, ok := t.(plugin.MediaStoreReceiver); ok {
+			msr.SetMediaStore(r.store)
+		}
+	}
+
 	r.tools[name] = t
 }
 

@@ -157,6 +157,7 @@ func runStart() {
 	hygieneRunner := memory.NewHygieneRunner(store, ltmStore, wp.MemoryNotesDir, wp.MemoryArchDir, memory.HygieneConfig{}, logger)
 
 	toolReg := tool.Global()
+	toolReg.SetMediaStore(mediaStore)
 
 	// Load MCP Servers if configured
 	if len(cfg.MCPServers) > 0 {
@@ -214,6 +215,42 @@ func runStart() {
 	
 	// Connect approval UI to tool executor
 	agentInstance.Executor().SetApprovalUI(coord)
+
+	// Connect immediate result callback to tool executor
+	agentInstance.Executor().SetResultCallback(func(ctx context.Context, channel, session, user string, result *plugin.ToolResult) {
+		msg := &types.Message{
+			Channel:   channel,
+			ChatID:    session, // In GoPaw, session is often used as ChatID for tools
+			UserID:    user,
+			Content:   result.UserOutput,
+			MsgType:   types.MsgTypeText,
+			SessionID: session,
+		}
+
+		if len(result.Media) > 0 {
+			// Attach media references
+			for _, ref := range result.Media {
+				localPath, meta, err := mediaStore.ResolveWithMeta(ref)
+				if err == nil {
+					msg.Files = append(msg.Files, types.FileAttachment{
+						Name: meta.Filename,
+						URL:  ref,
+					})
+					// Cleanup: if the file was produced by a tool, we might want to delete it after sending.
+					// For now, we rely on the global TTL or explicit ReleaseAll in PostProcess.
+					// But for 'send_to_user', the requirement is "delete after sending".
+					defer func(r string) {
+						time.Sleep(5 * time.Second) // Give some time for the plugin to read the file
+						_ = mediaStore.Delete(r)
+					}(ref)
+				}
+			}
+		}
+
+		if msg.Content != "" || len(msg.Files) > 0 {
+			_ = channelMgr.Send(msg)
+		}
+	})
 
 	go func() {
 		for {

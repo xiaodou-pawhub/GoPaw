@@ -20,6 +20,8 @@ type MediaMeta struct {
 type MediaStore interface {
 	Store(localPath string, meta MediaMeta, scope string) (string, error)
 	Resolve(refID string) (string, error)
+	ResolveWithMeta(refID string) (string, MediaMeta, error)
+	Delete(refID string) error
 	TempPath(ext string) string
 }
 

@@ -91,6 +91,44 @@ func (s *MediaStore) Resolve(refID string) (string, error) {
 	return entry.Path, nil
 }
 
+// ResolveWithMeta returns both path and metadata for a given reference.
+func (s *MediaStore) ResolveWithMeta(refID string) (string, plugin.MediaMeta, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	entry, ok := s.refs[refID]
+	if !ok {
+		return "", plugin.MediaMeta{}, fmt.Errorf("media_store: unknown reference: %s", refID)
+	}
+	return entry.Path, entry.Meta, nil
+}
+
+// Delete removes a single reference and its associated file.
+func (s *MediaStore) Delete(refID string) error {
+	s.mu.Lock()
+	entry, ok := s.refs[refID]
+	if !ok {
+		s.mu.Unlock()
+		return nil
+	}
+
+	path := entry.Path
+	scope := s.refToScope[refID]
+
+	// Cleanup indices
+	delete(s.refs, refID)
+	delete(s.refToScope, refID)
+	if set, ok := s.scopeToRefs[scope]; ok {
+		delete(set, refID)
+		if len(set) == 0 {
+			delete(s.scopeToRefs, scope)
+		}
+	}
+	s.mu.Unlock()
+
+	return os.Remove(path)
+}
+
 // ReleaseAll deletes all files associated with a given scope.
 func (s *MediaStore) ReleaseAll(scope string) {
 	var pathsToDelete []string

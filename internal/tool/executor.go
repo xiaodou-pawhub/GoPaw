@@ -19,11 +19,15 @@ type ApprovalUI interface {
 	RequestApproval(ctx context.Context, req *ApprovalRequest) error
 }
 
+// ResultCallback is invoked for tools that produce user-facing content or media.
+type ResultCallback func(ctx context.Context, channel, session, user string, result *plugin.ToolResult)
+
 // Executor provides a higher-level API for the agent to call tools.
 type Executor struct {
-	registry   *Registry
-	logger     *zap.Logger
-	approvalUI ApprovalUI
+	registry       *Registry
+	logger         *zap.Logger
+	approvalUI     ApprovalUI
+	resultCallback ResultCallback
 }
 
 // NewExecutor creates an Executor backed by the given registry.
@@ -37,6 +41,11 @@ func NewExecutor(registry *Registry, logger *zap.Logger) *Executor {
 // SetApprovalUI injects the UI handler for gated tools.
 func (e *Executor) SetApprovalUI(ui ApprovalUI) {
 	e.approvalUI = ui
+}
+
+// SetResultCallback injects a handler for user-facing tool results.
+func (e *Executor) SetResultCallback(cb ResultCallback) {
+	e.resultCallback = cb
 }
 
 // Execute parses argsJSON and calls the tool identified by toolName.
@@ -103,9 +112,14 @@ func (e *Executor) Execute(ctx context.Context, toolName, argsJSON, channel, ses
 		e.logger.Info("tool execution completed",
 			zap.String("tool", toolName),
 			zap.Int("output_len", len(result.LLMOutput)))
+
+		// 4. Handle user-facing content immediately if callback is set.
+		if e.resultCallback != nil && (result.UserOutput != "" || len(result.Media) > 0) {
+			e.resultCallback(ctx, channel, session, user, result)
+		}
 	}
 
-	// 4. Truncate output if it exceeds limits to prevent context blowing up.
+	// 5. Truncate output if it exceeds limits to prevent context blowing up.
 	output := result.LLMOutput
 	if len(output) > maxToolOutputRunes {
 		output = output[:maxToolOutputRunes] + "\n\n[Output truncated due to length]"
