@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"image"
 	_ "image/gif"
-	"image/jpeg"
+	_ "image/jpeg"
 	_ "image/png"
 	"os"
 	"path/filepath"
@@ -28,8 +28,11 @@ type ImageProcessTool struct {
 func (t *ImageProcessTool) Name() string { return "image_process" }
 
 func (t *ImageProcessTool) Description() string {
-	return "Process an image (resize, crop, rotate, grayscale). " +
-		"Returns a new media reference. Actions: 'resize', 'crop', 'rotate', 'grayscale'."
+	return "Transform an image and return a new media:// reference to the result. " +
+		"Actions: 'resize' (scale to target width/height), 'crop' (center-fill to exact dimensions), " +
+		"'rotate' (clockwise by angle degrees), 'grayscale' (convert to black-and-white). " +
+		"WHEN TO USE: call this when the user asks to resize, compress, rotate, or otherwise edit an image. " +
+		"The returned reference can be passed directly to send_to_user."
 }
 
 func (t *ImageProcessTool) Parameters() plugin.ToolParameters {
@@ -93,7 +96,7 @@ func (t *ImageProcessTool) Execute(_ context.Context, args map[string]interface{
 		return plugin.ErrorResult(fmt.Sprintf("failed to open image: %v", err))
 	}
 
-	var dst *image.NRGBA
+	var dst image.Image
 	width, _ := args["width"].(float64)
 	height, _ := args["height"].(float64)
 
@@ -107,7 +110,8 @@ func (t *ImageProcessTool) Execute(_ context.Context, args map[string]interface{
 		if width <= 0 || height <= 0 {
 			return plugin.ErrorResult("width and height must be > 0 for crop")
 		}
-		dst = imaging.CenterCrop(src, int(width), int(height))
+		// Fill performs a center crop to fit the target dimensions
+		dst = imaging.Fill(src, int(width), int(height), imaging.Center, imaging.Lanczos)
 	case "rotate":
 		angle, _ := args["angle"].(float64)
 		dst = imaging.Rotate(src, angle, image.Transparent)
@@ -129,7 +133,7 @@ func (t *ImageProcessTool) Execute(_ context.Context, args map[string]interface{
 		Filename:    "processed_" + filepath.Base(tmpPath),
 		ContentType: "image/jpeg",
 		Source:      "tool:image_process",
-	}, t.session) // Use session as scope for automatic cleanup
+	}, t.session)
 
 	if err != nil {
 		_ = os.Remove(tmpPath)

@@ -2,8 +2,6 @@ package builtin
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/pkg/plugin"
@@ -22,8 +20,11 @@ type SendToUserTool struct {
 func (t *SendToUserTool) Name() string { return "send_to_user" }
 
 func (t *SendToUserTool) Description() string {
-	return "Send a file, image, or text message immediately to the user. " +
-		"Use this to share generated assets or important notifications during a task."
+	return "Immediately deliver a file (image, document, etc.) or text message to the user. " +
+		"WHEN TO USE: call this as soon as you have a result ready — do NOT accumulate multiple " +
+		"outputs and send them all at the end. Each completed image or file should trigger its own " +
+		"send_to_user call so the user sees progress in real time. " +
+		"Pass a media:// reference in 'path' to send an image or file; use 'text' for a plain message."
 }
 
 func (t *SendToUserTool) Parameters() plugin.ToolParameters {

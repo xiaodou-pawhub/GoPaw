@@ -25,8 +25,10 @@ type ImageInfoTool struct {
 func (t *ImageInfoTool) Name() string { return "image_info" }
 
 func (t *ImageInfoTool) Description() string {
-	return "Get metadata of an image, including width, height, format, and file size. " +
-		"Use this before processing or sending large images."
+	return "Get metadata of an image: format, dimensions (width × height), and file size in bytes. " +
+		"WHEN TO USE: call this first whenever you receive a media:// reference and need to know " +
+		"the image's specs before deciding whether to resize, crop, or send it directly. " +
+		"Do not skip this step for images whose dimensions are unknown."
 }
 
 func (t *ImageInfoTool) Parameters() plugin.ToolParameters {

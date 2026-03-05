@@ -20,7 +20,9 @@ type ApprovalUI interface {
 }
 
 // ResultCallback is invoked for tools that produce user-facing content or media.
-type ResultCallback func(ctx context.Context, channel, session, user string, result *plugin.ToolResult)
+// chatID is the platform-level chat room identifier (e.g. Feishu oc_xxx) needed
+// to route the response back to the correct conversation.
+type ResultCallback func(ctx context.Context, channel, chatID, session, user string, result *plugin.ToolResult)
 
 // Executor provides a higher-level API for the agent to call tools.
 type Executor struct {
@@ -49,7 +51,9 @@ func (e *Executor) SetResultCallback(cb ResultCallback) {
 }
 
 // Execute parses argsJSON and calls the tool identified by toolName.
-func (e *Executor) Execute(ctx context.Context, toolName, argsJSON, channel, session, user string) (string, error) {
+// chatID is the platform chat room ID (distinct from session) used to route
+// user-facing results back to the correct conversation.
+func (e *Executor) Execute(ctx context.Context, toolName, argsJSON, channel, chatID, session, user string) (string, error) {
 	// 1. Parse arguments once in a central place.
 	var args map[string]interface{}
 	if argsJSON != "" {
@@ -115,7 +119,7 @@ func (e *Executor) Execute(ctx context.Context, toolName, argsJSON, channel, ses
 
 		// 4. Handle user-facing content immediately if callback is set.
 		if e.resultCallback != nil && (result.UserOutput != "" || len(result.Media) > 0) {
-			e.resultCallback(ctx, channel, session, user, result)
+			e.resultCallback(ctx, channel, chatID, session, user, result)
 		}
 	}
 
