@@ -3,9 +3,11 @@ package channel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
+	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/pkg/plugin"
 	"github.com/gopaw/gopaw/pkg/types"
 	"go.uber.org/zap"
@@ -25,13 +27,100 @@ type CapabilityCoordinator struct {
 	typingStops sync.Map
 }
 
+// Ensure CapabilityCoordinator implements tool.ApprovalUI
+var _ tool.ApprovalUI = (*CapabilityCoordinator)(nil)
+
 // NewCapabilityCoordinator creates a coordinator backed by mgr and store.
 func NewCapabilityCoordinator(mgr *Manager, store *MediaStore) *CapabilityCoordinator {
-	return &CapabilityCoordinator{
+	c := &CapabilityCoordinator{
 		mgr:    mgr,
 		store:  store,
 		logger: zap.L().Named("channel.coordinator"),
 	}
+	return c
+}
+
+// RequestApproval sends an interactive card to the channel requesting permission to execute a tool.
+func (c *CapabilityCoordinator) RequestApproval(ctx context.Context, req *tool.ApprovalRequest) error {
+	p, err := c.mgr.GetActivePlugin(req.ChannelID)
+	if err != nil {
+		return err
+	}
+
+	// For now, we only support Feishu for interactive approvals.
+	// We'll send a specialized card.
+	if req.ChannelID == "feishu" {
+		argsJSON, _ := json.MarshalIndent(req.Args, "", "  ")
+		
+		// Build an interactive card with buttons
+		card := map[string]interface{}{
+			"schema": "2.0",
+			"header": map[string]interface{}{
+				"title":    map[string]string{"tag": "plain_text", "content": "⚠️ 安全审批"},
+				"template": "orange",
+			},
+			"body": map[string]interface{}{
+				"elements": []interface{}{
+					map[string]interface{}{
+						"tag":     "markdown",
+						"content": fmt.Sprintf("**工具调用请求**\nAgent 想要执行工具: `%s`\n\n**参数预览**:\n```json\n%s\n```", req.ToolName, string(argsJSON)),
+					},
+					map[string]interface{}{
+						"tag": "column_set",
+						"flex_mode": "stretch",
+						"columns": []interface{}{
+							map[string]interface{}{
+								"tag": "column",
+								"width": "weighted",
+								"weight": 1,
+								"elements": []interface{}{
+									map[string]interface{}{
+										"tag": "button",
+										"text": map[string]string{"tag": "plain_text", "content": "允许"},
+										"type": "primary",
+										"value": map[string]string{
+											"action":     "tool_approve",
+											"request_id": req.ID,
+											"verdict":    string(tool.VerdictAllowed),
+										},
+									},
+								},
+							},
+							map[string]interface{}{
+								"tag": "column",
+								"width": "weighted",
+								"weight": 1,
+								"elements": []interface{}{
+									map[string]interface{}{
+										"tag": "button",
+										"text": map[string]string{"tag": "plain_text", "content": "拒绝"},
+										"type": "danger",
+										"value": map[string]string{
+											"action":     "tool_approve",
+											"request_id": req.ID,
+											"verdict":    string(tool.VerdictDenied),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		cardJSON, _ := json.Marshal(card)
+		msg := &types.Message{
+			Channel:  req.ChannelID,
+			ChatID:   req.SessionID, // Assuming sessionID is the chatId for now
+			Content:  string(cardJSON),
+			MsgType:  types.MsgTypeMarkdown, // Sentinel for card
+		}
+		
+		return p.Send(msg)
+	}
+
+	return fmt.Errorf("approval not supported on channel %s", req.ChannelID)
 }
 
 // PreProcess is called before the agent starts processing msg.

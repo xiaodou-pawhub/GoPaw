@@ -26,7 +26,7 @@ import (
 	"github.com/gopaw/gopaw/internal/settings"
 	"github.com/gopaw/gopaw/internal/skill"
 	"github.com/gopaw/gopaw/internal/tool"
-	"github.com/gopaw/gopaw/internal/tools"
+	"github.com/gopaw/gopaw/internal/tool/builtin"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"github.com/gopaw/gopaw/pkg/types"
 	"github.com/gopaw/gopaw/web"
@@ -157,9 +157,25 @@ func runStart() {
 	hygieneRunner := memory.NewHygieneRunner(store, ltmStore, wp.MemoryNotesDir, wp.MemoryArchDir, memory.HygieneConfig{}, logger)
 
 	toolReg := tool.Global()
-	tools.SetMemoryDir(wp.MemoryDir)
-	tools.SetLTMStore(ltmStore)
-	tools.SetMemoryNotesDir(wp.MemoryNotesDir)
+
+	// Load MCP Servers if configured
+	if len(cfg.MCPServers) > 0 {
+		mcpConfigs := make([]tool.MCPServerConfig, len(cfg.MCPServers))
+		for i, c := range cfg.MCPServers {
+			mcpConfigs[i] = tool.MCPServerConfig{
+				Name:    c.Name,
+				Command: c.Command,
+				Args:    c.Args,
+			}
+		}
+		if err := toolReg.LoadMCPServers(context.Background(), mcpConfigs); err != nil {
+			logger.Warn("failed to load some MCP servers", zap.Error(err))
+		}
+	}
+
+	builtin.SetMemoryDir(wp.MemoryDir)
+	builtin.SetLTMStore(ltmStore)
+	builtin.SetMemoryNotesDir(wp.MemoryNotesDir)
 	skillMgr := skill.NewManager(cfg.Skills.Dir, toolReg, logger)
 	skillMgr.Load(cfg.Skills.Enabled)
 
@@ -178,7 +194,7 @@ func runStart() {
 		ConvLog: convLogger,
 	}, logger)
 
-	tools.SetSubAgentFn(func(ctx context.Context, req *types.Request) (string, error) {
+	builtin.SetSubAgentFn(func(ctx context.Context, req *types.Request) (string, error) {
 		resp, _ := agentInstance.Process(ctx, req)
 		return resp.Content, nil
 	})
@@ -195,6 +211,10 @@ func runStart() {
 
 	sessionLocker := channel.NewSessionLocker()
 	coord := channel.NewCapabilityCoordinator(channelMgr, mediaStore)
+	
+	// Connect approval UI to tool executor
+	agentInstance.Executor().SetApprovalUI(coord)
+
 	go func() {
 		for {
 			select {

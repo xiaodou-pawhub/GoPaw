@@ -1,4 +1,4 @@
-package tools
+package builtin
 
 import (
 	"context"
@@ -65,10 +65,10 @@ func (t *MemoryStoreTool) Parameters() plugin.ToolParameters {
 	}
 }
 
-func (t *MemoryStoreTool) Execute(ctx context.Context, params map[string]any) (string, error) {
+func (t *MemoryStoreTool) Execute(ctx context.Context, params map[string]any) *plugin.ToolResult {
 	store := getLTMStore()
 	if store == nil {
-		return "", fmt.Errorf("memory_store: LTM store not initialized")
+		return plugin.ErrorResult("LTM store not initialized")
 	}
 
 	key, _ := params["key"].(string)
@@ -76,10 +76,10 @@ func (t *MemoryStoreTool) Execute(ctx context.Context, params map[string]any) (s
 	catStr, _ := params["category"].(string)
 
 	if key == "" {
-		return "", fmt.Errorf("memory_store: 'key' is required")
+		return plugin.ErrorResult("'key' is required")
 	}
 	if content == "" {
-		return "", fmt.Errorf("memory_store: 'content' is required")
+		return plugin.ErrorResult("'content' is required")
 	}
 
 	cat := memory.CategoryCore
@@ -95,8 +95,8 @@ func (t *MemoryStoreTool) Execute(ctx context.Context, params map[string]any) (s
 	}
 
 	if err := store.Store(key, content, cat); err != nil {
-		return "", fmt.Errorf("memory_store: %w", err)
+		return plugin.ErrorResult(fmt.Sprintf("failed to store memory: %v", err))
 	}
 
-	return fmt.Sprintf("Memory stored: [%s] %s", cat, key), nil
+	return plugin.SilentResult(fmt.Sprintf("Memory stored: [%s] %s", cat, key))
 }

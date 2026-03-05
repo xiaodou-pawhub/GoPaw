@@ -1,7 +1,10 @@
 // Package plugin defines the public interfaces that all GoPaw plugins must implement.
 package plugin
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // ToolProperty describes a single parameter property in JSON Schema style.
 type ToolProperty struct {
@@ -11,26 +14,90 @@ type ToolProperty struct {
 }
 
 // ToolParameters is the JSON Schema object describing a tool's accepted parameters.
-// It follows the OpenAI function-calling parameter format.
 type ToolParameters struct {
 	Type       string                  `json:"type"`
 	Properties map[string]ToolProperty `json:"properties"`
 	Required   []string                `json:"required"`
 }
 
+// ToolResult encapsulates the outcome of a tool execution.
+type ToolResult struct {
+	// LLMOutput is the raw result data intended for the LLM's context.
+	LLMOutput string
+	// UserOutput is an optional friendly message to display to the user.
+	UserOutput string
+	// IsError indicates if the execution failed.
+	IsError bool
+	// Silent marks the tool execution as background information (not visible to user).
+	Silent bool
+	// Media contains references to media files (media://uuid) produced by the tool.
+	Media []string
+}
+
 // Tool is the interface that every callable tool must implement.
-// Tools are the atomic operations that the ReAct agent can invoke.
 type Tool interface {
-	// Name returns the unique snake_case identifier used in LLM prompts.
 	Name() string
-
-	// Description explains what the tool does and when the LLM should call it.
 	Description() string
-
-	// Parameters returns the JSON Schema for the tool's input arguments.
 	Parameters() ToolParameters
-
-	// Execute runs the tool with the given arguments and returns a string result.
+	// Execute runs the tool with the given arguments.
 	// args values are typed according to the JSON Schema (string, float64, bool …).
-	Execute(ctx context.Context, args map[string]interface{}) (string, error)
+	Execute(ctx context.Context, args map[string]interface{}) *ToolResult
+}
+
+// ContextualTool is an optional interface for tools that need to know
+// the message context (channel, session, user) they are running in.
+type ContextualTool interface {
+	Tool
+	SetContext(channelID, sessionID, userID string)
+}
+
+// GuardedTool is an optional interface for tools that require manual
+// user approval before execution.
+type GuardedTool interface {
+	Tool
+	// RequireApproval returns true if the tool should be gated by a user confirmation.
+	RequireApproval(args map[string]interface{}) bool
+}
+
+// AsyncCallback is invoked when an AsyncTool completes its work.
+type AsyncCallback func(result *ToolResult)
+
+// AsyncTool is an optional interface for tools that perform long-running
+// operations and return their results via a callback.
+type AsyncTool interface {
+	Tool
+	SetCallback(cb AsyncCallback)
+}
+
+// ── ToolResult Helpers ──────────────────────────────────────────────────────
+
+// NewToolResult creates a standard successful tool result.
+func NewToolResult(llmOutput string) *ToolResult {
+	return &ToolResult{
+		LLMOutput: llmOutput,
+	}
+}
+
+// UserResult creates a successful result with a specific message for the user.
+func UserResult(llmOutput, userOutput string) *ToolResult {
+	return &ToolResult{
+		LLMOutput:  llmOutput,
+		UserOutput: userOutput,
+	}
+}
+
+// ErrorResult creates a failure result with an explanation for the LLM.
+func ErrorResult(err string) *ToolResult {
+	return &ToolResult{
+		LLMOutput: fmt.Sprintf("Error: %s", err),
+		IsError:   true,
+	}
+}
+
+// SilentResult creates a successful result that won't be shown in the UI.
+func SilentResult(llmOutput string) *ToolResult {
+	return &ToolResult{
+		LLMOutput: llmOutput,
+		Silent:    true,
+	}
 }

@@ -1,0 +1,64 @@
+package builtin
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/gopaw/gopaw/internal/tool"
+	"github.com/gopaw/gopaw/pkg/plugin"
+)
+
+func init() {
+	tool.Register(&FileWriteTool{})
+}
+
+type FileWriteTool struct{}
+
+func (t *FileWriteTool) Name() string { return "write_file" }
+
+func (t *FileWriteTool) Description() string {
+	return "Write content to a file. Overwrites existing files. Uses atomic write mechanism."
+}
+
+func (t *FileWriteTool) Parameters() plugin.ToolParameters {
+	return plugin.ToolParameters{
+		Type: "object",
+		Properties: map[string]plugin.ToolProperty{
+			"path": {
+				Type:        "string",
+				Description: "Path to the file.",
+			},
+			"content": {
+				Type:        "string",
+				Description: "Content to write.",
+			},
+		},
+		Required: []string{"path", "content"},
+	}
+}
+
+func (t *FileWriteTool) Execute(_ context.Context, args map[string]interface{}) *plugin.ToolResult {
+	path, _ := args["path"].(string)
+	content, _ := args["content"].(string)
+
+	// Ensure directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return plugin.ErrorResult(fmt.Sprintf("failed to create directory: %v", err))
+	}
+
+	// Atomic write: Write to tmp file then rename
+	tmpFile := path + ".tmp"
+	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
+		return plugin.ErrorResult(fmt.Sprintf("failed to write temporary file: %v", err))
+	}
+
+	if err := os.Rename(tmpFile, path); err != nil {
+		_ = os.Remove(tmpFile)
+		return plugin.ErrorResult(fmt.Sprintf("failed to rename file: %v", err))
+	}
+
+	return plugin.NewToolResult(fmt.Sprintf("successfully wrote to %s", path))
+}

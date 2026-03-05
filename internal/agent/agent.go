@@ -207,8 +207,7 @@ type toolCallResult struct {
 }
 
 // executeToolCallsParallel runs all tool calls from one LLM response concurrently.
-// Results are returned in the same order as the input calls.
-func (a *ReActAgent) executeToolCallsParallel(ctx context.Context, calls []llm.ToolCall, detector *loopDetector) []toolCallResult {
+func (a *ReActAgent) executeToolCallsParallel(ctx context.Context, calls []llm.ToolCall, detector *loopDetector, channel, session, user string) []toolCallResult {
 	results := make([]toolCallResult, len(calls))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -218,7 +217,6 @@ func (a *ReActAgent) executeToolCallsParallel(ctx context.Context, calls []llm.T
 		go func(idx int, call llm.ToolCall) {
 			defer wg.Done()
 
-			// Loop detection is done serially to keep the detector state consistent.
 			mu.Lock()
 			loopErr := detector.checkCall(call.Function.Name, call.Function.Arguments)
 			mu.Unlock()
@@ -230,7 +228,7 @@ func (a *ReActAgent) executeToolCallsParallel(ctx context.Context, calls []llm.T
 				return
 			}
 
-			output, execErr := a.toolExecutor.Execute(ctx, call.Function.Name, call.Function.Arguments)
+			output, execErr := a.toolExecutor.Execute(ctx, call.Function.Name, call.Function.Arguments, channel, session, user)
 
 			mu.Lock()
 			if execErr != nil {
@@ -364,7 +362,7 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 			zap.String("session", req.SessionID),
 		)
 
-		results := a.executeToolCallsParallel(ctx, resp.Message.ToolCalls, detector)
+		results := a.executeToolCallsParallel(ctx, resp.Message.ToolCalls, detector, req.Channel, req.SessionID, req.UserID)
 
 		// Check failure streak after the batch.
 		if streakErr := detector.checkFailureStreak(); streakErr != nil {
@@ -546,7 +544,6 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 			zap.String("session", req.SessionID),
 		)
 
-		// Emit tool_call progress events before parallel execution.
 		if progressFn != nil {
 			for _, tc := range resp.Message.ToolCalls {
 				progressFn(ProgressEvent{
@@ -557,7 +554,7 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 			}
 		}
 
-		results := a.executeToolCallsParallel(ctx, resp.Message.ToolCalls, detector)
+		results := a.executeToolCallsParallel(ctx, resp.Message.ToolCalls, detector, req.Channel, req.SessionID, req.UserID)
 		if streakErr := detector.checkFailureStreak(); streakErr != nil {
 			return "", streakErr
 		}
@@ -626,4 +623,9 @@ func truncate(s string, n int) string {
 // Sessions returns the session manager for use by the HTTP handlers.
 func (a *ReActAgent) Sessions() *SessionManager {
 	return a.sessionManager
+}
+
+// Executor returns the tool executor.
+func (a *ReActAgent) Executor() *tool.Executor {
+	return a.toolExecutor
 }

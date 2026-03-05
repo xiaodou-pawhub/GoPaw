@@ -66,16 +66,21 @@ type LogConfig struct {
 }
 
 // Config is the root configuration structure for the application startup settings.
-// It intentionally omits LLM provider, agent system prompt, and channel secrets —
-// those are runtime settings managed via the Web UI.
-// Channel plugins are auto-discovered from plugins/channels/ directory.
 type Config struct {
-	Workspace WorkspaceConfig `mapstructure:"workspace"`
-	App       AppConfig       `mapstructure:"app"`
-	Server    ServerConfig    `mapstructure:"server"`
-	Agent     AgentConfig     `mapstructure:"agent"`
-	Skills    SkillsConfig    `mapstructure:"skills"`
-	Log       LogConfig       `mapstructure:"log"`
+	Workspace  WorkspaceConfig   `mapstructure:"workspace"`
+	App        AppConfig         `mapstructure:"app"`
+	Server     ServerConfig      `mapstructure:"server"`
+	Agent      AgentConfig       `mapstructure:"agent"`
+	Skills     SkillsConfig      `mapstructure:"skills"`
+	MCPServers []MCPServerConfig `mapstructure:"mcp_servers"`
+	Log        LogConfig         `mapstructure:"log"`
+}
+
+// MCPServerConfig defines how to connect to an MCP server.
+type MCPServerConfig struct {
+	Name    string   `mapstructure:"name"`
+	Command string   `mapstructure:"command"`
+	Args    []string `mapstructure:"args"`
 }
 
 // Validate checks required configuration fields.
