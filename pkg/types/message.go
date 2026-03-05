@@ -68,6 +68,7 @@ type FileAttachment struct {
 type Request struct {
 	SessionID   string
 	UserID      string
+	ChatID      string // platform-level chat room ID (e.g. Feishu oc_xxx); used for send-back routing
 	Channel     string
 	Content     string
 	MsgType     MessageType

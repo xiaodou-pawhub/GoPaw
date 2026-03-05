@@ -28,6 +28,7 @@ import (
 	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/internal/tool/builtin"
 	"github.com/gopaw/gopaw/internal/workspace"
+	"github.com/gopaw/gopaw/pkg/plugin"
 	"github.com/gopaw/gopaw/pkg/types"
 	"github.com/gopaw/gopaw/web"
 	"go.uber.org/zap"
@@ -216,11 +217,12 @@ func runStart() {
 	// Connect approval UI to tool executor
 	agentInstance.Executor().SetApprovalUI(coord)
 
-	// Connect immediate result callback to tool executor
-	agentInstance.Executor().SetResultCallback(func(ctx context.Context, channel, session, user string, result *plugin.ToolResult) {
+	// Connect immediate result callback to tool executor.
+	// chatID is the platform-level chat room ID (e.g. Feishu oc_xxx) threaded from req.ChatID.
+	agentInstance.Executor().SetResultCallback(func(ctx context.Context, channel, chatID, session, user string, result *plugin.ToolResult) {
 		msg := &types.Message{
 			Channel:   channel,
-			ChatID:    session, // In GoPaw, session is often used as ChatID for tools
+			ChatID:    chatID, // real platform chat ID, required by feishu receive_id_type=chat_id
 			UserID:    user,
 			Content:   result.UserOutput,
 			MsgType:   types.MsgTypeText,
@@ -228,27 +230,22 @@ func runStart() {
 		}
 
 		if len(result.Media) > 0 {
-			// Attach media references
 			for _, ref := range result.Media {
-				localPath, meta, err := mediaStore.ResolveWithMeta(ref)
+				_, meta, err := mediaStore.ResolveWithMeta(ref)
 				if err == nil {
 					msg.Files = append(msg.Files, types.FileAttachment{
-						Name: meta.Filename,
-						URL:  ref,
+						Name:     meta.Filename,
+						URL:      ref,
+						MIMEType: meta.ContentType,
 					})
-					// Cleanup: if the file was produced by a tool, we might want to delete it after sending.
-					// For now, we rely on the global TTL or explicit ReleaseAll in PostProcess.
-					// But for 'send_to_user', the requirement is "delete after sending".
-					defer func(r string) {
-						time.Sleep(5 * time.Second) // Give some time for the plugin to read the file
-						_ = mediaStore.Delete(r)
-					}(ref)
 				}
 			}
 		}
 
 		if msg.Content != "" || len(msg.Files) > 0 {
-			_ = channelMgr.Send(msg)
+			if err := channelMgr.Send(msg); err != nil {
+				logger.Error("result callback: send failed", zap.Error(err))
+			}
 		}
 	})
 
@@ -267,6 +264,7 @@ func runStart() {
 					req := &types.Request{
 						SessionID:   derivedSessionID,
 						UserID:      m.UserID,
+						ChatID:      m.ChatID,
 						Channel:     m.Channel,
 						Content:     m.Content,
 						MsgType:     m.MsgType,
