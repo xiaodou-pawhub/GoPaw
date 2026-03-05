@@ -1,14 +1,16 @@
 package channel
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gopaw/gopaw/pkg/plugin"
 	"go.uber.org/zap"
 )
@@ -21,6 +23,7 @@ type MediaEntry struct {
 }
 
 // MediaStore provides a unified way to manage temporary media files.
+// It uses SHA-256 hashing for content-addressable storage (deduplication).
 type MediaStore struct {
 	mu          sync.RWMutex
 	refs        map[string]MediaEntry            // refID -> entry
@@ -53,19 +56,62 @@ func NewMediaStore(baseDir string, maxAge time.Duration, logger *zap.Logger) *Me
 	return s
 }
 
-// Store registers an existing local file into the store and returns a virtual reference.
+// Store calculates the SHA-256 hash of the file at localPath, moves it to the
+// managed directory with its hash as the filename, and returns a media:// reference.
+// This ensures deduplication and consistency between IDs and filenames.
 func (s *MediaStore) Store(localPath string, meta plugin.MediaMeta, scope string) (string, error) {
-	if _, err := os.Stat(localPath); err != nil {
-		return "", fmt.Errorf("media_store: file not found: %w", err)
+	file, err := os.Open(localPath)
+	if err != nil {
+		return "", fmt.Errorf("media_store: cannot open source: %w", err)
+	}
+	defer file.Close()
+
+	// 1. Calculate SHA-256 Hash
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", fmt.Errorf("media_store: hash failed: %w", err)
+	}
+	fullHash := hex.EncodeToString(hash.Sum(nil))
+	// Use a truncated hash (12 chars) for more readable references, similar to Git short SHAs.
+	hashSum := fullHash[:12]
+	
+	// Use the short hash as the unique ID
+	refID := fmt.Sprintf("media://%s", hashSum)
+	
+	// Determine permanent destination path in the media directory
+	ext := filepath.Ext(localPath)
+	if ext == "" {
+		ext = filepath.Ext(meta.Filename)
+	}
+	permPath := filepath.Join(s.baseDir, hashSum+ext)
+
+	// 2. Check if we already have this content
+	s.mu.RLock()
+	_, exists := s.refs[refID]
+	s.mu.RUnlock()
+
+	if !exists {
+		// Only move the file if it doesn't already exist in our store
+		// We use Rename for speed, fallback to Copy if on different partitions
+		err := os.Rename(localPath, permPath)
+		if err != nil {
+			// Fallback to copy+delete
+			if err := copyFile(localPath, permPath); err != nil {
+				return "", fmt.Errorf("media_store: failed to persist file: %w", err)
+			}
+			_ = os.Remove(localPath)
+		}
+	} else {
+		// If it exists, we just delete the incoming temp file
+		_ = os.Remove(localPath)
 	}
 
-	refID := fmt.Sprintf("media://%s", uuid.New().String())
-
+	// 3. Register entry
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.refs[refID] = MediaEntry{
-		Path:     localPath,
+		Path:     permPath,
 		Meta:     meta,
 		StoredAt: time.Now(),
 	}
@@ -80,15 +126,30 @@ func (s *MediaStore) Store(localPath string, meta plugin.MediaMeta, scope string
 }
 
 // Resolve returns the absolute local path for a given reference.
+// If the memory record is missing, it attempts to find the file physically in the base directory.
 func (s *MediaStore) Resolve(refID string) (string, error) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	entry, ok := s.refs[refID]
-	if !ok {
-		return "", fmt.Errorf("media_store: unknown reference: %s", refID)
+	s.mu.RUnlock()
+
+	if ok {
+		return entry.Path, nil
 	}
-	return entry.Path, nil
+
+	// Fallback: Try to find the file physically. 
+	// We use a prefix match (hash*) to find the file regardless of whether it was stored 
+	// with a short (12-char) or long (64-char) filename.
+	hashSum := strings.TrimPrefix(refID, "media://")
+	if len(hashSum) > 12 {
+		hashSum = hashSum[:12]
+	}
+	
+	matches, _ := filepath.Glob(filepath.Join(s.baseDir, hashSum+"*"))
+	if len(matches) > 0 {
+		return matches[0], nil
+	}
+
+	return "", fmt.Errorf("media_store: unknown reference: %s", refID)
 }
 
 // ResolveWithMeta returns both path and metadata for a given reference.
@@ -115,7 +176,6 @@ func (s *MediaStore) Delete(refID string) error {
 	path := entry.Path
 	scope := s.refToScope[refID]
 
-	// Cleanup indices
 	delete(s.refs, refID)
 	delete(s.refToScope, refID)
 	if set, ok := s.scopeToRefs[scope]; ok {
@@ -131,8 +191,6 @@ func (s *MediaStore) Delete(refID string) error {
 
 // ReleaseAll deletes all files associated with a given scope.
 func (s *MediaStore) ReleaseAll(scope string) {
-	var pathsToDelete []string
-
 	s.mu.Lock()
 	refSet, ok := s.scopeToRefs[scope]
 	if !ok {
@@ -140,6 +198,7 @@ func (s *MediaStore) ReleaseAll(scope string) {
 		return
 	}
 
+	var pathsToDelete []string
 	for refID := range refSet {
 		if entry, exists := s.refs[refID]; exists {
 			pathsToDelete = append(pathsToDelete, entry.Path)
@@ -208,5 +267,23 @@ func (s *MediaStore) TempPath(ext string) string {
 	if ext != "" && !strings.HasPrefix(ext, ".") {
 		ext = "." + ext
 	}
-	return filepath.Join(s.baseDir, fmt.Sprintf("tmp_%s%s", uuid.New().String(), ext))
+	// Note: We still use UUID for the initial temporary creation to avoid collisions before hashing
+	return filepath.Join(s.baseDir, fmt.Sprintf("upload_%d_%s", time.Now().UnixNano(), ext))
+}
+
+func copyFile(src, dst string) error {
+	source, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	destination, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destination.Close()
+
+	_, err = io.Copy(destination, source)
+	return err
 }

@@ -192,10 +192,15 @@ func (c *CapabilityCoordinator) PostProcess(ctx context.Context, inbound, reply 
 		}
 	}
 
-	// 4. Cleanup Media Resources for this session
-	if c.store != nil {
-		c.store.ReleaseAll(inbound.SessionID)
-	}
+	/* 
+	   REMOVED: Aggressive cleanup of all session media after every turn.
+	   This prevents multi-turn operations on the same image (e.g. info -> process -> send).
+	   The MediaStore's internal TTL janitor (1h) will handle background cleanup.
+	   
+	   if c.store != nil {
+	       c.store.ReleaseAll(inbound.SessionID)
+	   }
+	*/
 
 	if p == nil {
 		return fmt.Errorf("plugin gone")
