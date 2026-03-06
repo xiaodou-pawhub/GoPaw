@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/smtp"
@@ -137,17 +138,107 @@ func (t *EmailSenderTool) Execute(ctx context.Context, args map[string]interface
 		}
 	}
 
-	// 4. Send
+	// 4. Send Email
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	auth := smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
 
-	// Note: Standard library net/smtp doesn't handle SSL (Port 465) directly easily. 
-	// For now we use the library's Send method which handles standard SMTP.
-	// Future refinement: add TLS/SSL specific handling if port is 465.
-	err = e.Send(addr, auth)
-	if err != nil {
-		return plugin.ErrorResult(fmt.Sprintf("failed to send email: %v", err))
+	var sendErr error
+	if cfg.SSL {
+		// SSL mode (port 465) - establish TLS connection first
+		sendErr = sendWithSSL(e, addr, cfg.Username, cfg.Password, cfg.Host)
+	} else {
+		// STARTTLS mode (port 587) - use standard email.Send
+		sendErr = e.Send(addr, auth)
+	}
+
+	if sendErr != nil {
+		return plugin.ErrorResult(fmt.Sprintf("failed to send email: %v", sendErr))
 	}
 
 	return plugin.NewToolResult(fmt.Sprintf("Email sent successfully to %s", to))
+}
+
+// sendWithSSL sends email using SSL/TLS connection (for port 465)
+func sendWithSSL(e *email.Email, addr, username, password, host string) error {
+	// Create TLS configuration
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: false,
+		ServerName:         host,
+	}
+
+	// Establish SSL connection
+	conn, err := tls.Dial("tcp", addr, tlsConfig)
+	if err != nil {
+		return fmt.Errorf("SSL connection failed: %w", err)
+	}
+	defer conn.Close()
+
+	// Create SMTP client
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return fmt.Errorf("create SMTP client failed: %w", err)
+	}
+	defer client.Close()
+
+	// Authenticate
+	auth := smtp.PlainAuth("", username, password, host)
+	if err := client.Auth(auth); err != nil {
+		return fmt.Errorf("authentication failed: %w", err)
+	}
+
+	// Set sender
+	if err := client.Mail(e.From); err != nil {
+		return fmt.Errorf("set sender failed: %w", err)
+	}
+
+	// Set recipients
+	for _, to := range e.To {
+		if err := client.Rcpt(to); err != nil {
+			return fmt.Errorf("set recipient failed: %w", err)
+		}
+	}
+
+	// Get data writer
+	w, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("get data writer failed: %w", err)
+	}
+
+	// Write email headers
+	fmt.Fprintf(w, "From: %s\r\n", e.From)
+	fmt.Fprintf(w, "To: %s\r\n", e.To[0])
+	fmt.Fprintf(w, "Subject: %s\r\n", e.Subject)
+
+	// Write body (HTML or Text)
+	if len(e.HTML) > 0 {
+		fmt.Fprintf(w, "Content-Type: text/html; charset=UTF-8\r\n")
+		fmt.Fprintf(w, "\r\n")
+		if _, err := w.Write(e.HTML); err != nil {
+			return fmt.Errorf("write HTML body failed: %w", err)
+		}
+	} else if len(e.Text) > 0 {
+		fmt.Fprintf(w, "Content-Type: text/plain; charset=UTF-8\r\n")
+		fmt.Fprintf(w, "\r\n")
+		if _, err := w.Write(e.Text); err != nil {
+			return fmt.Errorf("write text body failed: %w", err)
+		}
+	} else {
+		return fmt.Errorf("email has no body content")
+	}
+
+	// Handle attachments - use email library's built-in method to write attachments
+	for _, attachment := range e.Attachments {
+		// email library handles attachment encoding internally
+		if _, err := w.Write(attachment.Content); err != nil {
+			return fmt.Errorf("write attachment failed: %w", err)
+		}
+	}
+
+	// Close data writer
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("close data writer failed: %w", err)
+	}
+
+	// Quit SMTP session
+	return client.Quit()
 }
