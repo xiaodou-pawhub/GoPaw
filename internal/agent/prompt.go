@@ -39,6 +39,8 @@ func buildCapabilityFragment(tools []plugin.Tool) string {
 	sb.WriteString("2. **API Interaction**: If a user mentions a service with a known API, use `http_client` to interact with it directly.\n")
 	sb.WriteString("3. **Multi-step Reasoning**: You can chain tools. For example, use `web_search` to find a public API endpoint, then use `http_client` to fetch the data.\n")
 	sb.WriteString("4. **Proactive Updates**: If you suspect information might be stale, verify it using tools without being asked.\n")
+	sb.WriteString("5. **Browser/HTTP Synergy**: If a service requires login, use `browser_control` to authenticate, then use `get_cookies` action to extract the session. You can then pass these cookies to `http_client` headers for faster, structured data access.\n")
+	sb.WriteString("6. **Visual Debugging**: If browser actions fail (e.g., selector not found), inspect the returned screenshot to understand the page state or identify overlays.\n")
 
 	// Multi-modal check
 	hasImage := false

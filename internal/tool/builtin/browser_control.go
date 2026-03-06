@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/pkg/plugin"
@@ -18,18 +19,18 @@ func init() {
 }
 
 type BrowserControlTool struct {
-	store      plugin.MediaStore
-	session    string
-	baseDir    string // Base workspace directory for browser data
+	store   plugin.MediaStore
+	session string
 }
 
 func (t *BrowserControlTool) Name() string { return "browser_control" }
 
 func (t *BrowserControlTool) Description() string {
 	return "Control a headless web browser to interact with websites. " +
-		"Actions: 'navigate' (open URL), 'click' (click element by selector), " +
-		"'type' (input text into selector), 'scroll' (scroll down), 'screenshot' (capture view). " +
-		"This tool persists session data (cookies/login), so once logged in, you stay logged in."
+		"Actions: 'navigate' (open URL), 'click' (click element), 'type' (input text), " +
+		"'scroll' (scroll down), 'screenshot' (capture view), 'extract' (get page content), " +
+		"'get_cookies' (get session cookies for http_client synergy). " +
+		"This tool persists session data, so once logged in, you stay logged in."
 }
 
 func (t *BrowserControlTool) Parameters() plugin.ToolParameters {
@@ -39,7 +40,7 @@ func (t *BrowserControlTool) Parameters() plugin.ToolParameters {
 			"action": {
 				Type:        "string",
 				Description: "The action to perform.",
-				Enum:        []string{"navigate", "click", "type", "scroll", "screenshot"},
+				Enum:        []string{"navigate", "click", "type", "scroll", "screenshot", "extract", "get_cookies"},
 			},
 			"url": {
 				Type:        "string",
@@ -47,7 +48,7 @@ func (t *BrowserControlTool) Parameters() plugin.ToolParameters {
 			},
 			"selector": {
 				Type:        "string",
-				Description: "CSS selector for 'click' or 'type' actions (e.g. 'button.submit', '#username').",
+				Description: "CSS selector for 'click' or 'type' actions.",
 			},
 			"text": {
 				Type:        "string",
@@ -68,8 +69,6 @@ func (t *BrowserControlTool) SetMediaStore(s plugin.MediaStore) {
 
 func (t *BrowserControlTool) SetContext(channel, chatID, session, user string) {
 	t.session = session
-	// We need the root workspace to store browser data. 
-	// We'll infer it from current context if not explicitly set.
 }
 
 func (t *BrowserControlTool) Execute(ctx context.Context, args map[string]interface{}) *plugin.ToolResult {
@@ -84,7 +83,6 @@ func (t *BrowserControlTool) Execute(ctx context.Context, args map[string]interf
 	}
 
 	// 1. Setup Persistent Data Directory
-	// We use ~/.gopaw/browser_data to keep cookies/sessions
 	home, _ := os.UserHomeDir()
 	userDataDir := filepath.Join(home, ".gopaw", "browser_data")
 	_ = os.MkdirAll(userDataDir, 0755)
@@ -109,30 +107,58 @@ func (t *BrowserControlTool) Execute(ctx context.Context, args map[string]interf
 	// 3. Define Actions
 	var tasks chromedp.Tasks
 	var resultMsg string
+	var extraData string
+	var cookies []*network.Cookie
 
 	switch action {
 	case "navigate":
-		if targetURL == "" { return plugin.ErrorResult("URL is required for navigate") }
+		if targetURL == "" {
+			return plugin.ErrorResult("URL is required for navigate")
+		}
 		tasks = append(tasks, chromedp.Navigate(targetURL))
 		resultMsg = fmt.Sprintf("Navigated to %s", targetURL)
 	case "click":
-		if selector == "" { return plugin.ErrorResult("selector is required for click") }
+		if selector == "" {
+			return plugin.ErrorResult("selector is required for click")
+		}
 		tasks = append(tasks, chromedp.WaitVisible(selector), chromedp.Click(selector))
 		resultMsg = fmt.Sprintf("Clicked on %s", selector)
 	case "type":
-		if selector == "" || text == "" { return plugin.ErrorResult("selector and text are required for type") }
+		if selector == "" || text == "" {
+			return plugin.ErrorResult("selector and text are required for type")
+		}
 		tasks = append(tasks, chromedp.WaitVisible(selector), chromedp.SendKeys(selector, text))
 		resultMsg = fmt.Sprintf("Typed text into %s", selector)
 	case "scroll":
 		tasks = append(tasks, chromedp.Evaluate(`window.scrollBy(0, 500)`, nil))
 		resultMsg = "Scrolled down"
+	case "extract":
+		var html string
+		var innerText string
+		tasks = append(tasks,
+			chromedp.OuterHTML("html", &html),
+			chromedp.Evaluate(`document.body.innerText`, &innerText),
+		)
+		resultMsg = "Content extracted"
+		// Capture first 5000 chars of text to avoid context bloat
+		if len(innerText) > 5000 {
+			innerText = innerText[:5000] + "..."
+		}
+		extraData = fmt.Sprintf("\n\n--- Extracted Text ---\n%s", innerText)
+	case "get_cookies":
+		tasks = append(tasks, chromedp.ActionFunc(func(ctx context.Context) error {
+			var err error
+			cookies, err = network.GetCookies().Do(ctx)
+			return err
+		}))
+		resultMsg = "Cookies retrieved"
 	case "screenshot":
 		resultMsg = "Screenshot captured"
 	default:
 		return plugin.ErrorResult(fmt.Sprintf("unknown action: %s", action))
 	}
 
-	// 4. Always add a wait and a screenshot for feedback (except maybe pure navigation)
+	// 4. Feedback screenshot
 	var buf []byte
 	tasks = append(tasks, chromedp.Sleep(time.Duration(waitSec)*time.Second))
 	tasks = append(tasks, chromedp.CaptureScreenshot(&buf))
@@ -142,24 +168,36 @@ func (t *BrowserControlTool) Execute(ctx context.Context, args map[string]interf
 		return plugin.ErrorResult(fmt.Sprintf("browser error: %v", err))
 	}
 
+	// Format Cookies if requested
+	if action == "get_cookies" {
+		var cookieParts []string
+		for _, c := range cookies {
+			cookieParts = append(cookieParts, fmt.Sprintf("%s=%s", c.Name, c.Value))
+		}
+		extraData = fmt.Sprintf("\n\n--- Session Cookies ---\nUse this in http_client headers as 'Cookie':\n%s", strings.Join(cookieParts, "; "))
+	}
+
 	// 6. Save Screenshot to Store
 	tmpPath := t.store.TempPath(".png")
 	_ = os.WriteFile(tmpPath, buf, 0644)
-	
+
 	ref, err := t.store.Store(tmpPath, plugin.MediaMeta{
 		Filename:    fmt.Sprintf("browser_%s.png", action),
 		ContentType: "image/png",
 		Source:      "tool:browser_control",
 	}, t.session)
 
+	userOutput := fmt.Sprintf("🌐 浏览器操作完成：%s", resultMsg)
+	llmOutput := fmt.Sprintf("%s. Result screenshot: %s%s", resultMsg, ref, extraData)
+
 	if err != nil {
 		_ = os.Remove(tmpPath)
-		return plugin.NewToolResult(resultMsg + " (but failed to save screenshot)")
+		return plugin.NewToolResult(llmOutput + " (but failed to save screenshot)")
 	}
 
 	return &plugin.ToolResult{
-		LLMOutput:  fmt.Sprintf("%s. Result screenshot: %s", resultMsg, ref),
-		UserOutput: fmt.Sprintf("🌐 浏览器操作完成：%s", resultMsg),
+		LLMOutput:  llmOutput,
+		UserOutput: userOutput,
 		Media:      []string{ref},
 	}
 }
