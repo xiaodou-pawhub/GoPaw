@@ -13,9 +13,9 @@
 
 ---
 
-## 一、本地构建
+## 一、本地构建镜像
 
-GoPaw 的镜像构建策略是**本地交叉编译 → 上传镜像**，服务器不需要 Go 源码和开发环境。
+GoPaw 的构建策略是**本地交叉编译 → 导出镜像文件 → 上传服务器**，服务器不需要 Go 源码和开发环境。
 
 ### 1.1 一步构建镜像
 
@@ -25,7 +25,7 @@ make docker-build
 ```
 
 此命令依次完成：
-1. `pnpm build` 构建前端，嵌入 Go 二进制
+1. `pnpm build` 构建前端并嵌入 Go 二进制
 2. `CGO_ENABLED=0 GOOS=linux GOARCH=amd64` 交叉编译 Linux 二进制
 3. `docker build --platform linux/amd64` 打包镜像
 
@@ -39,92 +39,90 @@ docker save gopaw:latest | gzip > gopaw.tar.gz
 
 ---
 
-## 二、准备服务器部署文件
+## 二、准备部署文件
 
-需要上传到服务器的文件共 **3 个**：
+在服务器上新建一个部署目录（如 `~/gopaw`），以下文件都放在这个目录里：
 
 ```
-gopaw.tar.gz          # Docker 镜像（上一步导出）
-docker-compose.yml    # 编排文件（项目根目录）
-config.yaml           # 启动配置（见下方说明）
+~/gopaw/
+├── gopaw.tar.gz        # Docker 镜像（第一步导出）
+├── docker-compose.yml  # 编排文件（从项目根目录复制）
+├── config.yaml         # 启动配置（见 2.1）
+└── .env                # 访问密码等敏感配置（见 2.2）
+```
+
+运行后会自动创建：
+
+```
+~/gopaw/
+├── data/               # SQLite 数据库、记忆文件等持久化数据
+│   └── skills/         # 用户技能目录（自动创建，放入技能后调用 reload API 即可生效）
+└── logs/               # 应用日志
 ```
 
 ### 2.1 准备 config.yaml
 
-`config.yaml` 只包含**系统启动参数**，不需要填写任何 API Key 或平台凭据（这些均通过 Web UI 配置）。
+`config.yaml` 只包含**系统启动参数**，不需要填写任何 API Key 或平台凭据（这些均通过 Web UI 配置，存储在 SQLite）。
 
-从示例文件复制并按需修改：
+从示例文件复制并修改：
 
 ```bash
 cp config.yaml.example config.yaml
 ```
 
-**通常只需关注以下字段：**
+**Docker 部署只需关注以下字段：**
 
 ```yaml
 workspace:
-  dir: /app/data      # Docker 部署固定使用此路径，无需改动
+  dir: /app/data        # 容器内固定路径，勿改
 
 app:
   timezone: Asia/Shanghai   # 按需修改时区
 
 server:
   host: 0.0.0.0
-  port: 8088          # 如需修改端口，docker-compose.yml 中也要同步修改
+  port: 8088            # 如需改端口，docker-compose.yml 的 ports 也要同步
 
 log:
-  level: info         # 生产环境建议 info；排查问题时改为 debug
-  format: json        # 生产环境建议 json（结构化日志）
-  output: stdout      # Docker 场景使用 stdout，日志由 docker 管理
+  level: info           # 排查问题时改为 debug
+  format: json          # 生产环境推荐 json（结构化日志）
+  output: stdout        # Docker 场景用 stdout，日志由 Docker 统一管理
 ```
 
-> **不需要在 config.yaml 里填写的内容：**
-> LLM 提供商配置（API Key、模型）、飞书/钉钉频道凭据、Agent 设定、工具配置等，
-> 均通过 GoPaw Web UI 配置，存储在 SQLite 数据库中，重启不丢失。
+> LLM 提供商（API Key、模型）、飞书/钉钉频道凭据、Agent 设定等，均通过 Web UI 配置，无需写入 config.yaml。
 
----
+### 2.2 准备 .env（配置访问密码）
 
-## 三、配置 Web UI 访问密码（admin_token）
-
-GoPaw Web UI 通过 `admin_token` 验证访问权限。有两种配置方式：
-
-### 方式 A：通过 .env 文件固定设置（推荐）
+GoPaw Web UI 通过 `admin_token` 验证访问权限，建议通过 `.env` 文件固定设置。
 
 ```bash
 # 复制示例文件
 cp .env.example .env
 
-# 编辑 .env，设置你的密码
+# 编辑 .env，将占位值替换为你的密码
 # GOPAW_ADMIN_TOKEN=your-admin-token-here
 ```
 
-docker compose 启动时自动读取 `.env`，将 `GOPAW_ADMIN_TOKEN` 注入容器，
-GoPaw 内部通过 `APP_ADMIN_TOKEN` 环境变量读取（Viper 自动映射 `app.admin_token`）。
+`.env` 由 docker compose 自动读取，`GOPAW_ADMIN_TOKEN` 会注入到容器的 `APP_ADMIN_TOKEN` 环境变量。
 
-> **为什么不写在 config.yaml 里？**
-> `.env` 不应提交到 Git，适合存放密码等敏感值；config.yaml 通常会进入版本管理，不适合写密码。
-
-### 方式 B：每次重启自动生成（简便但不适合生产）
-
-`docker-compose.yml` 中 `APP_ADMIN_TOKEN` 留空（默认），GoPaw 启动时自动生成随机 token 并打印到日志：
+**如果 `.env` 中留空**，GoPaw 每次启动时自动生成随机 token 并打印到日志，重启后 token 会变化：
 
 ```bash
-# 查看自动生成的 token
-docker compose logs gopaw | grep "admin token"
+docker compose logs gopaw | grep "Admin token"
 ```
 
-重启后 token 会变化，需要重新查日志。适合临时测试，**不建议生产使用**。
+> `.env` 包含敏感信息，已加入 `.gitignore`，不会提交到 Git。
 
 ---
 
-## 四、上传到服务器
+## 三、上传到服务器
 
 ```bash
 # 在服务器上创建部署目录
 ssh user@your-server "mkdir -p ~/gopaw"
 
-# 上传文件（含 .env）
-scp gopaw.tar.gz docker-compose.yml config.yaml .env user@your-server:~/gopaw/
+# 上传所有部署文件
+scp gopaw.tar.gz docker-compose.yml config.yaml .env.example user@your-server:~/gopaw/
 ```
 
 ---
@@ -135,6 +133,11 @@ scp gopaw.tar.gz docker-compose.yml config.yaml .env user@your-server:~/gopaw/
 # SSH 登录服务器
 ssh user@your-server
 cd ~/gopaw
+
+# 从示例创建 .env 并设置访问密码
+cp .env.example .env
+# 编辑 .env，填写 GOPAW_ADMIN_TOKEN
+nano .env
 
 # 导入镜像
 docker load < gopaw.tar.gz
@@ -151,53 +154,68 @@ docker compose logs -f gopaw
 
 服务启动后访问：`http://your-server:8088`
 
-首次访问需要完成初始化设置（管理员账号、LLM 提供商配置等）。
+首次访问需完成初始化向导（设置 LLM 提供商等），之后正常使用。
 
 ---
 
 ## 五、启用浏览器控制工具（可选）
 
-`browser_control` 工具需要 Headless Chrome，通过 Docker Sidecar 方式提供。
+`browser_control` 工具依赖 Headless Chrome，通过 Docker Sidecar 方式提供：
 
 ```bash
 # 含浏览器控制的启动方式
 docker compose --profile browser up -d
 ```
 
-这会额外启动 `chromedp/headless-shell` 容器，GoPaw 通过 CDP WebSocket 连接它。
-不需要浏览器功能时，不加 `--profile browser` 即可，`browser_control` 工具调用时会返回连接错误。
+这会额外拉取并启动 `chromedp/headless-shell` 容器，GoPaw 通过 CDP WebSocket 连接它。
+不需要浏览器功能时不加 `--profile browser` 即可，`browser_control` 工具调用时会返回连接错误。
 
 ---
 
 ## 六、技能目录（可选）
 
-自定义技能放在服务器的 `~/.gopaw/skills/` 目录，已在 `docker-compose.yml` 中挂载：
+技能统一存放在工作区的 `skills/` 子目录，Docker 部署中对应宿主机的 `./data/skills/`，随 `./data` 挂载自动生效，无需额外配置。
 
 ```bash
-# 在服务器上创建技能目录
-mkdir -p ~/.gopaw/skills
+# 在服务器上创建技能目录（首次启动后 data/ 已自动创建，此步骤可选）
+mkdir -p ~/gopaw/data/skills
 
-# 上传技能（示例）
-scp -r skills/translator user@your-server:~/.gopaw/skills/
+# 上传技能
+scp -r skills/translator user@your-server:~/gopaw/data/skills/
 ```
 
-修改技能文件后需重启 GoPaw 生效：
+上传后通过 API 动态加载，**无需重启**：
 
 ```bash
-docker compose restart gopaw
+curl -X POST http://your-server:8088/api/skills/reload \
+  -H "Authorization: Bearer <admin-token>"
+```
+
+或在 Web UI `设置 → 技能` 页面点击「重新加载」按钮。
+
+---
+
+## 七、更新镜像
+
+```bash
+# 本地重新构建并导出
+make docker-build
+docker save gopaw:latest | gzip > gopaw.tar.gz
+
+# 上传新镜像
+scp gopaw.tar.gz user@your-server:~/gopaw/
+
+# 服务器端更新
+ssh user@your-server "cd ~/gopaw && docker load < gopaw.tar.gz && docker compose up -d --force-recreate"
 ```
 
 ---
 
-## 七、常用运维命令
+## 八、常用运维命令
 
 ```bash
-# 停止服务
+# 停止服务（数据目录保留）
 docker compose down
-
-# 更新镜像并重启（重复执行第一步 ~ 第四步后）
-docker load < gopaw.tar.gz
-docker compose up -d --force-recreate
 
 # 查看实时日志
 docker compose logs -f gopaw
@@ -205,23 +223,27 @@ docker compose logs -f gopaw
 # 进入容器排查问题
 docker compose exec gopaw sh
 
-# 查看数据 volume 位置
-docker volume inspect gopaw_gopaw-data
+# 重启单个服务
+docker compose restart gopaw
 ```
 
 ---
 
-## 八、数据持久化说明
+## 九、数据持久化说明
 
-| 数据类型 | 存储位置 | 说明 |
-|---------|---------|------|
-| SQLite 数据库（设置、记忆） | Docker volume `gopaw-data` | 随 volume 持久化，`docker compose down` 不会删除 |
-| 应用日志 | Docker volume `gopaw-logs` | 同上 |
-| 技能文件 | 服务器 `~/.gopaw/skills/` | bind-mount，直接编辑文件即可 |
-| 配置文件 | `~/gopaw/config.yaml` | bind-mount，修改后重启生效 |
+所有数据存在部署目录的子目录下，清晰可见，直接备份文件夹即可。
 
-> **备份数据**：备份 `gopaw-data` volume 即可保留所有运行时数据：
-> ```bash
-> docker run --rm -v gopaw_gopaw-data:/data -v $(pwd):/backup alpine \
->   tar czf /backup/gopaw-data-backup.tar.gz -C /data .
-> ```
+| 数据类型 | 路径 | 说明 |
+|---------|------|------|
+| SQLite 数据库（设置、记忆） | `./data/` | `docker compose down` 不会删除 |
+| 应用日志 | `./logs/` | 同上 |
+| 技能文件 | `./skills/` | 直接编辑文件，重启生效 |
+| 启动配置 | `./config.yaml` | 修改后重启生效 |
+| 访问密码 | `./.env` | 修改后重启生效 |
+
+**备份：**
+
+```bash
+# 备份所有持久化数据（在部署目录执行）
+tar czf gopaw-backup-$(date +%Y%m%d).tar.gz data/ config.yaml .env
+```

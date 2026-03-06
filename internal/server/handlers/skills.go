@@ -48,6 +48,19 @@ func (h *SkillsHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"skills": out})
 }
 
+// Reload handles POST /api/skills/reload.
+// It clears the skill registry and re-scans the skills directory,
+// picking up any new or removed skill folders without restarting.
+func (h *SkillsHandler) Reload(c *gin.Context) {
+	if err := h.manager.Reload(); err != nil {
+		h.logger.Error("skill reload failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	h.logger.Info("skills reloaded")
+	c.JSON(http.StatusOK, gin.H{"ok": true, "count": len(h.manager.Registry().All())})
+}
+
 // SetEnabled handles PUT /api/skills/:name/enabled.
 func (h *SkillsHandler) SetEnabled(c *gin.Context) {
 	name := c.Param("name")

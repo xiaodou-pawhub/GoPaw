@@ -119,7 +119,11 @@ export async function getSkills(): Promise<Skill[]> {
 }
 
 // 设置技能启用状态
-// 修正 P1: 后端路径为 /skills/:name/enabled
 export async function setSkillEnabled(name: string, enabled: boolean): Promise<{ ok: boolean }> {
   return await api.put(`/skills/${name}/enabled`, { enabled })
+}
+
+// 重新扫描技能目录，加载新增技能（无需重启）
+export async function reloadSkills(): Promise<{ ok: boolean; count: number }> {
+  return await api.post('/skills/reload')
 }

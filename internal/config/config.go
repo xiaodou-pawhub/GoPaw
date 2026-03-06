@@ -49,11 +49,10 @@ type AgentConfig struct {
 	Memory   MemoryConfig `mapstructure:"memory"`
 }
 
-// SkillsConfig controls which skills are loaded and their per-skill settings.
+// SkillsConfig controls which skills are initially enabled.
+// Skills are always loaded from {workspace.dir}/skills/ — no separate dir config needed.
 type SkillsConfig struct {
-	Dir     string                 `mapstructure:"dir"`
-	Enabled []string               `mapstructure:"enabled"`
-	Config  map[string]interface{} `mapstructure:"config"`
+	Enabled []string `mapstructure:"enabled"`
 }
 
 // LogConfig controls structured log output.
@@ -162,7 +161,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("agent.memory.context_limit", 4000)
 	v.SetDefault("agent.memory.history_limit", 50)
 
-	v.SetDefault("skills.dir", "skills/")
+	// skills dir is always derived from workspace.dir — no separate default needed
 
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")

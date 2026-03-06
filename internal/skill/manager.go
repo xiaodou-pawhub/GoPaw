@@ -57,6 +57,14 @@ func (m *Manager) FragmentsForInput(input string) string {
 	return m.registry.ActivePromptFragmentsForInput(input)
 }
 
+// Reload clears all registered skills and re-scans the skills directory.
+// Useful when the user adds or removes skill files at runtime.
+func (m *Manager) Reload() error {
+	m.registry.Clear()
+	m.logger.Info("skill registry cleared, reloading from disk")
+	return m.Load(nil)
+}
+
 // Registry returns the underlying skill registry.
 func (m *Manager) Registry() *Registry {
 	return m.registry

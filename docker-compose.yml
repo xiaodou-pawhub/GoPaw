@@ -1,7 +1,10 @@
-version: "3.9"
+version: '3.9'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GoPaw docker-compose
+#
+# 前置：将 gopaw:latest 镜像导入本机后再执行 docker compose 命令。
+#   docker load < gopaw.tar.gz
 #
 # 基础启动（不含浏览器）：
 #   docker compose up -d
@@ -9,7 +12,7 @@ version: "3.9"
 # 含浏览器控制工具：
 #   docker compose --profile browser up -d
 #
-# 敏感配置建议写在 .env 文件（与此文件同目录），docker compose 自动读取。
+# 敏感配置（admin_token 等）写在同目录的 .env 文件，docker compose 自动读取。
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -17,31 +20,26 @@ services:
   # ── GoPaw 主服务 ──────────────────────────────────────────────────────────
   gopaw:
     image: gopaw:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
     ports:
-      - "8088:8088"
+      - '8088:8088'
     volumes:
       # 配置文件：只读挂载，修改后需重启生效
       - ./config.yaml:/app/config.yaml:ro
-      # 持久化数据（SQLite、记忆等）
-      - gopaw-data:/app/data
-      # 用户技能目录（只读；修改技能后重启生效）
-      - ~/.gopaw/skills:/app/skills:ro
-      # 应用日志
-      - gopaw-logs:/app/logs
+      # 持久化数据：SQLite 数据库、记忆文件等（首次启动自动创建目录）
+      - ./data:/app/data
+      # 应用日志（首次启动自动创建目录）
+      - ./logs:/app/logs
+      # 技能目录随 data 一并挂载，路径为 ./data/skills/（在 config.yaml 中通过 skills.dir 配置）
     environment:
       # Web UI 访问密码（对应 config.yaml app.admin_token）
       # 留空则每次重启自动生成并打印到日志，生产环境建议在 .env 中固定设置
       - APP_ADMIN_TOKEN=${GOPAW_ADMIN_TOKEN:-}
 
-      # 浏览器控制：连接 chrome sidecar（启用 browser profile 时生效）
+      # 浏览器控制：连接 chrome sidecar（启用 --profile browser 时生效）
       - CHROME_URL=ws://chrome:9222
-      # 注意：LLM 提供商、平台凭据等均通过 Web UI 配置，存储在 SQLite，无需在此填写
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8088/health"]
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8088/health']
       interval: 30s
       timeout: 5s
       retries: 3
@@ -49,19 +47,13 @@ services:
 
   # ── Headless Chrome sidecar（可选，browser_control 工具依赖）─────────────
   # 仅在使用 --profile browser 时启动
-  # 使用: docker compose --profile browser up -d
   chrome:
     image: chromedp/headless-shell:latest
     profiles:
       - browser
     # Chrome 需要足够的共享内存，否则页面渲染可能崩溃
-    shm_size: "256mb"
-    # CDP 端口（仅容器内网络，不对外暴露）
+    shm_size: '256mb'
+    # CDP 端口仅容器内网络可访问，不对外暴露
     expose:
-      - "9222"
+      - '9222'
     restart: unless-stopped
-
-# ── 持久化 Volumes ─────────────────────────────────────────────────────────
-volumes:
-  gopaw-data:
-  gopaw-logs:

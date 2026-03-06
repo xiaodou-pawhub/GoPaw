@@ -193,14 +193,9 @@ func runStart() {
 	builtin.SetLTMStore(ltmStore)
 	builtin.SetMemoryNotesDir(wp.MemoryNotesDir)
 	builtin.SetWorkspaceRoot(wp.Root)
-	skillsDir := cfg.Skills.Dir
-	if skillsDir == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			skillsDir = filepath.Join(home, ".gopaw", "skills")
-		}
-	}
-	skillMgr := skill.NewManager(skillsDir, toolReg, logger)
+	skillMgr := skill.NewManager(wp.SkillsDir, toolReg, logger)
 	skillMgr.Load(cfg.Skills.Enabled)
+	builtin.SetSkillManager(skillMgr)
 
 	convLogger, _ := convlog.New(wp.ConvLogFile, logger)
 

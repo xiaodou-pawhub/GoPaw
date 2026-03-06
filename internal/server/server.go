@@ -187,6 +187,7 @@ func (s *Server) registerRoutes(
 	skillsG := api.Group("/skills")
 	{
 		skillsG.GET("", skillsH.List)
+		skillsG.POST("/reload", skillsH.Reload)
 		skillsG.PUT("/:name/enabled", skillsH.SetEnabled)
 	}
 

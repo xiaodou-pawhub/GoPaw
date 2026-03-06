@@ -91,6 +91,13 @@ func (r *Registry) ActivePromptFragmentsForInput(input string) string {
 	return combined
 }
 
+// Clear removes all registered skills.
+func (r *Registry) Clear() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.entries = make(map[string]*Entry)
+}
+
 // SetEnabled enables or disables a skill by name.
 func (r *Registry) SetEnabled(name string, enabled bool) error {
 	r.mu.Lock()

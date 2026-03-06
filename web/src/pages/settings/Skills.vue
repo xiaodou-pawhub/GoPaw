@@ -5,10 +5,20 @@
         <h1 class="page-title">{{ t('settings.skills.title') }}</h1>
         <p class="page-description">{{ t('settings.skills.description') }}</p>
       </div>
+      <div class="header-actions">
+        <n-button
+          :loading="reloading"
+          @click="handleReload"
+          secondary
+        >
+          <template #icon><n-icon><RefreshOutline /></n-icon></template>
+          {{ t('settings.skills.reload') }}
+        </n-button>
+      </div>
     </div>
 
     <div class="skills-list" v-loading="loading" :class="{ 'is-loading': loading }">
-      <n-empty v-if="skills.length === 0" :description="t('settings.skills.noSkills')" size="large" class="page-empty">
+      <n-empty v-if="skills.length === 0 && !loading" :description="t('settings.skills.noSkills')" size="large" class="page-empty">
         <template #extra>
           <p class="empty-tip">{{ t('settings.skills.noSkillsTip') }}</p>
         </template>
@@ -58,15 +68,17 @@
 // English: Import necessary dependencies
 import { ref, reactive, onMounted } from 'vue'
 import {
-  NTag, NSwitch, NEmpty, useMessage
+  NTag, NSwitch, NEmpty, NButton, NIcon, useMessage
 } from 'naive-ui'
+import { RefreshOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
-import { getSkills, setSkillEnabled, type Skill } from '@/api/settings'
+import { getSkills, setSkillEnabled, reloadSkills, type Skill } from '@/api/settings'
 
 const { t } = useI18n()
 const message = useMessage()
 
 const loading = ref(false)
+const reloading = ref(false)
 const skills = ref<Skill[]>([])
 const loadingSkills = reactive<Record<string, boolean>>({})
 
@@ -80,6 +92,20 @@ async function loadSkills() {
     message.error(t('common.error'))
   } finally {
     loading.value = false
+  }
+}
+
+// 重新加载技能目录
+async function handleReload() {
+  reloading.value = true
+  try {
+    await reloadSkills()
+    await loadSkills()
+    message.success(t('settings.skills.reloadSuccess'))
+  } catch {
+    message.error(t('common.error'))
+  } finally {
+    reloading.value = false
   }
 }
 
