@@ -14,6 +14,10 @@ build: web-build
 build-go:
 	$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BINARY) ./cmd/gopaw
 
+## build-linux: [部署] 交叉编译 Linux amd64 二进制，用于 Docker 镜像构建（不需要源码进镜像）
+build-linux: web-build
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BINARY) ./cmd/gopaw
+
 ## dev: [开发] 并行启动 Vite HMR dev server + Go 后端（不 embed 前端）
 ## 前端访问 http://localhost:5173（热更新），API 自动代理到 http://localhost:8088
 dev:
@@ -70,9 +74,9 @@ tidy:
 vet:
 	$(GO) vet ./...
 
-## docker-build: build the Docker image
-docker-build:
-	docker build -t gopaw:$(VERSION) -t gopaw:latest .
+## docker-build: 交叉编译 Linux amd64 二进制并构建 Docker 镜像（兼容 Apple Silicon 和 x86 开发机）
+docker-build: build-linux
+	docker build --platform linux/amd64 -t gopaw:$(VERSION) -t gopaw:latest .
 
 ## docker-push: push the Docker image to a registry (set REGISTRY env var)
 docker-push:

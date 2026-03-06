@@ -82,22 +82,28 @@ func (t *BrowserControlTool) Execute(ctx context.Context, args map[string]interf
 		waitSec = 2
 	}
 
-	// 1. Setup Persistent Data Directory
-	home, _ := os.UserHomeDir()
-	userDataDir := filepath.Join(home, ".gopaw", "browser_data")
-	_ = os.MkdirAll(userDataDir, 0755)
-
-	// 2. Browser Allocator with Persistence
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.UserDataDir(userDataDir),
-		chromedp.Flag("headless", true),
-		chromedp.Flag("disable-gpu", true),
-		chromedp.Flag("no-sandbox", true),
-	)
-
-	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	// 1. Setup allocator: remote Chrome (Docker sidecar) or local Chrome (development)
+	var allocCtx context.Context
+	var allocCancel context.CancelFunc
+	if chromeURL := os.Getenv("CHROME_URL"); chromeURL != "" {
+		// Docker mode: connect to headless-shell sidecar via CDP WebSocket
+		allocCtx, allocCancel = chromedp.NewRemoteAllocator(context.Background(), chromeURL)
+	} else {
+		// Dev mode: launch a local Chrome process with a persistent user data dir
+		home, _ := os.UserHomeDir()
+		userDataDir := filepath.Join(home, ".gopaw", "browser_data")
+		_ = os.MkdirAll(userDataDir, 0755)
+		opts := append(chromedp.DefaultExecAllocatorOptions[:],
+			chromedp.UserDataDir(userDataDir),
+			chromedp.Flag("headless", true),
+			chromedp.Flag("disable-gpu", true),
+			chromedp.Flag("no-sandbox", true),
+		)
+		allocCtx, allocCancel = chromedp.NewExecAllocator(context.Background(), opts...)
+	}
 	defer allocCancel()
 
+	// 2. Create browser context
 	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
 	defer browserCancel()
 

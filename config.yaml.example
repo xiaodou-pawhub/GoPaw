@@ -21,6 +21,7 @@ app:
   language: zh
   timezone: Asia/Shanghai
   debug: false
+  admin_token: 7ba3cf0e5f8c21bfd520db769b488943 # 留空则每次启动自动生成并打印到控制台
 
 # ---------------------------------------------------------------------------
 # HTTP 服务器
