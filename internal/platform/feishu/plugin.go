@@ -139,7 +139,6 @@ func (p *Plugin) Start(ctx context.Context) error {
 	eventHandler.OnP2CardActionTrigger(func(ctx context.Context, event *callback.CardActionTriggerEvent) (*callback.CardActionTriggerResponse, error) {
 		p.logger.Info("feishu: card action received", zap.String("id", event.Event.Context.OpenMessageID))
 
-		// Correct nested path based on documentation
 		actionData := event.Event.Action.Value
 		actionType, _ := actionData["action"].(string)
 
@@ -153,12 +152,24 @@ func (p *Plugin) Start(ctx context.Context) error {
 				p.logger.Warn("feishu: failed to resolve approval", zap.Error(err))
 			}
 
-			// Simple feedback
-			statusText := "✅ 已批准"
+			// Return updated card in callback response (Card 2.0 raw type).
+			// Per Feishu docs, PATCH API must NOT be called before responding to the callback —
+			// doing so causes the update to fail/revert. The response IS the update.
+			statusCard := buildApprovalStatusCard(verdict, reqID)
+			toastType, toastContent := "success", "已批准"
 			if verdict == string(tool.VerdictDenied) {
-				statusText = "❌ 已拒绝"
+				toastType, toastContent = "error", "已拒绝"
 			}
-			p.replyText(event.Event.Context.OpenMessageID, statusText)
+			return &callback.CardActionTriggerResponse{
+				Card: &callback.Card{
+					Type: "raw",
+					Data: statusCard,
+				},
+				Toast: &callback.Toast{
+					Type:    toastType,
+					Content: toastContent,
+				},
+			}, nil
 		}
 
 		return nil, nil
@@ -200,6 +211,12 @@ func (p *Plugin) Receive() <-chan *types.Message {
 func (p *Plugin) Send(msg *types.Message) error {
 	_, err := p.sendInternal(context.Background(), msg, false)
 	return err
+}
+
+// SendWithMessageID sends a message and returns the message ID.
+// This is useful for later editing the message (e.g., approval cards).
+func (p *Plugin) SendWithMessageID(msg *types.Message) (string, error) {
+	return p.sendInternal(context.Background(), msg, false)
 }
 
 func (p *Plugin) replyText(messageID, text string) {
@@ -763,5 +780,41 @@ func (p *Plugin) mapReaction(rt string) string {
 		return "WRONG" // 飞书中的"错误"表情
 	default:
 		return ""
+	}
+}
+
+// buildApprovalStatusCard builds a status card shown after user approves/denies/times out.
+func buildApprovalStatusCard(verdict, reqID string) map[string]interface{} {
+	var title, template, content string
+
+	switch verdict {
+	case string(tool.VerdictAllowed):
+		title = "✅ 已批准"
+		template = "green"
+		content = fmt.Sprintf("**工具执行请求已批准**\n\n请求 ID: `%s`\n正在执行工具，请稍候...", reqID)
+	case string(tool.VerdictTimeout):
+		title = "⏱️ 超时未响应"
+		template = "orange"
+		content = fmt.Sprintf("**工具执行请求已超时**\n\n请求 ID: `%s`\n超过 5 分钟未响应，已自动拒绝。", reqID)
+	default: // denied
+		title = "❌ 已拒绝"
+		template = "red"
+		content = fmt.Sprintf("**工具执行请求已拒绝**\n\n请求 ID: `%s`\n用户已手动拒绝该请求。", reqID)
+	}
+
+	return map[string]interface{}{
+		"schema": "2.0",
+		"header": map[string]interface{}{
+			"title":    map[string]string{"tag": "plain_text", "content": title},
+			"template": template,
+		},
+		"body": map[string]interface{}{
+			"elements": []interface{}{
+				map[string]interface{}{
+					"tag":     "markdown",
+					"content": content,
+				},
+			},
+		},
 	}
 }

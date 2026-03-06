@@ -51,7 +51,7 @@ func (c *CapabilityCoordinator) RequestApproval(ctx context.Context, req *tool.A
 	// We'll send a specialized card.
 	if req.ChannelID == "feishu" {
 		argsJSON, _ := json.MarshalIndent(req.Args, "", "  ")
-		
+
 		// Build an interactive card with buttons
 		card := map[string]interface{}{
 			"schema": "2.0",
@@ -112,11 +112,22 @@ func (c *CapabilityCoordinator) RequestApproval(ctx context.Context, req *tool.A
 		cardJSON, _ := json.Marshal(card)
 		msg := &types.Message{
 			Channel:  req.ChannelID,
-			ChatID:   req.ChatID, // Correctly use the ChatID from the request
+			ChatID:   req.ChatID,
 			Content:  string(cardJSON),
-			MsgType:  types.MsgTypeMarkdown, // Sentinel for card
+			MsgType:  types.MsgTypeMarkdown,
 		}
-		
+
+		// Send the card and get message ID
+		if feishuPlugin, ok := p.(interface{ SendWithMessageID(*types.Message) (string, error) }); ok {
+			messageID, err := feishuPlugin.SendWithMessageID(msg)
+			if err != nil {
+				return err
+			}
+			req.MessageID = messageID
+			return nil
+		}
+
+		// Fallback to normal Send if MessageID is not supported
 		return p.Send(msg)
 	}
 

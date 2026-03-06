@@ -27,8 +27,10 @@ type ApprovalRequest struct {
 	ChannelID string
 	ChatID    string
 	SessionID string
+	MessageID string // Feishu message ID of the approval card (for editing)
 	CreatedAt time.Time
 	Result    chan ApprovalVerdict
+	done      chan struct{} // closed by Resolve to signal auto-timeout goroutine
 }
 
 // ApprovalStore manages pending approvals.
@@ -47,6 +49,7 @@ func NewApprovalStore() *ApprovalStore {
 var GlobalApprovalStore = NewApprovalStore()
 
 // CreateRequest registers a new pending approval and returns the request ID.
+// It automatically starts a 5-minute timeout goroutine that will auto-deny if not resolved.
 func (s *ApprovalStore) CreateRequest(toolName string, args map[string]interface{}, channel, chatID, session string) *ApprovalRequest {
 	summary := fmt.Sprintf("执行工具 %s", toolName)
 	req := &ApprovalRequest{
@@ -59,11 +62,36 @@ func (s *ApprovalStore) CreateRequest(toolName string, args map[string]interface
 		SessionID: session,
 		CreatedAt: time.Now(),
 		Result:    make(chan ApprovalVerdict, 1),
+		done:      make(chan struct{}),
 	}
 
 	s.mu.Lock()
 	s.pending[req.ID] = req
 	s.mu.Unlock()
+
+	// Start auto-timeout goroutine (5 minutes).
+	// Uses req.done (closed by Resolve) instead of reading req.Result,
+	// so it never races with WaitForVerdict for the verdict value.
+	go func() {
+		timer := time.NewTimer(5 * time.Minute)
+		defer timer.Stop()
+
+		select {
+		case <-timer.C:
+			// Timeout - auto deny
+			s.mu.Lock()
+			if _, exists := s.pending[req.ID]; exists {
+				delete(s.pending, req.ID)
+				select {
+				case req.Result <- VerdictTimeout:
+				default:
+				}
+			}
+			s.mu.Unlock()
+		case <-req.done:
+			// Already resolved by Resolve(), exit cleanly.
+		}
+	}()
 
 	return req
 }
@@ -83,6 +111,7 @@ func (s *ApprovalStore) Resolve(id string, verdict ApprovalVerdict) error {
 	case req.Result <- verdict:
 	default:
 	}
+	close(req.done) // signal auto-timeout goroutine to exit
 	return nil
 }
 
