@@ -95,9 +95,14 @@ type Client interface {
 	Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
 
 	// Stream sends a chat request and delivers incremental deltas via the returned channel.
-	// The channel is closed after the final chunk (FinishReason != "").
 	Stream(ctx context.Context, req ChatRequest) (<-chan StreamDelta, error)
 
 	// ModelName returns the configured model identifier.
 	ModelName() string
 }
+
+// Embedder describes a provider capable of generating vector embeddings for text.
+type Embedder interface {
+	Embed(ctx context.Context, input string) ([]float32, error)
+}
+

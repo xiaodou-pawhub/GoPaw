@@ -4,11 +4,12 @@ package memory
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
-
 	"github.com/google/uuid"
 	"github.com/gopaw/gopaw/internal/llm"
 	"go.uber.org/zap"
@@ -31,26 +32,27 @@ type MemorySnippet struct {
 // Manager is the primary entry point for the memory subsystem.
 // It coordinates the SQLite store, token counting and LLM-based compression.
 type Manager struct {
-	store          *Store
-	compressor     *Compressor
-	contextLimit   int    // token limit that triggers compression
-	historyLimit   int    // max messages returned for context window
-	memoryArchDir  string // path to memory/archive/ for auto-archiving summaries
-	compressing    sync.Map // sessionID → struct{}, prevents concurrent compression
-	logger         *zap.Logger
+	store         *Store
+	client        llm.Client
+	compressor    *Compressor
+	contextLimit  int      // token limit that triggers compression
+	historyLimit  int      // max messages returned for context window
+	memoryArchDir string   // path to memory/archive/ for auto-archiving summaries
+	compressing   sync.Map // sessionID → struct{}, prevents concurrent compression
+	logger        *zap.Logger
 }
 
 // NewManager creates a Manager.
 func NewManager(store *Store, llmClient llm.Client, contextLimit, historyLimit int, logger *zap.Logger) *Manager {
 	return &Manager{
 		store:        store,
+		client:       llmClient,
 		compressor:   NewCompressor(llmClient),
 		contextLimit: contextLimit,
 		historyLimit: historyLimit,
 		logger:       logger,
 	}
 }
-
 // SetArchiveDir 设置对话摘要归档目录（memory/archive/）。
 func (m *Manager) SetArchiveDir(dir string) {
 	m.memoryArchDir = dir
@@ -223,11 +225,14 @@ func convertToMemoryMessages(stored []StoredMessage) []MemoryMessage {
 	return result
 }
 
-// Search performs FTS5 full-text search within the session's history.
-func (m *Manager) Search(sessionID, query string, limit int) ([]MemorySnippet, error) {
-	msgs, err := m.store.SearchMessages(sessionID, query, limit)
+// Search performs a hybrid search: keyword-based via FTS5, then reranked by semantic similarity if an embedder is available.
+func (m *Manager) Search(ctx context.Context, sessionID, query string, limit int, minScore float64) ([]MemorySnippet, error) {
+	// 1. Initial keyword recall via FTS5
+	// We fetch more results than the limit to provide room for reranking
+	recallLimit := limit * 3
+	msgs, err := m.store.SearchMessages(sessionID, query, recallLimit)
 	if err != nil {
-		return nil, fmt.Errorf("memory: search: %w", err)
+		return nil, fmt.Errorf("memory: keyword recall: %w", err)
 	}
 
 	snippets := make([]MemorySnippet, 0, len(msgs))
@@ -238,9 +243,70 @@ func (m *Manager) Search(sessionID, query string, limit int) ([]MemorySnippet, e
 			CreatedAt: time.UnixMilli(sm.CreatedAt),
 		})
 	}
-	return snippets, nil
+
+	// 2. Semantic Reranking (if supported)
+	embedder, ok := m.client.(llm.Embedder)
+	if !ok || len(snippets) == 0 {
+		// Fallback to pure keyword search if no embedder
+		if len(snippets) > limit {
+			snippets = snippets[:limit]
+		}
+		return snippets, nil
+	}
+
+	// Get query embedding
+	queryVec, err := embedder.Embed(ctx, query)
+	if err != nil {
+		m.logger.Warn("semantic search: query embedding failed", zap.Error(err))
+		return snippets[:min(limit, len(snippets))], nil
+	}
+
+	type scoredSnippet struct {
+		snippet MemorySnippet
+		score   float64
+	}
+	scored := make([]scoredSnippet, 0, len(snippets))
+
+	// Rerank snippets
+	// Note: For large scale, we should cache embeddings in DB. For now, we do it real-time.
+	for _, s := range snippets {
+		vec, err := embedder.Embed(ctx, s.Content)
+		if err != nil {
+			continue
+		}
+		score := cosineSimilarity(queryVec, vec)
+		if score >= minScore {
+			scored = append(scored, scoredSnippet{s, score})
+		}
+	}
+
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
+	})
+
+	finalResults := make([]MemorySnippet, 0, limit)
+	for i := 0; i < len(scored) && i < limit; i++ {
+		finalResults = append(finalResults, scored[i].snippet)
+	}
+
+	return finalResults, nil
 }
 
+func cosineSimilarity(a, b []float32) float64 {
+	if len(a) != len(b) || len(a) == 0 {
+		return 0
+	}
+	var dot, normA, normB float64
+	for i := range a {
+		dot += float64(a[i] * b[i])
+		normA += float64(a[i] * a[i])
+		normB += float64(b[i] * b[i])
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
+}
 // Compress compresses old messages into a summary when the context is too long.
 // It targets the oldest 50% of messages in the session.
 func (m *Manager) Compress(ctx context.Context, sessionID string) error {

@@ -257,10 +257,13 @@ func runStart() {
 		return resp.Content, nil
 	})
 
-	// Inject CronService into built-in tools
+	// Inject dependencies into built-in tools
 	for _, t := range toolReg.All() {
 		if ct, ok := t.(interface{ SetCronService(*cron.CronService) }); ok {
 			ct.SetCronService(cronService)
+		}
+		if mt, ok := t.(interface{ SetMemoryManager(*memory.Manager) }); ok {
+			mt.SetMemoryManager(memMgr)
 		}
 	}
 

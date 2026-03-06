@@ -122,6 +122,52 @@ func NewOpenAIClient(providerID, baseURL, apiKey, model string, maxTokens, timeo
 // ModelName returns the configured model identifier.
 func (c *OpenAIClient) ModelName() string { return c.model }
 
+// Embed generates a vector representation for the given input string.
+func (c *OpenAIClient) Embed(ctx context.Context, input string) ([]float32, error) {
+	// For OpenAI, we typically use a specialized embedding model.
+	// We'll try to use text-embedding-3-small by default, or the current model if it's an embedding one.
+	model := "text-embedding-3-small"
+	
+	payload := map[string]interface{}{
+		"model": model,
+		"input": input,
+	}
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/embeddings", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("openai embeddings error (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Data []struct {
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	if len(result.Data) == 0 {
+		return nil, fmt.Errorf("openai embeddings: empty response")
+	}
+
+	return result.Data[0].Embedding, nil
+}
+
 // Chat performs a blocking, non-streaming chat completion with automatic retries.
 func (c *OpenAIClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
 	payload := c.buildPayload(req, false)
