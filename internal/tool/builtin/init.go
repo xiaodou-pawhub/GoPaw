@@ -11,8 +11,23 @@ var (
 
 	notesDirMu sync.RWMutex
 	notesDir   string
+
+	workspaceRootMu sync.RWMutex
+	workspaceRoot   string
 )
 
+// SetWorkspaceRoot sets the base directory for path sandboxing.
+func SetWorkspaceRoot(root string) {
+	workspaceRootMu.Lock()
+	defer workspaceRootMu.Unlock()
+	workspaceRoot = root
+}
+
+func getWorkspaceRoot() string {
+	workspaceRootMu.RLock()
+	defer workspaceRootMu.RUnlock()
+	return workspaceRoot
+}
 // SetMemoryDir sets the base directory for file-based memory.
 func SetMemoryDir(dir string) {
 	memoryDirMu.Lock()

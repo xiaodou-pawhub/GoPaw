@@ -7,7 +7,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -90,14 +89,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Workspace.Dir == "" {
 		return fmt.Errorf("workspace.dir is required")
-	}
-	if c.Log.File != "" {
-		// 中文：检查日志目录是否存在
-		// English: Check if log directory exists
-		dir := filepath.Dir(c.Log.File)
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			return fmt.Errorf("log directory %q does not exist", dir)
-		}
 	}
 	return nil
 }

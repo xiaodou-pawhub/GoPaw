@@ -63,7 +63,7 @@ func (c *CapabilityCoordinator) RequestApproval(ctx context.Context, req *tool.A
 				"elements": []interface{}{
 					map[string]interface{}{
 						"tag":     "markdown",
-						"content": fmt.Sprintf("**工具调用请求**\nAgent 想要执行工具: `%s`\n\n**参数预览**:\n```json\n%s\n```", req.ToolName, string(argsJSON)),
+						"content": fmt.Sprintf("**操作请求**\n%s\n\n**详情参数**:\n```json\n%s\n```", req.Summary, string(argsJSON)),
 					},
 					map[string]interface{}{
 						"tag": "column_set",
@@ -112,7 +112,7 @@ func (c *CapabilityCoordinator) RequestApproval(ctx context.Context, req *tool.A
 		cardJSON, _ := json.Marshal(card)
 		msg := &types.Message{
 			Channel:  req.ChannelID,
-			ChatID:   req.SessionID, // Assuming sessionID is the chatId for now
+			ChatID:   req.ChatID, // Correctly use the ChatID from the request
 			Content:  string(cardJSON),
 			MsgType:  types.MsgTypeMarkdown, // Sentinel for card
 		}

@@ -23,7 +23,9 @@ type ApprovalRequest struct {
 	ID        string
 	ToolName  string
 	Args      map[string]interface{}
+	Summary   string // Human-readable summary of the operation
 	ChannelID string
+	ChatID    string
 	SessionID string
 	CreatedAt time.Time
 	Result    chan ApprovalVerdict
@@ -31,8 +33,8 @@ type ApprovalRequest struct {
 
 // ApprovalStore manages pending approvals.
 type ApprovalStore struct {
-	mu       sync.RWMutex
-	pending  map[string]*ApprovalRequest
+	mu      sync.RWMutex
+	pending map[string]*ApprovalRequest
 }
 
 func NewApprovalStore() *ApprovalStore {
@@ -45,12 +47,15 @@ func NewApprovalStore() *ApprovalStore {
 var GlobalApprovalStore = NewApprovalStore()
 
 // CreateRequest registers a new pending approval and returns the request ID.
-func (s *ApprovalStore) CreateRequest(toolName string, args map[string]interface{}, channel, session string) *ApprovalRequest {
+func (s *ApprovalStore) CreateRequest(toolName string, args map[string]interface{}, channel, chatID, session string) *ApprovalRequest {
+	summary := fmt.Sprintf("执行工具 %s", toolName)
 	req := &ApprovalRequest{
 		ID:        uuid.New().String(),
 		ToolName:  toolName,
 		Args:      args,
+		Summary:   summary,
 		ChannelID: channel,
+		ChatID:    chatID,
 		SessionID: session,
 		CreatedAt: time.Now(),
 		Result:    make(chan ApprovalVerdict, 1),

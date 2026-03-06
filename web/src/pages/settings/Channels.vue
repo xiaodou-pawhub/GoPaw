@@ -120,14 +120,74 @@
           </n-form>
         </div>
       </div>
+
+      <!-- Email 邮件助手 -->
+      <div class="channel-item">
+        <div class="channel-brand">
+          <div class="brand-icon email"><n-icon :component="MailOutline" /></div>
+          <div class="brand-info">
+            <h3 class="brand-name">Email 邮件助手</h3>
+            <p class="brand-status">配置 SMTP 以发送通知邮件</p>
+          </div>
+        </div>
+
+        <div class="channel-form-card">
+          <n-form :model="emailForm" label-placement="top" label-width="auto">
+            <n-grid :cols="3" :x-gap="12">
+              <n-gi :span="2">
+                <n-form-item label="SMTP Host">
+                  <n-input v-model:value="emailForm.host" placeholder="smtp.gmail.com" />
+                </n-form-item>
+              </n-gi>
+              <n-gi>
+                <n-form-item label="Port">
+                  <n-input-number v-model:value="emailForm.port" :show-button="false" placeholder="465" />
+                </n-form-item>
+              </n-gi>
+            </n-grid>
+            
+            <n-grid :cols="2" :x-gap="12">
+              <n-gi>
+                <n-form-item label="Username">
+                  <n-input v-model:value="emailForm.username" placeholder="your@email.com" />
+                </n-form-item>
+              </n-gi>
+              <n-gi>
+                <n-form-item label="Password / Token">
+                  <n-input v-model:value="emailForm.password" type="password" show-password-on="mousedown" placeholder="App Password" />
+                </n-form-item>
+              </n-gi>
+            </n-grid>
+
+            <n-grid :cols="2" :x-gap="12">
+              <n-gi>
+                <n-form-item label="From Name">
+                  <n-input v-model:value="emailForm.from" placeholder="GoPaw Assistant" />
+                </n-form-item>
+              </n-gi>
+              <n-gi style="display: flex; align-items: center; justify-content: center;">
+                <n-form-item label="Use SSL">
+                  <n-switch v-model:value="emailForm.ssl" />
+                </n-form-item>
+              </n-gi>
+            </n-grid>
+
+            <div class="form-actions">
+              <n-button type="primary" round :loading="saving === 'email'" @click="saveConfig('email', emailForm)">
+                {{ t('common.save') }}
+              </n-button>
+            </div>
+          </n-form>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, reactive } from 'vue'
-import { NButton, NIcon, NBadge, NForm, NFormItem, NInput, NGrid, NGi, useMessage } from 'naive-ui'
-import { BusinessOutline, RocketOutline, LinkOutline } from '@vicons/ionicons5'
+import { NButton, NIcon, NBadge, NForm, NFormItem, NInput, NInputNumber, NSwitch, NGrid, NGi, useMessage } from 'naive-ui'
+import { BusinessOutline, RocketOutline, LinkOutline, MailOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { getChannelConfig, saveChannelConfig, getChannelsHealth, testChannel } from '@/api/settings'
 import type { ChannelStatus } from '@/types'
@@ -143,13 +203,20 @@ let healthTimer: ReturnType<typeof setInterval>
 const feishuForm = reactive({ app_id: '', app_secret: '' })
 const dingtalkForm = reactive({ client_id: '', client_secret: '' })
 const webhookForm = reactive({ url: '' })
+const emailForm = reactive({ host: '', port: 465, username: '', password: '', from: '', ssl: true })
 
 async function loadConfigs() {
   try {
-    const [fs, dt, wh] = await Promise.all([getChannelConfig('feishu'), getChannelConfig('dingtalk'), getChannelConfig('webhook')])
+    const [fs, dt, wh, em] = await Promise.all([
+      getChannelConfig('feishu'), 
+      getChannelConfig('dingtalk'), 
+      getChannelConfig('webhook'),
+      getChannelConfig('email')
+    ])
     Object.assign(feishuForm, fs)
     Object.assign(dingtalkForm, dt)
     Object.assign(webhookForm, wh)
+    Object.assign(emailForm, em)
   } catch (error) {
     console.error(error)
   }
@@ -278,6 +345,10 @@ onUnmounted(() => { if (healthTimer) clearInterval(healthTimer) })
 
     &.webhook {
       background: linear-gradient(135deg, $color-warning, $color-warning-dark);
+    }
+
+    &.email {
+      background: linear-gradient(135deg, #f5222d, #cf1322); // Red for email
     }
   }
 

@@ -151,15 +151,16 @@ func (h *SettingsHandler) SetChannelConfig(c *gin.Context) {
 		return
 	}
 
-	// 热重载插件：用新配置重新初始化
-	// Note: Reinit uses process-level context, not request context
+	// 热重载插件：仅针对已注册的真实频道插件进行重载
 	if h.channelMgr != nil {
-		if err := h.channelMgr.Reinit(name, []byte(body.Config)); err != nil {
-			// 重载失败只记录日志，不影响配置保存的成功响应
-			h.logger.Error("channel reinit failed after config save",
-				zap.String("name", name),
-				zap.Error(err),
-			)
+		// 检查插件是否真的存在，防止 email 等工具类配置触发报错
+		if _, err := h.channelMgr.GetPlugin(name); err == nil {
+			if err := h.channelMgr.Reinit(name, []byte(body.Config)); err != nil {
+				h.logger.Error("channel reinit failed after config save",
+					zap.String("name", name),
+					zap.Error(err),
+				)
+			}
 		}
 	}
 

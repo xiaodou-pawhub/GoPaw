@@ -50,6 +50,14 @@ type ContextualTool interface {
 	Tool
 	SetContext(channelID, chatID, sessionID, userID string)
 }
+
+// SummaryCapableTool is an optional interface for tools that can provide
+// a human-readable summary of their intended operation for approval UIs.
+type SummaryCapableTool interface {
+	Tool
+	Summary(args map[string]interface{}) string
+}
+
 // GuardedTool is an optional interface for tools that require manual
 // user approval before execution.
 type GuardedTool interface {

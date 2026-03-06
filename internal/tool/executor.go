@@ -78,7 +78,11 @@ func (e *Executor) Execute(ctx context.Context, toolName, argsJSON, channel, cha
 				return "Error: this tool requires manual approval but no approval handler is configured", nil
 			}
 
-			req := GlobalApprovalStore.CreateRequest(toolName, args, channel, session)
+			req := GlobalApprovalStore.CreateRequest(toolName, args, channel, chatID, session)
+			if st, ok := t.(plugin.SummaryCapableTool); ok {
+				req.Summary = st.Summary(args)
+			}
+			
 			if err := e.approvalUI.RequestApproval(ctx, req); err != nil {
 				return fmt.Sprintf("Error: failed to send approval request: %v", err), nil
 			}
