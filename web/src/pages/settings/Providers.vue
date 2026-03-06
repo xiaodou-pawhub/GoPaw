@@ -218,7 +218,7 @@
 import { ref, onMounted, onUnmounted, reactive, computed, watch } from 'vue'
 import {
   NButton, NIcon, NEmpty, NTag, NSpace, NPopconfirm, NModal, NAlert,
-  NForm, NFormItem, NInput, NSelect, NAutoComplete, NDynamicTags, NTooltip, NText, useMessage
+  NForm, NFormItem, NInput, NSelect, NAutoComplete, NTooltip, NText, useMessage
 } from 'naive-ui'
 import {
   AddOutline, LinkOutline, CreateOutline, TrashOutline,

@@ -1,5 +1,5 @@
 import api from './index'
-import type { BackendProvider, ChannelStatus } from '@/types'
+import type { BackendProvider, BuiltinProvider, ChannelStatus } from '@/types'
 
 // 获取初始化引导状态
 export async function getSetupStatus(): Promise<{ llm_configured: boolean, setup_required: boolean, hint: string }> {
@@ -21,7 +21,7 @@ export async function getBuiltinProviders(): Promise<BuiltinProvider[]> {
 }
 
 // 获取所有提供商的实时健康状态
-export async function getProvidersHealth(): Promise<Record<string, any>> {
+export async function getProvidersHealth(): Promise<any[]> {
   const res = await api.get<{ health: any[] }>('/settings/providers/health')
   // @ts-ignore
   return res.health || []

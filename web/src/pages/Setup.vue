@@ -42,8 +42,7 @@
 // English: Import necessary dependencies
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { NCard, NResult, NButton, NIcon, NH1, useMessage } from 'naive-ui'
-import { PawOutline } from '@vicons/ionicons5'
+import { NCard, NResult, NButton, NH1, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { getSetupStatus } from '@/api/settings'
 import { useAppStore } from '@/stores/app'

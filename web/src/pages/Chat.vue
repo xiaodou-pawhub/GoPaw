@@ -220,10 +220,10 @@ import { ref, onMounted, nextTick, onUnmounted, watch, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   NButton, NIcon, NInput, NList, NListItem, NScrollbar,
-  NAvatar, NText, NEmpty, NSpin, NTooltip, NUpload, NTag, NModal, NH3, useMessage
+  NAvatar, NEmpty, NSpin, NTooltip, NUpload, NTag, NModal, NH3, useMessage
 } from 'naive-ui'
 import {
-  AddOutline, ChatbubbleOutline, PersonOutline, PawOutline,
+  AddOutline, ChatbubbleOutline, PersonOutline,
   ArrowUpOutline, TrashOutline, BarChartOutline, AttachOutline, StopCircleOutline,
   CreateOutline, CopyOutline, DocumentTextOutline
 } from '@vicons/ionicons5'

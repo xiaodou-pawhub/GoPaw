@@ -230,7 +230,7 @@ function getChannelHealth(name: string): Partial<ChannelStatus> {
   return healthData.value.find(h => h.name === name) || { running: false }
 }
 
-async function saveConfig(name: string, data: Record<string, string>) {
+async function saveConfig(name: string, data: Record<string, any>) {
   saving.value = name
   try {
     await saveChannelConfig(name, data)
