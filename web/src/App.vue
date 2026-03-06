@@ -5,7 +5,7 @@
         <!-- 未认证：全屏登录遮罩 -->
         <div v-if="!authenticated" class="auth-overlay">
           <div class="auth-card">
-            <div class="auth-logo">🐾</div>
+            <img src="/assets/logo.png" alt="GoPaw Logo" class="logo-icon" />
             <h2 class="auth-title">GoPaw</h2>
             <p class="auth-subtitle">请输入访问 Token</p>
             <n-input
@@ -110,9 +110,15 @@ body {
 }
 
 .auth-logo {
-  font-size: 40px;
   text-align: center;
   margin-bottom: 4px;
+}
+
+.logo-icon {
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  border-radius: 12px;
 }
 
 .auth-title {

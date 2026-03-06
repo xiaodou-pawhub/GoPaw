@@ -3,7 +3,7 @@
     <n-card class="setup-card" :bordered="false">
       <div class="setup-content">
         <div class="logo-hero">
-          <n-icon :component="PawOutline" :size="80" color="#18a058" />
+          <img src="/assets/logo.png" alt="GoPaw Logo" class="logo-icon" />
           <n-h1 class="hero-title">GoPaw</n-h1>
         </div>
 
@@ -140,13 +140,17 @@ onMounted(() => {
   align-items: center;
   margin-bottom: $spacing-6;
   animation: bounceIn 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
 
-  :deep(.n-icon) {
-    transition: all 0.3s ease;
-    
-    &:hover {
-      transform: scale(1.1) rotate(-5deg);
-    }
+.logo-icon {
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+
+  &:hover {
+    transform: scale(1.1) rotate(-5deg);
   }
 }
 

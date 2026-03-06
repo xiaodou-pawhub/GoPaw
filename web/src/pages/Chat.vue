@@ -44,41 +44,42 @@
         </n-scrollbar>
       </div>
 
-      <!-- 右侧聊天窗口 -->
-      <div class="chat-main">
-        <div class="chat-header">
-          <div class="header-left">
-            <n-h3 class="session-title">{{ currentSessionName || t('chat.title') }}</n-h3>
-          </div>
-          
-          <div v-if="sessionStats" class="header-right">
-            <n-tooltip trigger="hover">
-              <template #trigger>
-                <div class="stats-badge">
-                  <n-icon :component="BarChartOutline" />
-                  <span>{{ formatTokens(sessionStats.total_tokens) }} tokens</span>
-                </div>
-              </template>
-              <div class="stats-detail">
-                <div>消息: {{ sessionStats.message_count }}</div>
-                <div>用户: {{ formatTokens(sessionStats.user_tokens) }}</div>
-                <div>助手: {{ formatTokens(sessionStats.assist_tokens) }}</div>
+          <!-- 右侧聊天窗口 -->
+          <div class="chat-main">
+            <div class="chat-header">
+              <div class="header-left">
+                <n-h3 class="session-title">{{ currentSessionName || t('chat.title') }}</n-h3>
               </div>
-            </n-tooltip>
-          </div>
-        </div>
-
-        <!-- 消息显示区 -->
-        <div ref="messagesRef" class="messages-area">
-          <div v-if="messages.length === 0" class="empty-state">
-            <n-empty :description="t('chat.welcome')" />
-          </div>
-          <div v-for="msg in messages" :key="msg.id" class="message-row" :class="msg.role">
-            <div class="avatar">
-              <n-avatar round :size="36" :style="{ backgroundColor: '#18a058' }">
-                <n-icon :component="msg.role === 'user' ? PersonOutline : PawOutline" />
-              </n-avatar>
+              
+              <div v-if="sessionStats" class="header-right">
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <div class="stats-badge">
+                      <n-icon :component="BarChartOutline" />
+                      <span>{{ formatTokens(sessionStats.total_tokens) }} tokens</span>
+                    </div>
+                  </template>
+                  <div class="stats-detail">
+                    <div>消息: {{ sessionStats.message_count }}</div>
+                    <div>用户: {{ formatTokens(sessionStats.user_tokens) }}</div>
+                    <div>助手: {{ formatTokens(sessionStats.assist_tokens) }}</div>
+                  </div>
+                </n-tooltip>
+              </div>
             </div>
+
+            <!-- 消息显示区 -->
+            <div ref="messagesRef" class="messages-area">
+              <div v-if="messages.length === 0" class="empty-state">
+                <n-empty :description="t('chat.welcome')" />
+              </div>
+              <div v-for="msg in messages" :key="msg.id" class="message-row" :class="msg.role">
+                <div class="avatar">
+                   <n-avatar v-if="msg.role === 'user'" round :size="36" :class="{ 'user-avatar': msg.role === 'user' }">
+                     <n-icon :component="PersonOutline" />
+                   </n-avatar>
+                   <img v-else src="/assets/logo.png" alt="GoPaw" class="avatar-img" />
+                </div>
             <div class="message-content-wrapper">
               <div class="message-bubble" :class="msg.role">
                 <div v-if="msg.role === 'assistant'" class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
@@ -100,9 +101,7 @@
           <!-- 思考中 / 工具调用进度 -->
           <div v-if="isThinking" class="message-row assistant">
             <div class="avatar">
-              <n-avatar round :size="36" style="background-color: #18a058">
-                <n-icon :component="PawOutline" />
-              </n-avatar>
+              <img src="/assets/logo.png" alt="GoPaw" class="avatar-img" />
             </div>
             <div class="message-content-wrapper">
               <div class="message-bubble assistant thinking">
@@ -134,9 +133,7 @@
           <!-- 打字机渲染中的回复 -->
           <div v-if="streamingContent" class="message-row assistant">
             <div class="avatar">
-              <n-avatar round :size="36" style="background-color: #18a058">
-                <n-icon :component="PawOutline" />
-              </n-avatar>
+              <img src="/assets/logo.png" alt="GoPaw" class="avatar-img" />
             </div>
             <div class="message-content-wrapper">
               <div class="message-bubble assistant">
@@ -931,5 +928,12 @@ onUnmounted(() => stopChatStream())
     background-color: #1f2937 !important;
     code { color: #e5e7eb; }
   }
+}
+
+.avatar-img {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 </style>

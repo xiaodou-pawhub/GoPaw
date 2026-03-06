@@ -1,4 +1,15 @@
-# GoPaw
+<p align="center">
+  <img src="assets/logo.png" width="80" alt="GoPaw Logo" />
+  <h1 align="center">GoPaw</h1>
+</p>
+
+<p align="center">
+  <a href="https://github.com/gopaw/gopaw/releases"><img src="https://img.shields.io/github/v/release/gopaw/gopaw?style=flat-square" alt="Release"></a>
+  <a href="https://github.com/gopaw/gopaw/actions"><img src="https://img.shields.io/github/actions/workflow/status/gopaw/gopaw/ci.yml?branch=main&style=flat-square" alt="Build Status"></a>
+  <a href="https://github.com/gopaw/gopaw/blob/main/LICENSE"><img src="https://img.shields.io/github/license/gopaw/gopaw?style=flat-square" alt="License"></a>
+  <a href="https://github.com/gopaw/gopaw/releases"><img src="https://img.shields.io/github/downloads/gopaw/gopaw/latest/total?style=flat-square" alt="Downloads"></a>
+  <a href="https://golang.org/doc/devel/release.html#go1.22"><img src="https://img.shields.io/github/go-mod/go-version/gopaw/gopaw?style=flat-square" alt="Go Version"></a>
+</p>
 
 **轻量级、插件化的个人 AI 助理工作台（Go 语言实现）**
 
@@ -183,3 +194,7 @@ make lint           # 代码检查
 ## License
 
 Apache 2.0
+
+<p align="center">
+  Designed with ❤️ by the GoPaw Team
+</p>
