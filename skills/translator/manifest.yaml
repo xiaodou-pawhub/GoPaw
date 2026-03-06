@@ -1,20 +1,73 @@
+# GoPaw Skill Manifest — translator
+# 每个技能目录下必须有此文件。
+
+# ── 基本信息 ──────────────────────────────────────────────────────────────────
+
+# name: 技能唯一标识符（英文小写，不含空格）。
+#   - 在系统内部作为主键，Web UI 和 API 均使用此值
+#   - 一旦发布不应更改，否则用户已有的 enabled 配置会失效
 name: translator
+
+# version: 语义化版本号，仅用于展示和日志，不影响运行时行为
 version: 1.0.0
-display_name: 翻译
-description: 中英互译，准确传达原文含义，保持语言自然流畅。
+
+# display_name: 在 Web UI 中展示的友好名称（支持中文）
+display_name: 翻译助手
+
+# description: 一句话描述，显示在 Web UI 技能列表中
+description: 中英双向翻译，精准传达原文含义，兼顾语境与文化差异。
+
+# author: 技能作者，仅用于展示
 author: GoPaw Team
+
+# level: 技能实现层级
+#   1 = Prompt Skill  — 仅 manifest.yaml + prompt.md，无需代码（推荐）
+#   2 = Config Skill  — 增加 workflow.yaml 描述工具调用流程（规划中，v0.2 支持）
+#   3 = Code Skill    — 在 internal/skill/ 下以 Go 代码实现，可注册自定义 Tool
 level: 1
 
+# ── 激活控制 ──────────────────────────────────────────────────────────────────
+
 activation:
+  # always: true  → 每次请求都将 prompt.md 注入系统提示（适合全局增强型技能）
+  # always: false → 仅当用户输入包含下方任一关键词时才注入（按需激活，节省 Token）
   always: false
+
+  # keywords: 触发词列表（大小写不敏感，支持中文）
+  #   - 系统检查：strings.Contains(lowerInput, strings.ToLower(keyword))
+  #   - 任意一个关键词命中即触发，无需全部匹配
+  #   - 建议覆盖常见表达方式，避免漏触发
   keywords:
     - 翻译
+    - 译文
     - 译成
     - 翻译成
+    - 帮我翻
     - translate
+    - translation
     - 中文
     - 英文
+    - 英语
+    - 中译英
+    - 英译中
 
+# ── 工具依赖 ──────────────────────────────────────────────────────────────────
+
+# requires_tools: 此技能依赖的内置工具名称列表。
+#   - 当前版本仅作说明用途，未来版本将在工具缺失时自动禁用技能
+#   - Level-1/2 技能无法直接调用工具，此字段仅用于文档说明
+#   - Level-3 代码技能通过 Tools() 方法注册自定义工具，不填此字段
 requires_tools: []
 
+# ── 配置项定义 ────────────────────────────────────────────────────────────────
+
+# config_schema: 技能的用户可配置项（JSON Schema 子集）。
+#   - 当前版本此字段作为文档说明，未来 Web UI 将根据此生成配置表单
+#   - Level-1 技能通常不需要配置项，保持空 {} 即可
+#   - 示例（Level-3 技能可能用到）：
+#       config_schema:
+#         target_language:
+#           type: string
+#           default: "zh"
+#           description: "默认目标语言"
 config_schema: {}

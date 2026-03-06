@@ -286,7 +286,7 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 	// Build system prompt (reads from AGENT.md + memory on each call for hot-reload).
 	// Tools are passed via the API Tools field, not embedded in the system prompt.
 	allTools := a.toolRegistry.All()
-	systemPrompt := buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.SystemPromptFragment(), buildCapabilityFragment(allTools))
+	systemPrompt := buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.FragmentsForInput(req.Content), buildCapabilityFragment(allTools))
 	toolDefs := buildToolDefinitions(allTools)
 
 	// Assemble the initial message list (req.Files triggers media manifest injection).
@@ -473,7 +473,7 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 	history, _ = a.memoryManager.GetContext(req.SessionID, 0)
 
 	allTools := a.toolRegistry.All()
-	systemPrompt := buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.SystemPromptFragment(), buildCapabilityFragment(allTools))
+	systemPrompt := buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.FragmentsForInput(req.Content), buildCapabilityFragment(allTools))
 	toolDefs := buildToolDefinitions(allTools)
 	messages := buildMessages(systemPrompt, history, req.Content, req.Files)
 

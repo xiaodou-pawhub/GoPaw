@@ -50,9 +50,11 @@ func (m *Manager) Load(enabledList []string) error {
 	return nil
 }
 
-// SystemPromptFragment returns the combined prompt text to inject into the agent system prompt.
-func (m *Manager) SystemPromptFragment() string {
-	return m.registry.ActivePromptFragments()
+// FragmentsForInput returns skill prompt fragments matched against the current user input.
+// Skills with always:true are always included; others are included only when the input
+// contains at least one of their declared keywords.
+func (m *Manager) FragmentsForInput(input string) string {
+	return m.registry.ActivePromptFragmentsForInput(input)
 }
 
 // Registry returns the underlying skill registry.

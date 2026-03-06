@@ -3,6 +3,7 @@ package skill
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/gopaw/gopaw/pkg/plugin"
@@ -63,14 +64,28 @@ func (r *Registry) All() []*Entry {
 	return out
 }
 
-// ActivePromptFragments returns the concatenated prompt fragments for all enabled skills.
-func (r *Registry) ActivePromptFragments() string {
+// ActivePromptFragmentsForInput returns prompt fragments for skills that match the user input.
+// Rules:
+//   - always:true  → always included
+//   - always:false → included only when the input contains at least one keyword (case-insensitive)
+func (r *Registry) ActivePromptFragmentsForInput(input string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	lowerInput := strings.ToLower(input)
 	var combined string
 	for _, e := range r.entries {
-		if e.Enabled && e.Prompt != "" {
+		if !e.Enabled || e.Prompt == "" {
+			continue
+		}
+		if e.Manifest.Activation.Always {
 			combined += "\n\n" + e.Prompt
+			continue
+		}
+		for _, kw := range e.Manifest.Activation.Keywords {
+			if strings.Contains(lowerInput, strings.ToLower(kw)) {
+				combined += "\n\n" + e.Prompt
+				break
+			}
 		}
 	}
 	return combined
