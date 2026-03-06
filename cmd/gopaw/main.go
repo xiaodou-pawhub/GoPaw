@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -116,17 +117,28 @@ func runStart() {
 	fs.Parse(os.Args[2:])
 
 	preLogger, _ := zap.NewProduction()
-	cfgMgr, _ := config.NewManager(*cfgFile, preLogger)
+	cfgMgr, err := config.NewManager(*cfgFile, preLogger)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
+		os.Exit(1)
+	}
 	cfg := cfgMgr.Get()
+
+	wp, err := workspace.Resolve(cfg.Workspace.Dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error resolving workspace: %v\n", err)
+		os.Exit(1)
+	}
+	if err := workspace.EnsureDirs(wp); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating workspace directories: %v\n", err)
+		os.Exit(1)
+	}
 
 	logger, _ := buildLogger(cfg.Log)
 	defer logger.Sync()
 
 	watcher := config.NewWatcher(cfgMgr, logger)
 	watcher.Start()
-
-	wp, _ := workspace.Resolve(cfg.Workspace.Dir)
-	workspace.EnsureDirs(wp)
 
 	// ---------- Media Store ----------
 	mediaBaseDir := filepath.Join(wp.Root, "media")
@@ -147,7 +159,9 @@ func runStart() {
 	}, logger)
 
 	basePrompt, _ := settings.ReadAgentMD(wp.AgentMDFile)
-	if basePrompt == "" { basePrompt = settings.DefaultAgentPrompt }
+	if basePrompt == "" {
+		basePrompt = settings.DefaultAgentPrompt
+	}
 
 	memMgr := memory.NewManager(store, llmClient, cfg.Agent.Memory.ContextLimit, cfg.Agent.Memory.HistoryLimit, logger)
 	memMgr.SetArchiveDir(wp.MemoryArchDir)
@@ -178,6 +192,7 @@ func runStart() {
 	builtin.SetMemoryDir(wp.MemoryDir)
 	builtin.SetLTMStore(ltmStore)
 	builtin.SetMemoryNotesDir(wp.MemoryNotesDir)
+	builtin.SetWorkspaceRoot(wp.Root)
 	skillMgr := skill.NewManager(cfg.Skills.Dir, toolReg, logger)
 	skillMgr.Load(cfg.Skills.Enabled)
 
@@ -191,7 +206,7 @@ func runStart() {
 		MaxSteps:       cfg.Agent.MaxSteps,
 		Hooks: agent.Hooks{
 			PreReasoning: []agent.HookPreReasoning{agent.InjectCurrentTime()},
-			PostTool:      []agent.HookPostTool{agent.AutoJournalHook(wp.MemoryNotesDir)},
+			PostTool:     []agent.HookPostTool{agent.AutoJournalHook(wp.MemoryNotesDir)},
 		},
 		ConvLog: convLogger,
 	}, logger)
@@ -209,9 +224,9 @@ func runStart() {
 	cronService.SetHandler(func(job *cron.CronJob) (string, error) {
 		// Create an isolated session for this execution
 		sessionID := fmt.Sprintf("cron:%s", job.ID)
-		
-		logger.Info("cron: executing job", 
-			zap.String("job", job.Name), 
+
+		logger.Info("cron: executing job",
+			zap.String("job", job.Name),
 			zap.String("task", job.Task),
 			zap.String("target", job.TargetID))
 
@@ -235,7 +250,7 @@ func runStart() {
 			logger.Error("cron: job execution failed", zap.Error(err))
 			return "", err
 		}
-		
+
 		// If the agent produced a final textual answer (and didn't just use tools silently),
 		// deliver it to the user.
 		if resp.Content != "" {
@@ -253,7 +268,7 @@ func runStart() {
 				return fmt.Sprintf("Executed. Content: %s. Send Error: %v", resp.Content, err), nil
 			}
 		}
-		
+
 		return resp.Content, nil
 	})
 
@@ -264,6 +279,9 @@ func runStart() {
 		}
 		if mt, ok := t.(interface{ SetMemoryManager(*memory.Manager) }); ok {
 			mt.SetMemoryManager(memMgr)
+		}
+		if st, ok := t.(interface{ SetSettingsStore(*settings.Store) }); ok {
+			st.SetSettingsStore(settingsStore)
 		}
 	}
 
@@ -281,7 +299,7 @@ func runStart() {
 
 	sessionLocker := channel.NewSessionLocker()
 	coord := channel.NewCapabilityCoordinator(channelMgr, mediaStore)
-	
+
 	// Connect approval UI to tool executor
 	agentInstance.Executor().SetApprovalUI(coord)
 
@@ -323,7 +341,9 @@ func runStart() {
 			case <-ctx.Done():
 				return
 			case msg, ok := <-channelMgr.Messages():
-				if !ok { return }
+				if !ok {
+					return
+				}
 				go func(m *types.Message) {
 					derivedSessionID := agent.DeriveSessionID(agent.StrategyPerSender, m.Channel, m.UserID, m.ChatID)
 					unlock := sessionLocker.Lock(derivedSessionID)
@@ -382,11 +402,29 @@ func runStart() {
 func buildLogger(cfg config.LogConfig) (*zap.Logger, error) {
 	var level zapcore.Level
 	_ = level.UnmarshalText([]byte(cfg.Level))
+
 	encCfg := zap.NewProductionEncoderConfig()
 	encCfg.EncodeTime = zapcore.ISO8601TimeEncoder
+
 	var encoder zapcore.Encoder
-	if cfg.Format == "console" { encoder = zapcore.NewConsoleEncoder(encCfg) } else { encoder = zapcore.NewJSONEncoder(encCfg) }
-	sink, _, _ := zap.Open("stdout")
+	if cfg.Format == "console" {
+		encCfg.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		encoder = zapcore.NewConsoleEncoder(encCfg)
+	} else {
+		encoder = zapcore.NewJSONEncoder(encCfg)
+	}
+
+	outputs := strings.Split(cfg.Output, ",")
+	if len(outputs) == 0 {
+		outputs = []string{"stdout"}
+	}
+
+	sink, _, err := zap.Open(outputs...)
+	if err != nil {
+		// Fallback to stdout if custom outputs fail
+		sink, _, _ = zap.Open("stdout")
+	}
+
 	return zap.New(zapcore.NewCore(encoder, sink, zap.NewAtomicLevelAt(level)), zap.AddCaller()), nil
 }
 
@@ -401,7 +439,9 @@ func buildPluginConfigsFromDB(store *settings.Store, logger *zap.Logger) map[str
 	out := make(map[string]json.RawMessage, len(plugins))
 	for _, p := range plugins {
 		cfgJSON, _ := store.GetChannelConfig(p.Name())
-		if cfgJSON == "" { cfgJSON = "{}" }
+		if cfgJSON == "" {
+			cfgJSON = "{}"
+		}
 		out[p.Name()] = json.RawMessage(cfgJSON)
 	}
 	return out
