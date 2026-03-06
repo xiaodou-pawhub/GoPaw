@@ -84,9 +84,9 @@ func (s *CronService) AddJob(name, schedule, task, channel, targetID string) (*C
 		ID:        uuid.New().String(),
 		Name:      name,
 		Schedule:  schedule,
-		CronExpr:  schedule, // Sync for frontend
+		CronExpr:  schedule,
 		Task:      task,
-		Prompt:    task, // Sync for frontend
+		Prompt:    task,
 		Channel:   channel,
 		TargetID:  targetID,
 		Enabled:   true,
@@ -128,7 +128,6 @@ func (s *CronService) RemoveJob(id string) error {
 	}
 
 	s.store.Jobs = append(s.store.Jobs[:idx], s.store.Jobs[idx+1:]...)
-	// Also clear history
 	delete(s.history, id)
 	
 	return s.saveStore()
@@ -143,7 +142,6 @@ func (s *CronService) ListJobs() []CronJob {
 	return result
 }
 
-// GetRuns returns the execution history for a job.
 func (s *CronService) GetRuns(jobID string) []CronRun {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -153,10 +151,8 @@ func (s *CronService) GetRuns(jobID string) []CronRun {
 		return []CronRun{}
 	}
 	
-	// Return a copy to avoid races
 	result := make([]CronRun, len(runs))
 	copy(result, runs)
-	// Reverse order (newest first) could be done here or in UI
 	return result
 }
 
@@ -228,7 +224,6 @@ func (s *CronService) runJobWrapper(jobID string) {
 	// Append history (Ring buffer logic: max 10 items)
 	hist := s.history[jobID]
 	if len(hist) >= 10 {
-		// Shift left
 		copy(hist, hist[1:])
 		hist[len(hist)-1] = run
 	} else {

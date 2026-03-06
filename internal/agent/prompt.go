@@ -32,6 +32,15 @@ func buildSystemPrompt(basePrompt, memoryContent, skillFragments, capabilityFrag
 
 // buildCapabilityFragment generates a dynamic capability guide based on which tools are currently registered.
 func buildCapabilityFragment(tools []plugin.Tool) string {
+	var sb strings.Builder
+	sb.WriteString("\n## Active Tool Use Strategy\n\n")
+	sb.WriteString("You are connected to the real world through tools. Follow these protocols:\n")
+	sb.WriteString("1. **Information Gap**: If a user asks for data after your knowledge cutoff (e.g., current prices, news, weather), DO NOT apologize. Immediately use `web_search` or `http_client`.\n")
+	sb.WriteString("2. **API Interaction**: If a user mentions a service with a known API, use `http_client` to interact with it directly.\n")
+	sb.WriteString("3. **Multi-step Reasoning**: You can chain tools. For example, use `web_search` to find a public API endpoint, then use `http_client` to fetch the data.\n")
+	sb.WriteString("4. **Proactive Updates**: If you suspect information might be stale, verify it using tools without being asked.\n")
+
+	// Multi-modal check
 	hasImage := false
 	for _, t := range tools {
 		name := t.Name()
@@ -40,22 +49,17 @@ func buildCapabilityFragment(tools []plugin.Tool) string {
 			break
 		}
 	}
-	if !hasImage {
-		return ""
+	
+	if hasImage {
+		sb.WriteString("\n## Multimodal Capabilities\n\n")
+		sb.WriteString("You can process images and files. When media resources are present, a **[System: Media Resources]** block appears.\n")
+		sb.WriteString("**Workflow:**\n")
+		sb.WriteString("1. **image_info** — inspect specs first\n")
+		sb.WriteString("2. **image_process** — edit as needed\n")
+		sb.WriteString("3. **send_to_user** — deliver result immediately\n")
 	}
-	return `## Multimodal Capabilities
 
-You can process images and files sent by users. When a message contains media resources,
-a **[System: Media Resources]** block will appear at the end of the user's message listing
-the available media:// references.
-
-**Recommended image-processing workflow:**
-1. **image_info** — inspect the image's dimensions, format, and size first
-2. **image_process** — resize / crop / rotate / grayscale as needed (returns a new media:// ref)
-3. **send_to_user** — deliver each result immediately; do not wait until all work is done
-
-If the user simply asks you to "look at" or "describe" an image, pass the media:// reference
-directly as context; you do not need to call image_info unless specs are specifically needed.`
+	return sb.String()
 }
 
 // buildMediaManifest produces a structured resource-manifest suffix appended to the user message.
