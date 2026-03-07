@@ -1,5 +1,3 @@
-version: '3.9'
-
 # ─────────────────────────────────────────────────────────────────────────────
 # GoPaw docker-compose
 #
@@ -48,7 +46,7 @@ services:
   chrome:
     build:
       context: .
-      dockerfile: docker/Dockerfile.chrome
+      dockerfile: ./Dockerfile.chrome
     profiles:
       - browser
     # Chrome 需要足够的共享内存，否则页面渲染可能崩溃

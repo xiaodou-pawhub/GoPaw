@@ -68,8 +68,8 @@ log:
 # 在服务器上创建部署目录
 ssh user@your-server "mkdir -p ~/gopaw"
 
-# 上传部署文件
-scp gopaw.tar.gz docker-compose.yml config.yaml user@your-server:~/gopaw/
+# 上传部署文件（从 docker/ 目录）
+scp gopaw.tar.gz docker/docker-compose.yml config.yaml user@your-server:~/gopaw/
 ```
 
 ---

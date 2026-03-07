@@ -76,7 +76,7 @@ vet:
 
 ## docker-build: 交叉编译 Linux amd64 二进制并构建 Docker 镜像（兼容 Apple Silicon 和 x86 开发机）
 docker-build: build-linux
-	docker build --platform linux/amd64 -t gopaw:$(VERSION) -t gopaw:latest .
+	docker build --platform linux/amd64 -t gopaw:$(VERSION) -t gopaw:latest -f docker/Dockerfile .
 
 ## docker-push: push the Docker image to a registry (set REGISTRY env var)
 docker-push:
