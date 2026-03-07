@@ -1,7 +1,8 @@
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 
- Copyright (C) 2026 luoxiaodou
+ Copyright (C) 2026 luoxiaodou <https://github.com/xiaodou997>
+ Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
  Everyone is permitted to copy and distribute verbatim copies
  of this license document, but changing it is not allowed.
 
@@ -625,8 +626,8 @@ terms.
 
   To do so, attach the following notices to the program:
 
-    <one line to give the program's name and a brief idea of what it does.>
-    Copyright (C) <year>  <name of author>
+    GoPaw - Industrial-grade AI Assistant Engine
+    Copyright (C) 2026 luoxiaodou <https://github.com/luoxiaodou>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as
