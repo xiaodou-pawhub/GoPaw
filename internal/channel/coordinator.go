@@ -164,10 +164,10 @@ func (c *CapabilityCoordinator) PreProcess(ctx context.Context, msg *types.Messa
 // The wait reaction emoji is sufficient to indicate the message was received.
 
 // PostProcess is called after the agent produces reply.
-// It stops the typing indicator, updates reactions, edits the placeholder, and cleans up media resources.
+// It stops the typing indicator, updates reactions, and sends the reply message.
 func (c *CapabilityCoordinator) PostProcess(ctx context.Context, inbound, reply *types.Message) error {
 	p, err := c.mgr.GetActivePlugin(inbound.Channel)
-	
+
 	// 1. Cleanup Typing indicator
 	if v, ok := c.typingStops.LoadAndDelete(typingKey(inbound)); ok {
 		v.(func())()
@@ -181,31 +181,9 @@ func (c *CapabilityCoordinator) PostProcess(ctx context.Context, inbound, reply 
 		}
 	}
 
-	// 3. Handle Placeholder or normal Send
-	if err == nil {
-		if v, ok := c.placeholders.LoadAndDelete(placeholderKey(inbound)); ok {
-			placeholderID := v.(string)
-			if me, ok := p.(plugin.MessageEditor); ok {
-				if editErr := me.EditMessage(ctx, inbound.ChatID, placeholderID, reply.Content); editErr != nil {
-					c.logger.Warn("placeholder edit failed, falling back to send",
-						zap.String("channel", inbound.Channel), zap.Error(editErr))
-					return c.mgr.Send(reply)
-				}
-				return nil
-			}
-		}
-	}
-
-	/* 
-	   REMOVED: Aggressive cleanup of all session media after every turn.
-	   This prevents multi-turn operations on the same image (e.g. info -> process -> send).
-	   The MediaStore's internal TTL janitor (1h) will handle background cleanup.
-	   
-	   if c.store != nil {
-	       c.store.ReleaseAll(inbound.SessionID)
-	   }
-	*/
-
+	// 3. Send reply message (always)
+	// Note: SendPlaceholder is no longer called in PreProcess, so we always send
+	// a new message here instead of editing a placeholder.
 	if p == nil {
 		return fmt.Errorf("plugin gone")
 	}
