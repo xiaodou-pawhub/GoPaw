@@ -4,11 +4,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/gopaw/gopaw/releases"><img src="https://img.shields.io/github/v/release/gopaw/gopaw?style=flat-square" alt="Release"></a>
-  <a href="https://github.com/gopaw/gopaw/actions"><img src="https://img.shields.io/github/actions/workflow/status/gopaw/gopaw/ci.yml?branch=main&style=flat-square" alt="Build Status"></a>
-  <a href="https://github.com/gopaw/gopaw/blob/main/LICENSE"><img src="https://img.shields.io/github/license/gopaw/gopaw?style=flat-square" alt="License"></a>
-  <a href="https://github.com/gopaw/gopaw/releases"><img src="https://img.shields.io/github/downloads/gopaw/gopaw/latest/total?style=flat-square" alt="Downloads"></a>
-  <a href="https://golang.org/doc/devel/release.html#go1.22"><img src="https://img.shields.io/github/go-mod/go-version/gopaw/gopaw?style=flat-square" alt="Go Version"></a>
+  <a href="https://github.com/xiaodou-pawhub/GoPaw/releases"><img src="https://img.shields.io/github/v/release/xiaodou-pawhub/GoPaw?style=flat-square" alt="Release"></a>
+  <a href="https://github.com/xiaodou-pawhub/GoPaw/actions"><img src="https://img.shields.io/github/actions/workflow/status/xiaodou-pawhub/GoPaw/release.yml?branch=main&style=flat-square" alt="Build Status"></a>
+  <a href="https://github.com/xiaodou-pawhub/GoPaw/blob/main/LICENSE"><img src="https://img.shields.io/github/license/xiaodou-pawhub/GoPaw?style=flat-square" alt="License"></a>
+  <a href="https://github.com/xiaodou-pawhub/GoPaw/releases"><img src="https://img.shields.io/github/downloads/xiaodou-pawhub/GoPaw/latest/total?style=flat-square" alt="Downloads"></a>
+  <a href="https://golang.org/doc/devel/release.html#go1.22"><img src="https://img.shields.io/github/go-mod/go-version/xiaodou-pawhub/GoPaw?style=flat-square" alt="Go Version"></a>
 </p>
 
 <p align="center">
@@ -118,7 +118,7 @@ open http://localhost:8088
 
 ```bash
 # 前置要求：Go 1.22+、Node.js 18+、pnpm
-git clone https://github.com/gopaw/gopaw.git && cd gopaw
+git clone https://github.com/xiaodou-pawhub/GoPaw.git && cd gopaw
 
 # 安装依赖
 go mod download && make web-install
@@ -216,7 +216,7 @@ gopaw/
 ```go
 package myplugin
 
-import "github.com/gopaw/gopaw/internal/channel"
+import "github.com/xiaodou-pawhub/GoPaw/internal/channel"
 
 type MyPlugin struct{}
 
@@ -233,7 +233,7 @@ func init() {
 ```go
 package mytools
 
-import "github.com/gopaw/gopaw/internal/tool"
+import "github.com/xiaodou-pawhub/GoPaw/internal/tool"
 
 type MyTool struct{}
 
