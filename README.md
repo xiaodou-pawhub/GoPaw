@@ -101,18 +101,77 @@ Level 3: Code Skill（完整代码）
 
 ### Docker 部署（推荐）
 
+提供三种部署方式，按网络环境选择：
+
+---
+
+#### 方式一：直接拉取镜像（最简单）
+
+适合快速体验，服务器能访问 GitHub Container Registry。
+
 ```bash
-# 1. 准备配置文件
+# 拉取镜像
+docker pull ghcr.io/xiaodou-pawhub/gopaw:latest
+
+# 准备配置文件
+curl -O https://raw.githubusercontent.com/xiaodou-pawhub/GoPaw/main/config.yaml.example
 cp config.yaml.example config.yaml
 
-# 2. 启动服务
-docker compose up -d
-
-# 3. 访问 Web UI
-open http://localhost:8088
+# 启动
+docker run -d \
+  --name gopaw \
+  -p 8088:8088 \
+  -v $(pwd)/config.yaml:/app/config.yaml:ro \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  --restart unless-stopped \
+  ghcr.io/xiaodou-pawhub/gopaw:latest
 ```
 
-> 💡 **提示**：首次启动后，通过 Web UI → 设置 → LLM 提供商 配置 API Key，无需修改配置文件。
+---
+
+#### 方式二：Compose 拉取镜像（推荐长期使用）
+
+使用 [`docker/docker-compose.online.yml`](docker/docker-compose.online.yml) 管理服务，支持浏览器控制 sidecar。
+
+```bash
+# 下载 compose 文件和配置模板
+curl -O https://raw.githubusercontent.com/xiaodou-pawhub/GoPaw/main/docker/docker-compose.online.yml
+curl -O https://raw.githubusercontent.com/xiaodou-pawhub/GoPaw/main/config.yaml.example
+cp config.yaml.example config.yaml
+
+# 启动（基础，不含浏览器）
+docker compose -f docker-compose.online.yml up -d
+
+# 启动（含浏览器控制工具）
+docker compose -f docker-compose.online.yml --profile browser up -d
+```
+
+---
+
+#### 方式三：本地自建镜像（内网/离线环境）
+
+从 [Releases](https://github.com/xiaodou-pawhub/GoPaw/releases) 下载 `gopaw-linux-amd64.tar.gz`，解压后使用 [`docker/docker-compose.yml`](docker/docker-compose.yml) 在服务器本地构建。
+
+```bash
+# 解压发布包
+tar -xzf gopaw-linux-amd64.tar.gz && cd gopaw-linux-amd64
+
+# 构建镜像
+docker build -t gopaw:latest .
+
+# 准备配置
+cp config.yaml.example config.yaml
+
+# 启动
+docker compose up -d
+```
+
+---
+
+> 💡 **提示**：三种方式启动后均通过 Web UI → 设置 → LLM 提供商 配置 API Key，无需手动修改配置文件。
+
+访问：**http://localhost:8088**
 
 ### 本地开发
 

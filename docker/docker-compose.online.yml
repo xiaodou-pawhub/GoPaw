@@ -1,19 +1,16 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# GoPaw docker-compose（本地自建模式）
+# GoPaw docker-compose（在线拉取模式）
 #
-# 适用场景：无法访问外网/Docker Registry 的服务器，使用发布包自行构建镜像。
+# 适用场景：服务器能访问 GitHub Container Registry，直接拉取官方镜像。
 #
-# 前置：解压发布包，在同目录执行构建
-#   docker build -t gopaw:latest .
+# 启动步骤：
+#   1. 准备配置文件：cp config.yaml.example config.yaml
+#   2. 按需编辑 config.yaml（设置 admin_token 等）
+#   3. 启动服务：docker compose -f docker-compose.online.yml up -d
 #
-# 基础启动（不含浏览器）：
-#   docker compose up -d
+# 含浏览器控制工具（需同时拉取 chromedp/headless-shell 基础镜像）：
+#   docker compose -f docker-compose.online.yml --profile browser up -d
 #
-# 含浏览器控制工具（首次需先构建 chrome sidecar）：
-#   docker compose --profile browser build
-#   docker compose --profile browser up -d
-#
-# 如果能访问外网，推荐使用 docker-compose.online.yml 直接拉取镜像。
 # admin_token 等敏感配置直接写在 config.yaml 中（已在 .gitignore 内）。
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -21,7 +18,7 @@ services:
 
   # ── GoPaw 主服务 ──────────────────────────────────────────────────────────
   gopaw:
-    image: gopaw:latest
+    image: ghcr.io/xiaodou-pawhub/gopaw:latest
     ports:
       - '8088:8088'
     volumes:
@@ -31,7 +28,6 @@ services:
       - ./data:/app/data
       # 应用日志（首次启动自动创建目录）
       - ./logs:/app/logs
-      # 技能目录在工作区的 skills/ 子目录下，随 data 一并挂载
     environment:
       # 浏览器控制：连接 chrome sidecar（启用 --profile browser 时生效）
       - CHROME_URL=ws://chrome:9222
@@ -44,13 +40,10 @@ services:
       start_period: 10s
 
   # ── Headless Chrome sidecar（可选，browser_control 工具依赖）─────────────
-  # 仅在使用 --profile browser 时启动：docker compose --profile browser up -d
-  # 使用自定义镜像（基于 chromedp/headless-shell），已预装 Noto CJK 字体
-  # 首次启动需构建：docker compose --profile browser build
+  # 仅在使用 --profile browser 时启动：docker compose ... --profile browser up -d
+  # 基于 chromedp/headless-shell，已预装 Noto CJK 字体
   chrome:
-    build:
-      context: .
-      dockerfile: ./Dockerfile.chrome
+    image: ghcr.io/xiaodou-pawhub/gopaw-chrome:latest
     profiles:
       - browser
     # Chrome 需要足够的共享内存，否则页面渲染可能崩溃
