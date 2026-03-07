@@ -12,7 +12,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -134,7 +133,7 @@ func runStart() {
 		os.Exit(1)
 	}
 
-	logger, _ := buildLogger(cfg.Log)
+	logger, _ := buildLogger(cfg.Log, wp.LogFile)
 	defer logger.Sync()
 
 	watcher := config.NewWatcher(cfgMgr, logger)
@@ -400,7 +399,10 @@ func runStart() {
 	srv.Shutdown(shutdownCtx)
 }
 
-func buildLogger(cfg config.LogConfig) (*zap.Logger, error) {
+// buildLogger constructs a zap.Logger from config.
+// logFile is the workspace log file path (always {workspace}/logs/gopaw.log).
+// Output values: "stdout" (default), "file" (logFile only), "both" (stdout + logFile).
+func buildLogger(cfg config.LogConfig, logFile string) (*zap.Logger, error) {
 	var level zapcore.Level
 	_ = level.UnmarshalText([]byte(cfg.Level))
 
@@ -415,14 +417,23 @@ func buildLogger(cfg config.LogConfig) (*zap.Logger, error) {
 		encoder = zapcore.NewJSONEncoder(encCfg)
 	}
 
-	outputs := strings.Split(cfg.Output, ",")
-	if len(outputs) == 0 {
+	var outputs []string
+	switch cfg.Output {
+	case "file":
+		outputs = []string{logFile}
+	case "both":
+		outputs = []string{"stdout", logFile}
+	default: // "stdout" or empty
 		outputs = []string{"stdout"}
+	}
+
+	// Ensure log directory exists before opening file
+	if cfg.Output == "file" || cfg.Output == "both" {
+		_ = os.MkdirAll(filepath.Dir(logFile), 0o755)
 	}
 
 	sink, _, err := zap.Open(outputs...)
 	if err != nil {
-		// Fallback to stdout if custom outputs fail
 		sink, _, _ = zap.Open("stdout")
 	}
 

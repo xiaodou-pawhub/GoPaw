@@ -159,16 +159,9 @@ func (c *CapabilityCoordinator) PreProcess(ctx context.Context, msg *types.Messa
 		}
 	}
 
-	// 3. Placeholder message
-	if pc, ok := p.(plugin.PlaceholderCapable); ok {
-		placeholderID, err := pc.SendPlaceholder(ctx, msg.ChatID)
-		if err != nil {
-			c.logger.Warn("placeholder send failed", zap.String("channel", msg.Channel), zap.Error(err))
-		} else {
-			c.placeholders.Store(placeholderKey(msg), placeholderID)
-		}
-	}
 }
+// Note: SendPlaceholder (thinking card) is intentionally not called here.
+// The wait reaction emoji is sufficient to indicate the message was received.
 
 // PostProcess is called after the agent produces reply.
 // It stops the typing indicator, updates reactions, edits the placeholder, and cleans up media resources.

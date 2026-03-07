@@ -16,12 +16,14 @@ var startTime = time.Now()
 
 // SystemHandler handles /api/system routes.
 type SystemHandler struct {
-	cfg *config.Config
+	cfg     *config.Config
+	logFile string // absolute path to the workspace log file
 }
 
 // NewSystemHandler creates a SystemHandler.
-func NewSystemHandler(cfg *config.Config) *SystemHandler {
-	return &SystemHandler{cfg: cfg}
+// logFile is the workspace log file path (e.g. wp.LogFile).
+func NewSystemHandler(cfg *config.Config, logFile string) *SystemHandler {
+	return &SystemHandler{cfg: cfg, logFile: logFile}
 }
 
 // Health handles GET /api/system/health.

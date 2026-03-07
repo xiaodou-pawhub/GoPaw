@@ -20,7 +20,6 @@ type AppConfig struct {
 	Name       string `mapstructure:"name"`
 	Language   string `mapstructure:"language"`
 	Timezone   string `mapstructure:"timezone"`
-	Debug      bool   `mapstructure:"debug"`
 	AdminToken string `mapstructure:"admin_token"`
 }
 
@@ -56,11 +55,12 @@ type SkillsConfig struct {
 }
 
 // LogConfig controls structured log output.
+// Output: "stdout" (console only) | "file" (workspace log file only) | "both" (console + file)
+// Log file path is always {workspace}/logs/gopaw.log — not configurable.
 type LogConfig struct {
 	Level  string `mapstructure:"level"`
 	Format string `mapstructure:"format"`
 	Output string `mapstructure:"output"`
-	File   string `mapstructure:"file"`
 }
 
 // Config is the root configuration structure for the application startup settings.
@@ -152,7 +152,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.name", "GoPaw")
 	v.SetDefault("app.language", "zh")
 	v.SetDefault("app.timezone", "Asia/Shanghai")
-	v.SetDefault("app.debug", false)
 
 	v.SetDefault("server.host", "0.0.0.0")
 	v.SetDefault("server.port", 8088)

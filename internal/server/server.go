@@ -49,7 +49,7 @@ func New(
 	staticFS fs.FS,
 	logger *zap.Logger,
 ) *Server {
-	if !cfg.App.Debug {
+	if cfg.Log.Level != "debug" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
@@ -212,7 +212,7 @@ func (s *Server) registerRoutes(
 	}
 
 	// /api/system — all behind WebAuth (already inherited from api group)
-	sysH := handlers.NewSystemHandler(s.cfg)
+	sysH := handlers.NewSystemHandler(s.cfg, wp.LogFile)
 	sysG := api.Group("/system")
 	{
 		sysG.GET("/health", sysH.Health)

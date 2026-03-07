@@ -1,0 +1,8 @@
+# Chrome sidecar with CJK font support
+# Based on chromedp/headless-shell, adds Noto CJK fonts to fix
+# Chinese/Japanese/Korean character rendering in browser_control tool.
+FROM chromedp/headless-shell:latest
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*

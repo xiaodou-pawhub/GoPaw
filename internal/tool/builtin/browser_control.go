@@ -121,7 +121,11 @@ func (t *BrowserControlTool) Execute(ctx context.Context, args map[string]interf
 		if targetURL == "" {
 			return plugin.ErrorResult("URL is required for navigate")
 		}
-		tasks = append(tasks, chromedp.Navigate(targetURL))
+		// WaitReady ensures the DOM is interactive before proceeding
+		tasks = append(tasks,
+			chromedp.Navigate(targetURL),
+			chromedp.WaitReady("body", chromedp.ByQuery),
+		)
 		resultMsg = fmt.Sprintf("Navigated to %s", targetURL)
 	case "click":
 		if selector == "" {

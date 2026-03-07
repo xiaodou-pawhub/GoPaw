@@ -12,7 +12,7 @@ version: '3.9'
 # 含浏览器控制工具：
 #   docker compose --profile browser up -d
 #
-# 敏感配置（admin_token 等）写在同目录的 .env 文件，docker compose 自动读取。
+# admin_token 等敏感配置直接写在 config.yaml 中（已在 .gitignore 内）。
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -31,10 +31,6 @@ services:
       - ./logs:/app/logs
       # 技能目录随 data 一并挂载，路径为 ./data/skills/（在 config.yaml 中通过 skills.dir 配置）
     environment:
-      # Web UI 访问密码（对应 config.yaml app.admin_token）
-      # 留空则每次重启自动生成并打印到日志，生产环境建议在 .env 中固定设置
-      - APP_ADMIN_TOKEN=${GOPAW_ADMIN_TOKEN:-}
-
       # 浏览器控制：连接 chrome sidecar（启用 --profile browser 时生效）
       - CHROME_URL=ws://chrome:9222
     restart: unless-stopped
@@ -46,9 +42,13 @@ services:
       start_period: 10s
 
   # ── Headless Chrome sidecar（可选，browser_control 工具依赖）─────────────
-  # 仅在使用 --profile browser 时启动
+  # 仅在使用 --profile browser 时启动：docker compose --profile browser up -d
+  # 使用自定义镜像（基于 chromedp/headless-shell），已预装 Noto CJK 字体
+  # 首次启动需构建：docker compose --profile browser build
   chrome:
-    image: chromedp/headless-shell:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.chrome
     profiles:
       - browser
     # Chrome 需要足够的共享内存，否则页面渲染可能崩溃

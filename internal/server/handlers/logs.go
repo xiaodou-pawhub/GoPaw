@@ -18,9 +18,9 @@ type LogEntry struct {
 // ListLogs 处理 GET /api/system/logs
 // 优化 P3: 实现真正的反向 Tail 算法，高效读取大文件末尾
 func (h *SystemHandler) ListLogs(c *gin.Context) {
-	logPath := h.cfg.Log.File
+	logPath := h.logFile
 	if logPath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "系统日志文件路径未配置 / Log file path not configured"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "log file path not available"})
 		return
 	}
 
