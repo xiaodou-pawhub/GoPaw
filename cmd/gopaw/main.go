@@ -40,7 +40,7 @@ import (
 	_ "github.com/gopaw/gopaw/internal/platform/webhook"
 )
 
-const appVersion = "0.1.0"
+var appVersion = "0.1.0"
 
 func main() {
 	if len(os.Args) < 2 {

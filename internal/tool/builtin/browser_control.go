@@ -116,6 +116,9 @@ func (t *BrowserControlTool) Execute(ctx context.Context, args map[string]interf
 	var extraData string
 	var cookies []*network.Cookie
 
+	// Set viewport to a standard desktop resolution to avoid layout breakage
+	tasks = append(tasks, chromedp.EmulateViewport(1280, 800))
+
 	switch action {
 	case "navigate":
 		if targetURL == "" {
