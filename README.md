@@ -193,7 +193,7 @@ make lint           # 代码检查
 
 ## License
 
-Apache 2.0
+AGPL-3.0
 
 <p align="center">
   Designed with ❤️ by the GoPaw Team
