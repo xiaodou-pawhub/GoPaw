@@ -1,0 +1,55 @@
+name: Sync to Gitee
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  repo-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取所有历史用于同步
+          persist-credentials: false
+
+      - name: Setup SSH
+        env:
+          GITEE_RSA_PRIVATE_KEY: ${{ secrets.GITEE_RSA_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$GITEE_RSA_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan gitee.com >> ~/.ssh/known_hosts 2>/dev/null
+          echo "✅ SSH setup completed"
+
+      - name: Sync to Gitee
+        env:
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+          # 添加或更新 Gitee 远程仓库
+          if git remote get-url gitee > /dev/null 2>&1; then
+            git remote set-url gitee $GITEE_REPO
+          else
+            git remote add gitee $GITEE_REPO
+          fi
+
+          # 推送到 Gitee（强制同步 main 分支和标签）
+          git push -f gitee main
+          git push --tags gitee
+
+          echo "✅ Sync to Gitee completed!"
+
+      - name: Sync Result
+        run: |
+          echo "## 📦 Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Source**: GitHub" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target**: Gitee" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: main" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ✅ Success" >> $GITHUB_STEP_SUMMARY

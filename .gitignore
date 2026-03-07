@@ -47,3 +47,8 @@ local/
 web/node_modules/
 web/dist/
 pnpm-lock.yaml
+
+# SSH keys for Gitee sync
+gitee_actions_key
+gitee_actions_key.pub
+*.pem
