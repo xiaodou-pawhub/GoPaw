@@ -52,3 +52,6 @@ pnpm-lock.yaml
 gitee_actions_key
 gitee_actions_key.pub
 *.pem
+
+# Reports directory (local development reports, not for repo)
+reports/
