@@ -27,7 +27,7 @@ services:
       - ./data:/app/data
       # 应用日志（首次启动自动创建目录）
       - ./logs:/app/logs
-      # 技能目录随 data 一并挂载，路径为 ./data/skills/（在 config.yaml 中通过 skills.dir 配置）
+      # 技能目录在工作区的 skills/ 子目录下，随 data 一并挂载
     environment:
       # 浏览器控制：连接 chrome sidecar（启用 --profile browser 时生效）
       - CHROME_URL=ws://chrome:9222

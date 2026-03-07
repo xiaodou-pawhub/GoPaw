@@ -58,7 +58,7 @@ jobs:
 
       - name: Save Docker image as tar.gz
         run: |
-          docker save gopaw:${{ steps.version.outputs.VERSION }} \
+          docker save gopaw:latest gopaw:${{ steps.version.outputs.VERSION }} \
             | gzip > gopaw-docker-linux-amd64.tar.gz
 
       - name: Package binary release
