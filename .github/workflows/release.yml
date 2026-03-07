@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write  # needed for pushing to ghcr.io
 
     steps:
       - name: Checkout
@@ -54,12 +55,15 @@ jobs:
             --platform linux/amd64 \
             -t gopaw:${{ steps.version.outputs.VERSION }} \
             -t gopaw:latest \
+            -t ghcr.io/xiaodou-pawhub/gopaw:${{ steps.version.outputs.VERSION }} \
+            -t ghcr.io/xiaodou-pawhub/gopaw:latest \
             -f docker/Dockerfile .
 
-      - name: Save Docker image as tar.gz
+      - name: Push to GitHub Container Registry
         run: |
-          docker save gopaw:latest gopaw:${{ steps.version.outputs.VERSION }} \
-            | gzip > gopaw-docker-linux-amd64.tar.gz
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker push ghcr.io/xiaodou-pawhub/gopaw:${{ steps.version.outputs.VERSION }}
+          docker push ghcr.io/xiaodou-pawhub/gopaw:latest
 
       - name: Package binary release
         run: |
@@ -81,4 +85,3 @@ jobs:
           generate_release_notes: true
           files: |
             gopaw-linux-amd64.tar.gz
-            gopaw-docker-linux-amd64.tar.gz
