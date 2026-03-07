@@ -183,11 +183,12 @@ func (s *Server) registerRoutes(
 	}
 
 	// /api/skills
-	skillsH := handlers.NewSkillsHandler(skillMgr, s.logger)
+	skillsH := handlers.NewSkillsHandler(skillMgr, wp.SkillsDir, s.logger)
 	skillsG := api.Group("/skills")
 	{
 		skillsG.GET("", skillsH.List)
 		skillsG.POST("/reload", skillsH.Reload)
+		skillsG.POST("/install", skillsH.Install)
 		skillsG.PUT("/:name/enabled", skillsH.SetEnabled)
 	}
 
