@@ -451,7 +451,7 @@ async function handleSessionSwitch(id: string) {
 function createNewSession() {
   stopChatStream()
   pendingFile.value = null
-  const newId = crypto.randomUUID()
+  const newId = generateUUID()
   isCreatingNew.value = true
   currentSessionId.value = newId
   messages.value = [{
@@ -460,6 +460,21 @@ function createNewSession() {
   }]
   sessionStats.value = null
   router.push({ name: 'Chat', params: { id: newId } })
+}
+
+// 生成 UUID（兼容方案）
+function generateUUID(): string {
+  // 优先使用 crypto.randomUUID()（如果可用）
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  
+  // 降级方案：使用 Math.random() 生成 UUID
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0
+    const v = c === 'x' ? r : (r & 0x3 | 0x8)
+    return v.toString(16)
+  })
 }
 
 // 加载统计数据

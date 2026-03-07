@@ -19,6 +19,18 @@ services:
   # ── GoPaw 主服务 ──────────────────────────────────────────────────────────
   gopaw:
     image: ghcr.io/xiaodou-pawhub/gopaw:latest
+    # 必要的 Linux capabilities，用于文件操作等系统任务
+    cap_add:
+      - CHOWN        # 允许修改文件所有者
+      - SETUID       # 允许设置用户 ID
+      - SETGID       # 允许设置组 ID
+      - DAC_OVERRIDE # 允许读写任何文件（系统任务需要）
+    
+    # 容器运行用户
+    # 0:0 表示以 root 启动，初始化时会自动修复挂载目录权限
+    # 初始化完成后会自动降权为 node 用户运行服务
+    user: "0:0"
+    
     ports:
       - '8088:8088'
     volumes:
