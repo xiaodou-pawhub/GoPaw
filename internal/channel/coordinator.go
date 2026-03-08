@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/pkg/plugin"
@@ -173,6 +175,16 @@ func buildApprovalCard(req *tool.ApprovalRequest) map[string]interface{} {
 		},
 	})
 
+	// Save approval context for later display in status card
+	toolDisplay := extractToolDisplay(summaryText)
+	tool.GlobalApprovalStore.SetApprovalContext(req.ID, &tool.ApprovalContext{
+		ToolName:    req.ToolName,
+		ToolDisplay: toolDisplay,
+		Summary:     summaryText,
+		Detail:      detailText,
+		Timestamp:   time.Now().UnixMilli(),
+	})
+
 	return map[string]interface{}{
 		"schema": "2.0",
 		"header": map[string]interface{}{
@@ -186,6 +198,18 @@ func buildApprovalCard(req *tool.ApprovalRequest) map[string]interface{} {
 			"elements": elements,
 		},
 	}
+}
+
+// extractToolDisplay extracts the tool display name from the summary text.
+// e.g., "📧 **发送邮件**\n收件人：..." → "📧 发送邮件"
+func extractToolDisplay(summary string) string {
+	lines := strings.Split(summary, "\n")
+	if len(lines) > 0 {
+		// Remove markdown bold markers
+		display := strings.ReplaceAll(lines[0], "**", "")
+		return strings.TrimSpace(display)
+	}
+	return "工具操作"
 }
 
 // PreProcess is called before the agent starts processing msg.

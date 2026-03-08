@@ -152,10 +152,13 @@ func (p *Plugin) Start(ctx context.Context) error {
 				p.logger.Warn("feishu: failed to resolve approval", zap.Error(err))
 			}
 
+			// Get approval context for user-friendly display
+			approvalCtx := tool.GlobalApprovalStore.GetApprovalContext(reqID)
+			
 			// Return updated card in callback response (Card 2.0 raw type).
 			// Per Feishu docs, PATCH API must NOT be called before responding to the callback —
 			// doing so causes the update to fail/revert. The response IS the update.
-			statusCard := buildApprovalStatusCard(verdict, reqID)
+			statusCard := buildApprovalStatusCard(verdict, reqID, approvalCtx)
 			toastType, toastContent := "success", "已批准"
 			if verdict == string(tool.VerdictDenied) {
 				toastType, toastContent = "error", "已拒绝"
@@ -796,22 +799,51 @@ func (p *Plugin) mapReaction(rt string) string {
 }
 
 // buildApprovalStatusCard builds a status card shown after user approves/denies/times out.
-func buildApprovalStatusCard(verdict, reqID string) map[string]interface{} {
+func buildApprovalStatusCard(verdict string, reqID string, approvalCtx *tool.ApprovalContext) map[string]interface{} {
 	var title, template, content string
 
 	switch verdict {
 	case string(tool.VerdictAllowed):
 		title = "✅ 已批准"
 		template = "green"
-		content = fmt.Sprintf("**工具执行请求已批准**\n\n请求 ID: `%s`\n正在执行工具，请稍候...", reqID)
+		if approvalCtx != nil {
+			content = fmt.Sprintf(
+				"**%s**\n\n%s\n状态：正在执行中...",
+				title,
+				approvalCtx.ToolDisplay,
+			)
+		} else {
+			content = fmt.Sprintf("**工具执行请求已批准**\n\n请求 ID: `%s`\n正在执行工具，请稍候...", reqID)
+		}
 	case string(tool.VerdictTimeout):
 		title = "⏱️ 超时未响应"
 		template = "orange"
-		content = fmt.Sprintf("**工具执行请求已超时**\n\n请求 ID: `%s`\n超过 5 分钟未响应，已自动拒绝。", reqID)
+		if approvalCtx != nil {
+			content = fmt.Sprintf(
+				"**%s**\n\n%s\n超过 5 分钟未响应，已自动拒绝。",
+				title,
+				approvalCtx.ToolDisplay,
+			)
+		} else {
+			content = fmt.Sprintf("**工具执行请求已超时**\n\n请求 ID: `%s`\n超过 5 分钟未响应，已自动拒绝。", reqID)
+		}
 	default: // denied
 		title = "❌ 已拒绝"
 		template = "red"
-		content = fmt.Sprintf("**工具执行请求已拒绝**\n\n请求 ID: `%s`\n用户已手动拒绝该请求。", reqID)
+		if approvalCtx != nil {
+			content = fmt.Sprintf(
+				"**%s**\n\n%s\n操作已根据用户要求取消。",
+				title,
+				approvalCtx.ToolDisplay,
+			)
+		} else {
+			content = fmt.Sprintf("**工具执行请求已拒绝**\n\n请求 ID: `%s`\n用户已手动拒绝该请求。", reqID)
+		}
+	}
+
+	// Cleanup context after displaying
+	if approvalCtx != nil {
+		tool.GlobalApprovalStore.CleanupApprovalContext(reqID)
 	}
 
 	return map[string]interface{}{

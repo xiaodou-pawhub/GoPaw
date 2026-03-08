@@ -35,13 +35,15 @@ type ApprovalRequest struct {
 
 // ApprovalStore manages pending approvals.
 type ApprovalStore struct {
-	mu      sync.RWMutex
-	pending map[string]*ApprovalRequest
+	mu       sync.RWMutex
+	pending  map[string]*ApprovalRequest
+	contexts map[string]*ApprovalContext // Cache for approval contexts
 }
 
 func NewApprovalStore() *ApprovalStore {
 	return &ApprovalStore{
-		pending: make(map[string]*ApprovalRequest),
+		pending:  make(map[string]*ApprovalRequest),
+		contexts: make(map[string]*ApprovalContext),
 	}
 }
 
@@ -130,4 +132,37 @@ func (s *ApprovalStore) WaitForVerdict(ctx context.Context, req *ApprovalRequest
 		s.Resolve(req.ID, VerdictDenied)
 		return VerdictDenied
 	}
+}
+
+// ApprovalContext holds the context information for an approval request.
+// This is used to display user-friendly status messages after approval.
+type ApprovalContext struct {
+	ToolName    string // e.g., "email_sender"
+	ToolDisplay string // e.g., "📧 发送邮件"
+	Summary     string // e.g., "发送邮件给 fxiaoyu97@qq.com"
+	Detail      string // e.g., "主题：GoPaw 检讨书"
+	Timestamp   int64  // Unix timestamp in milliseconds
+}
+
+// SetApprovalContext stores the context for an approval request.
+// This is called when building the approval card to save context for later display.
+func (s *ApprovalStore) SetApprovalContext(reqID string, ctx *ApprovalContext) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.contexts[reqID] = ctx
+}
+
+// GetApprovalContext retrieves the context for an approval request.
+// Returns nil if not found (e.g., already cleaned up).
+func (s *ApprovalStore) GetApprovalContext(reqID string) *ApprovalContext {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.contexts[reqID]
+}
+
+// CleanupApprovalContext removes the context after it's been displayed.
+func (s *ApprovalStore) CleanupApprovalContext(reqID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.contexts, reqID)
 }
