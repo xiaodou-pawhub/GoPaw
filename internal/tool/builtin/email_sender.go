@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/smtp"
+	"regexp"
 	"strings"
 
 	"github.com/gopaw/gopaw/internal/settings"
@@ -111,12 +112,13 @@ func (t *EmailSenderTool) Execute(ctx context.Context, args map[string]interface
 	}
 	e.To = []string{to}
 	e.Subject = subject
-	
-	// Detect if body is HTML
-	if strings.Contains(strings.ToLower(body), "<html>") || strings.Contains(strings.ToLower(body), "</div>") {
-		e.HTML = []byte(body)
+
+	// 智能检测 HTML 并设置双重格式（最佳兼容性）
+	if isHTML(body) {
+		e.HTML = []byte(body)           // HTML 版本（富文本，现代客户端）
+		e.Text = []byte(stripHTML(body)) // 纯文本版本（兼容性，老式客户端）
 	} else {
-		e.Text = []byte(body)
+		e.Text = []byte(body)           // 纯文本
 	}
 
 	// 3. Handle Attachments
@@ -241,4 +243,45 @@ func sendWithSSL(e *email.Email, addr, username, password, host string) error {
 
 	// Quit SMTP session
 	return client.Quit()
+}
+
+// isHTML detects if content contains HTML tags.
+func isHTML(content string) bool {
+	lower := strings.ToLower(content)
+	// Check for common HTML tags
+	htmlTags := []string{
+		"<html", "<head", "<body", "<div", "<span",
+		"<h1>", "<h2>", "<h3>", "<h4>", "<h5>", "<h6>",
+		"<p>", "<br", "<hr", "<ul>", "<ol>", "<li>",
+		"<table", "<tr>", "<td>", "<th>",
+		"<strong>", "<b>", "<em>", "<i>", "<u>",
+		"<a ", "<img ", "<style", "<!doctype",
+	}
+	for _, tag := range htmlTags {
+		if strings.Contains(lower, tag) {
+			return true
+		}
+	}
+	return false
+}
+
+// stripHTML removes HTML tags from content, returning plain text.
+func stripHTML(html string) string {
+	// Remove HTML tags using regex
+	re := regexp.MustCompile(`<[^>]*>`)
+	text := re.ReplaceAllString(html, "")
+
+	// Decode common HTML entities
+	text = strings.ReplaceAll(text, "&nbsp;", " ")
+	text = strings.ReplaceAll(text, "&lt;", "<")
+	text = strings.ReplaceAll(text, "&gt;", ">")
+	text = strings.ReplaceAll(text, "&amp;", "&")
+	text = strings.ReplaceAll(text, "&quot;", "\"")
+	text = strings.ReplaceAll(text, "&#39;", "'")
+
+	// Normalize whitespace
+	text = strings.TrimSpace(text)
+	text = regexp.MustCompile(`\s+`).ReplaceAllString(text, " ")
+
+	return text
 }
