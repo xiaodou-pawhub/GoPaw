@@ -83,6 +83,34 @@ func (t *EmailSenderTool) RequireApproval(args map[string]interface{}) bool {
 	return true // Always require approval for sending emails
 }
 
+// ApprovalSummary returns a user-friendly summary for the approval card.
+func (t *EmailSenderTool) ApprovalSummary(args map[string]interface{}) string {
+	to, _ := args["to"].(string)
+	subject, _ := args["subject"].(string)
+	body, _ := args["body"].(string)
+	
+	// 提取纯文本预览（前 200 字）
+	preview := formatHTMLToText(body)
+	if len(preview) > 200 {
+		preview = preview[:200] + "..."
+	}
+	
+	return fmt.Sprintf("📧 **发送邮件**\n收件人：%s\n主  题：%s\n预  览：%s", to, subject, preview)
+}
+
+// ApprovalDetail returns the full email content for the collapsible panel.
+func (t *EmailSenderTool) ApprovalDetail(args map[string]interface{}) string {
+	body, _ := args["body"].(string)
+	if body == "" {
+		return ""
+	}
+	
+	// 转换为格式化的纯文本
+	formattedText := formatHTMLToText(body)
+	
+	return fmt.Sprintf("**邮件正文**:\n\n%s", formattedText)
+}
+
 func (t *EmailSenderTool) Execute(ctx context.Context, args map[string]interface{}) *plugin.ToolResult {
 	if t.settings == nil {
 		return plugin.ErrorResult("settings store not initialized")
@@ -265,23 +293,97 @@ func isHTML(content string) bool {
 	return false
 }
 
+// formatHTMLToText converts HTML to formatted plain text with better readability.
+func formatHTMLToText(html string) string {
+	// 1. Remove style/script blocks
+	styleRe := regexp.MustCompile(`(?s)<style[^>]*>.*?</style>`)
+	html = styleRe.ReplaceAllString(html, "")
+	scriptRe := regexp.MustCompile(`(?s)<script[^>]*>.*?</script>`)
+	html = scriptRe.ReplaceAllString(html, "")
+	
+	// 2. Convert block elements to newlines for better formatting
+	blockTags := []string{
+		"</p>", "</div>", "</h1>", "</h2>", "</h3>", "</h4>", "</h5>", "</h6>",
+		"</li>", "</tr>", "</blockquote>", "</pre>", "</section>", "</article>",
+	}
+	for _, tag := range blockTags {
+		html = strings.ReplaceAll(html, tag, "\n")
+	}
+	
+	// 3. Handle <br> tags
+	html = strings.ReplaceAll(html, "<br>", "\n")
+	html = strings.ReplaceAll(html, "<br/>", "\n")
+	html = strings.ReplaceAll(html, "<br />", "\n")
+	
+	// 4. Remove remaining HTML tags
+	tagRe := regexp.MustCompile(`<[^>]*>`)
+	text := tagRe.ReplaceAllString(html, "")
+	
+	// 5. Decode HTML entities
+	text = decodeHTMLEntities(text)
+	
+	// 6. Normalize whitespace but preserve paragraphs
+	lines := strings.Split(text, "\n")
+	var formattedLines []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			formattedLines = append(formattedLines, line)
+		}
+	}
+	
+	return strings.Join(formattedLines, "\n\n")
+}
+
+// decodeHTMLEntities decodes common HTML entities.
+func decodeHTMLEntities(text string) string {
+	entities := map[string]string{
+		"&nbsp;":  " ",
+		"&lt;":    "<",
+		"&gt;":    ">",
+		"&amp;":   "&",
+		"&quot;":  "\"",
+		"&#39;":   "'",
+		"&#34;":   "\"",
+		"&#160;":  " ",
+		"&apos;":  "'",
+		"&ndash;": "-",
+		"&mdash;": "-",
+		"&lsquo;": "'",
+		"&rsquo;": "'",
+		"&ldquo;": "\"",
+		"&rdquo;": "\"",
+	}
+	
+	for entity, char := range entities {
+		text = strings.ReplaceAll(text, entity, char)
+	}
+	return text
+}
+
 // stripHTML removes HTML tags from content, returning plain text.
 func stripHTML(html string) string {
-	// Remove HTML tags using regex
-	re := regexp.MustCompile(`<[^>]*>`)
-	text := re.ReplaceAllString(html, "")
+	// Remove style blocks first
+	styleRe := regexp.MustCompile(`(?s)<style[^>]*>.*?</style>`)
+	html = styleRe.ReplaceAllString(html, "")
+	
+	// Remove script blocks
+	scriptRe := regexp.MustCompile(`(?s)<script[^>]*>.*?</script>`)
+	html = scriptRe.ReplaceAllString(html, "")
+	
+	// Remove HTML tags
+	tagRe := regexp.MustCompile(`<[^>]*>`)
+	text := tagRe.ReplaceAllString(html, "")
 
 	// Decode common HTML entities
-	text = strings.ReplaceAll(text, "&nbsp;", " ")
-	text = strings.ReplaceAll(text, "&lt;", "<")
-	text = strings.ReplaceAll(text, "&gt;", ">")
-	text = strings.ReplaceAll(text, "&amp;", "&")
-	text = strings.ReplaceAll(text, "&quot;", "\"")
-	text = strings.ReplaceAll(text, "&#39;", "'")
+	text = decodeHTMLEntities(text)
 
 	// Normalize whitespace
 	text = strings.TrimSpace(text)
 	text = regexp.MustCompile(`\s+`).ReplaceAllString(text, " ")
+	
+	// Normalize newlines
+	text = regexp.MustCompile(`\n\s*\n`).ReplaceAllString(text, "\n\n")
 
 	return text
 }

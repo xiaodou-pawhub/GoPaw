@@ -58,6 +58,19 @@ type SummaryCapableTool interface {
 	Summary(args map[string]interface{}) string
 }
 
+// ApprovalSummaryCapable is an optional interface for tools that support
+// interactive approval cards with user-friendly summaries and optional details.
+// This is used for Feishu approval cards with collapsible panels.
+type ApprovalSummaryCapable interface {
+	Tool
+	// ApprovalSummary returns a user-friendly summary for the approval card.
+	// This is always shown in the card.
+	ApprovalSummary(args map[string]interface{}) string
+	// ApprovalDetail returns the full detail for the collapsible panel.
+	// Return empty string if no detail panel is needed.
+	ApprovalDetail(args map[string]interface{}) string
+}
+
 // GuardedTool is an optional interface for tools that require manual
 // user approval before execution.
 type GuardedTool interface {

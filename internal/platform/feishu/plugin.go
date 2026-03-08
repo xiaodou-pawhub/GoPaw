@@ -252,18 +252,30 @@ func (p *Plugin) sendInternal(ctx context.Context, msg *types.Message, isCard bo
 
 		body, _ := json.Marshal(payload)
 		resp, err := p.postWithToken(ctx, sendEndpoint, body, token)
-		if err == nil {
-			var res struct {
-				Code int `json:"code"`
-				Data struct {
-					MessageId string `json:"message_id"`
-				} `json:"data"`
-			}
-			json.Unmarshal(resp, &res)
-			if res.Code == 0 {
-				cardMsgID = res.Data.MessageId
-			}
+		if err != nil {
+			p.logger.Error("feishu send message failed", zap.Error(err))
+			return "", err
 		}
+		
+		var res struct {
+			Code int    `json:"code"`
+			Msg  string `json:"msg"`
+			Data struct {
+				MessageId string `json:"message_id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(resp, &res); err != nil {
+			p.logger.Error("feishu send response parse failed", zap.Error(err), zap.String("resp", string(resp)))
+			return "", err
+		}
+		
+		if res.Code != 0 {
+			p.logger.Error("feishu send api error", zap.Int("code", res.Code), zap.String("msg", res.Msg))
+			return "", fmt.Errorf("feishu api error: code=%d, msg=%s", res.Code, res.Msg)
+		}
+		
+		cardMsgID = res.Data.MessageId
+		p.logger.Info("feishu message sent successfully", zap.String("msg_id", cardMsgID))
 	}
 
 	for _, f := range msg.Files {

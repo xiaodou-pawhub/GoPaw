@@ -16,10 +16,30 @@ func init() {
 
 type FileWriteTool struct{}
 
+var _ plugin.ApprovalSummaryCapable = (*FileWriteTool)(nil)
+
 func (t *FileWriteTool) Name() string { return "write_file" }
 
 func (t *FileWriteTool) Description() string {
 	return "Write content to a file. Overwrites existing files. Uses atomic write mechanism."
+}
+
+// ApprovalSummary returns a user-friendly summary for the approval card.
+func (t *FileWriteTool) ApprovalSummary(args map[string]interface{}) string {
+	path, _ := args["path"].(string)
+	content, _ := args["content"].(string)
+	displayContent := content
+	if len(displayContent) > 100 {
+		displayContent = displayContent[:97] + "..."
+	}
+	return fmt.Sprintf("📁 **写入文件**\n路  径：%s\n预  览：%s", path, displayContent)
+}
+
+// ApprovalDetail returns the full file content for the collapsible panel.
+func (t *FileWriteTool) ApprovalDetail(args map[string]interface{}) string {
+	path, _ := args["path"].(string)
+	content, _ := args["content"].(string)
+	return fmt.Sprintf("**完整内容**:\n```\n%s\n```\n**文件路径**: %s", content, path)
 }
 
 func (t *FileWriteTool) Parameters() plugin.ToolParameters {

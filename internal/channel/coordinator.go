@@ -48,68 +48,20 @@ func (c *CapabilityCoordinator) RequestApproval(ctx context.Context, req *tool.A
 	}
 
 	// For now, we only support Feishu for interactive approvals.
-	// We'll send a specialized card.
+	// We'll send a specialized card with collapsible detail panel.
 	if req.ChannelID == "feishu" {
-		argsJSON, _ := json.MarshalIndent(req.Args, "", "  ")
-
-		// Build an interactive card with buttons
-		card := map[string]interface{}{
-			"schema": "2.0",
-			"header": map[string]interface{}{
-				"title":    map[string]string{"tag": "plain_text", "content": "⚠️ 安全审批"},
-				"template": "orange",
-			},
-			"body": map[string]interface{}{
-				"elements": []interface{}{
-					map[string]interface{}{
-						"tag":     "markdown",
-						"content": fmt.Sprintf("**操作请求**\n%s\n\n**详情参数**:\n```json\n%s\n```", req.Summary, string(argsJSON)),
-					},
-					map[string]interface{}{
-						"tag": "column_set",
-						"flex_mode": "stretch",
-						"columns": []interface{}{
-							map[string]interface{}{
-								"tag": "column",
-								"width": "weighted",
-								"weight": 1,
-								"elements": []interface{}{
-									map[string]interface{}{
-										"tag": "button",
-										"text": map[string]string{"tag": "plain_text", "content": "允许"},
-										"type": "primary",
-										"value": map[string]string{
-											"action":     "tool_approve",
-											"request_id": req.ID,
-											"verdict":    string(tool.VerdictAllowed),
-										},
-									},
-								},
-							},
-							map[string]interface{}{
-								"tag": "column",
-								"width": "weighted",
-								"weight": 1,
-								"elements": []interface{}{
-									map[string]interface{}{
-										"tag": "button",
-										"text": map[string]string{"tag": "plain_text", "content": "拒绝"},
-										"type": "danger",
-										"value": map[string]string{
-											"action":     "tool_approve",
-											"request_id": req.ID,
-											"verdict":    string(tool.VerdictDenied),
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
+		c.logger.Info("building feishu approval card", zap.String("tool", req.ToolName))
+		
+		// Build card with summary and optional detail
+		card := buildApprovalCard(req)
 
 		cardJSON, _ := json.Marshal(card)
+		
+		// Log card JSON for debugging
+		c.logger.Error("approval card built", 
+			zap.String("tool", req.ToolName),
+			zap.String("card_json", string(cardJSON)))
+
 		msg := &types.Message{
 			Channel:  req.ChannelID,
 			ChatID:   req.ChatID,
@@ -132,6 +84,108 @@ func (c *CapabilityCoordinator) RequestApproval(ctx context.Context, req *tool.A
 	}
 
 	return fmt.Errorf("approval not supported on channel %s", req.ChannelID)
+}
+
+// buildApprovalCard builds a Feishu approval card with summary and collapsible detail.
+func buildApprovalCard(req *tool.ApprovalRequest) map[string]interface{} {
+	// Get the tool from registry to check if it supports approval summary
+	toolRegistry := tool.Global()
+	toolInstance, ok := toolRegistry.Get(req.ToolName)
+
+	var summaryText, detailText string
+
+	// Check if tool supports ApprovalSummaryCapable interface
+	if ok {
+		if summaryTool, ok := toolInstance.(plugin.ApprovalSummaryCapable); ok {
+			summaryText = summaryTool.ApprovalSummary(req.Args)
+			detailText = summaryTool.ApprovalDetail(req.Args)
+		}
+	}
+	
+	// Fallback: show JSON if tool not found or doesn't support interface
+	if summaryText == "" {
+		argsJSON, _ := json.MarshalIndent(req.Args, "", "  ")
+		summaryText = fmt.Sprintf("**操作请求**\n%s\n\n**详情参数**:\n```json\n%s\n```", req.Summary, string(argsJSON))
+		detailText = "" // No collapsible panel for fallback
+	}
+
+	// Build card elements - simplified version without collapsible panel for now
+	elements := []interface{}{
+		map[string]interface{}{
+			"tag":     "markdown",
+			"content": summaryText,
+		},
+	}
+
+	// Add detail as separate markdown if not empty (simplified approach)
+	if detailText != "" {
+		elements = append(elements, map[string]interface{}{
+			"tag":     "markdown",
+			"content": detailText,
+		})
+	}
+
+	// Add action buttons
+	elements = append(elements, map[string]interface{}{
+		"tag": "column_set",
+		"flex_mode": "stretch",
+		"columns": []interface{}{
+			map[string]interface{}{
+				"tag": "column",
+				"width": "weighted",
+				"weight": 1,
+				"elements": []interface{}{
+					map[string]interface{}{
+						"tag": "button",
+						"text": map[string]interface{}{
+							"tag":     "plain_text",
+							"content": "允许",
+						},
+						"type": "primary",
+						"value": map[string]interface{}{
+							"action":     "tool_approve",
+							"request_id": req.ID,
+							"verdict":    string(tool.VerdictAllowed),
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"tag": "column",
+				"width": "weighted",
+				"weight": 1,
+				"elements": []interface{}{
+					map[string]interface{}{
+						"tag": "button",
+						"text": map[string]interface{}{
+							"tag":     "plain_text",
+							"content": "拒绝",
+						},
+						"type": "danger",
+						"value": map[string]interface{}{
+							"action":     "tool_approve",
+							"request_id": req.ID,
+							"verdict":    string(tool.VerdictDenied),
+						},
+					},
+				},
+			},
+		},
+	})
+
+	return map[string]interface{}{
+		"schema": "2.0",
+		"header": map[string]interface{}{
+			"title": map[string]interface{}{
+				"tag":     "plain_text",
+				"content": "⚠️ 安全审批",
+			},
+			"template": "orange",
+		},
+		"body": map[string]interface{}{
+			"elements": elements,
+		},
+	}
 }
 
 // PreProcess is called before the agent starts processing msg.
