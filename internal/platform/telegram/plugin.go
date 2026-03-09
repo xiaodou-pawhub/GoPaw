@@ -212,6 +212,127 @@ func (p *Plugin) DeleteMessage(channelID, messageTS string) error {
 	return err
 }
 
+// SendMarkdown 发送 Markdown 消息（实现 RichTextCapable 接口）
+func (p *Plugin) SendMarkdown(channelID, markdown string) error {
+	token := p.cfg.BotToken
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+
+	params := map[string]string{
+		"chat_id":      channelID,
+		"text":         markdown,
+		"parse_mode":   "MarkdownV2",
+	}
+
+	_, err := p.callAPI(url, params)
+	return err
+}
+
+// SendHTML 发送 HTML 消息（实现 RichTextCapable 接口）
+func (p *Plugin) SendHTML(channelID, html string) error {
+	token := p.cfg.BotToken
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+
+	params := map[string]string{
+		"chat_id":      channelID,
+		"text":         html,
+		"parse_mode":   "HTML",
+	}
+
+	_, err := p.callAPI(url, params)
+	return err
+}
+
+// SendFile 发送文件（实现 FileCapable 接口）
+func (p *Plugin) SendFile(channelID, filePath, caption string) error {
+	return p.sendMediaFile(channelID, filePath, caption, "document")
+}
+
+// SendImage 发送图片（实现 FileCapable 接口）
+func (p *Plugin) SendImage(channelID, imagePath, caption string) error {
+	return p.sendMediaFile(channelID, imagePath, caption, "photo")
+}
+
+// SendVideo 发送视频（实现 FileCapable 接口）
+func (p *Plugin) SendVideo(channelID, videoPath, caption string) error {
+	return p.sendMediaFile(channelID, videoPath, caption, "video")
+}
+
+// SendAudio 发送音频（实现 FileCapable 接口）
+func (p *Plugin) SendAudio(channelID, audioPath, caption string) error {
+	return p.sendMediaFile(channelID, audioPath, caption, "audio")
+}
+
+// sendMediaFile 发送媒体文件（内部方法）
+func (p *Plugin) sendMediaFile(channelID, filePath, caption, mediaType string) error {
+	token := p.cfg.BotToken
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/send%s", token, capitalize(mediaType))
+
+	// 创建 multipart form
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+
+	// 添加 chat_id
+	if err := w.WriteField("chat_id", channelID); err != nil {
+		return fmt.Errorf("write chat_id: %w", err)
+	}
+
+	// 添加 caption
+	if caption != "" {
+		if err := w.WriteField("caption", caption); err != nil {
+			return fmt.Errorf("write caption: %w", err)
+		}
+	}
+
+	// 添加文件
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("open file: %w", err)
+	}
+	defer file.Close()
+
+	part, err := w.CreateFormFile(mediaType, filepath.Base(filePath))
+	if err != nil {
+		return fmt.Errorf("create form file: %w", err)
+	}
+
+	if _, err := io.Copy(part, file); err != nil {
+		return fmt.Errorf("copy file: %w", err)
+	}
+
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("close writer: %w", err)
+	}
+
+	// 发送请求
+	req, err := http.NewRequest("POST", url, &buf)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return fmt.Errorf("unmarshal response: %w", err)
+	}
+
+	if !apiResp.OK {
+		return fmt.Errorf("telegram API error: %s", apiResp.Description)
+	}
+
+	return nil
+}
+
 // Start 启动插件
 func (p *Plugin) Start(ctx context.Context) error {
 	if !p.cfg.Enabled {
@@ -600,6 +721,14 @@ func (p *Plugin) callAPI(method string, params map[string]string) (json.RawMessa
 	}
 
 	return apiResp.Result, nil
+}
+
+// capitalize 首字母大写
+func capitalize(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // sendMedia 发送媒体消息

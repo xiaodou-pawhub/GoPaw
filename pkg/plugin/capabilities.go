@@ -26,20 +26,64 @@ type ThreadCapable interface {
 type RichTextCapable interface {
 	SendMarkdown(channelID, markdown string) error
 	SendHTML(channelID, html string) error
-	SendBlockKit(channelID, blocks []Block) error
+	SendBlockKit(channelID string, blocks []Block) error
 }
 
 // Block represents a rich text block (Slack Block Kit style).
 type Block struct {
-	Type string      `json:"type"`
-	Text *TextBlock  `json:"text,omitempty"`
+	Type     string      `json:"type"`
+	Text     *TextBlock  `json:"text,omitempty"`
 	Elements []interface{} `json:"elements,omitempty"`
+	Fields   []TextField `json:"fields,omitempty"`
 }
 
 // TextBlock represents a text element.
 type TextBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+}
+
+// TextField represents a field element.
+type TextField struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// InteractiveCapable is an optional interface for plugins that support interactive components.
+type InteractiveCapable interface {
+	SendButton(channelID, text string, buttons []Button) error
+	SendSelectMenu(channelID, text string, options []SelectOption) error
+	SendMultiSelectMenu(channelID, text string, options []SelectOption) error
+}
+
+// Button represents an interactive button.
+type Button struct {
+	ID    string `json:"id"`
+	Text  string `json:"text"`
+	Value string `json:"value"`
+	Style string `json:"style,omitempty"` // primary, danger, success
+}
+
+// SelectOption represents a select menu option.
+type SelectOption struct {
+	Text  string `json:"text"`
+	Value string `json:"value"`
+}
+
+// FileCapable is an optional interface for plugins that support file operations.
+type FileCapable interface {
+	SendFile(channelID, filePath, caption string) error
+	SendImage(channelID, imagePath, caption string) error
+	SendVideo(channelID, videoPath, caption string) error
+	SendAudio(channelID, audioPath, caption string) error
+}
+
+// MediaMessage represents a media message.
+type MediaMessage struct {
+	Type      string `json:"type"`      // image, video, audio, file
+	URL       string `json:"url"`       // remote URL or local path
+	Caption   string `json:"caption"`   // optional caption
+	Thumbnail string `json:"thumbnail"` // optional thumbnail for video
 }
 
 // ApprovalUICapable is an optional interface for plugins that support interactive approval UI.
