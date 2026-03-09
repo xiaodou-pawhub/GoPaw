@@ -1,0 +1,245 @@
+@import "tailwindcss";
+
+@theme {
+  /* 背景层次 - Claude 风格白色主题（暖色调羊皮纸） */
+  --color-bg-app: #F7F7F5;
+  --color-bg-sidebar: #F0EFEA;
+  --color-bg-panel: #FFFFFF;
+  --color-bg-elevated: #FFFFFF;
+  --color-bg-overlay: #F7F7F5;
+
+  /* 边框 - 暖灰色 */
+  --color-border: #E5E3DB;
+  --color-border-subtle: #F0EFEA;
+
+  /* 文字 - 暖灰色系 */
+  --color-text-primary: #1A1915;
+  --color-text-secondary: #7D7C78;
+  --color-text-tertiary: #A8A6A1;
+  --color-text-disabled: #D8D6D1;
+
+  /* 强调色 - Claude 陶土色/琥珀色 */
+  --color-accent: #DA7756;
+  --color-accent-hover: #E88A6A;
+  --color-accent-dim: rgba(218, 119, 86, 0.1);
+  --color-green: #22c55e;
+  --color-red: #ef4444;
+  --color-yellow: #f59e0b;
+
+  /* 字体 */
+  --font-family-sans: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-family-serif: Georgia, "Times New Roman", "Songti SC", "Noto Serif SC", serif;
+  --font-family-mono: "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  /* 字号 */
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+}
+
+/* ============================================================
+   全局 CSS 变量（供 scoped styles 直接使用）
+   ============================================================ */
+:root {
+  /* 背景 - Claude 风格暖白色调 */
+  --bg-app:        #F7F7F5;
+  --bg-sidebar:    #F0EFEA;
+  --bg-panel:      #FFFFFF;
+  --bg-elevated:   #FFFFFF;
+  --bg-overlay:    #F7F7F5;
+
+  /* 边框 - 暖灰色 */
+  --border:        #E5E3DB;
+  --border-subtle: #F0EFEA;
+
+  /* 文字 - 暖灰色系 */
+  --text-primary:   #1A1915;
+  --text-secondary: #7D7C78;
+  --text-tertiary:  #A8A6A1;
+  --text-disabled:  #D8D6D1;
+
+  /* 强调色 - Claude 陶土色 */
+  --accent:        #DA7756;
+  --accent-hover:  #E88A6A;
+  --accent-dim:    rgba(218, 119, 86, 0.1);
+
+  /* 功能色 */
+  --green:         #22c55e;
+  --red:           #ef4444;
+  --yellow:        #f59e0b;
+
+  color-scheme: light;
+}
+
+/* ============================================================
+   全局重置
+   ============================================================ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  font-family: -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--bg-app);
+  color: var(--text-primary);
+}
+
+#app {
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ============================================================
+   Scrollbar
+   ============================================================ */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* ============================================================
+   Typography helpers
+   ============================================================ */
+code {
+  font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+
+/* ============================================================
+   Markdown body (dark theme)
+   ============================================================ */
+.markdown-content {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  color: var(--text-primary);
+  font-weight: 600;
+  margin: 1em 0 0.5em;
+}
+
+.markdown-content h1 { font-size: 18px; }
+.markdown-content h2 { font-size: 16px; }
+.markdown-content h3 { font-size: 14px; }
+
+.markdown-content p {
+  margin: 0.5em 0;
+}
+
+.markdown-content code {
+  font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+  font-size: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #a78bfa;
+}
+
+.markdown-content pre {
+  background: #0d0d14 !important;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  margin: 0.75em 0;
+}
+
+.markdown-content pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #e5e7eb;
+  font-size: 12px;
+}
+
+.markdown-content blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+  color: var(--text-secondary);
+  margin: 0.75em 0;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+
+.markdown-content li {
+  margin: 0.2em 0;
+}
+
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 0.75em 0;
+}
+
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.markdown-content th {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.markdown-content a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.markdown-content a:hover {
+  text-decoration: underline;
+}
+
+.markdown-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
+}
+
+/* ============================================================
+   Highlight.js 暗色主题微调
+   ============================================================ */
+.hljs {
+  background: transparent !important;
+}
