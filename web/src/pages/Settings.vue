@@ -20,7 +20,12 @@
     <!-- 右侧内容区 -->
     <main class="settings-content">
       <Suspense>
-        <component :is="currentTabComponent" />
+        <template #default>
+          <component :is="currentTabComponent" />
+        </template>
+        <template #fallback>
+          <LoadingSpinner text="加载中..." />
+        </template>
       </Suspense>
     </main>
   </div>
@@ -32,6 +37,7 @@ import {
   CpuIcon, BotIcon, ZapIcon, BrainIcon, BookOpenIcon,
   FileTextIcon, ClockIcon, ScrollTextIcon
 } from 'lucide-vue-next'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
 
 const tabs = [
   { key: 'providers', label: '模型配置', icon: CpuIcon },
