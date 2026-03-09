@@ -222,18 +222,15 @@ func (c *CapabilityCoordinator) PreProcess(ctx context.Context, msg *types.Messa
 
 	// 1. Emoji Reaction (ACK)
 	if rc, ok := p.(plugin.ReactionCapable); ok {
-		if err := rc.AddReaction(ctx, msg.ChatID, msg.ID, plugin.ReactionWait); err != nil {
+		if err := rc.AddReaction(msg.ChatID, msg.ID, "wait"); err != nil {
 			c.logger.Debug("failed to add waiting reaction", zap.Error(err))
 		}
 	}
 
 	// 2. Typing indicator
 	if tc, ok := p.(plugin.TypingCapable); ok {
-		stop, err := tc.StartTyping(ctx, msg.ChatID)
-		if err != nil {
+		if err := tc.SendTypingIndicator(msg.ChatID); err != nil {
 			c.logger.Warn("typing indicator failed", zap.String("channel", msg.Channel), zap.Error(err))
-		} else {
-			c.typingStops.Store(typingKey(msg), stop)
 		}
 	}
 
@@ -254,8 +251,8 @@ func (c *CapabilityCoordinator) PostProcess(ctx context.Context, inbound, reply 
 	// 2. Update Reactions
 	if err == nil {
 		if rc, ok := p.(plugin.ReactionCapable); ok {
-			_ = rc.RemoveReaction(ctx, inbound.ChatID, inbound.ID, plugin.ReactionWait)
-			_ = rc.AddReaction(ctx, inbound.ChatID, inbound.ID, plugin.ReactionSuccess)
+			_ = rc.RemoveReaction(inbound.ChatID, inbound.ID, "wait")
+			_ = rc.AddReaction(inbound.ChatID, inbound.ID, "success")
 		}
 	}
 

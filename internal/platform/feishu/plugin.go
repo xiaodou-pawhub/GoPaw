@@ -74,6 +74,7 @@ var _ plugin.TypingCapable = (*Plugin)(nil)
 var _ plugin.ReactionCapable = (*Plugin)(nil)
 var _ plugin.MessageEditor = (*Plugin)(nil)
 var _ plugin.PlaceholderCapable = (*Plugin)(nil)
+var _ plugin.ApprovalUI = (*Plugin)(nil)
 
 func New() *Plugin {
 	return &Plugin{
