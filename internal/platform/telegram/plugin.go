@@ -171,6 +171,47 @@ func (p *Plugin) SetMediaStore(store plugin.MediaStore) {
 	p.store = store
 }
 
+// AddReaction 添加表情反应（实现 ReactionCapable 接口）
+func (p *Plugin) AddReaction(channelID, messageTS, reaction string) error {
+	// Telegram 暂不支持表情反应（需要 Bot API 6.1+）
+	p.logger.Debug("telegram reaction not implemented")
+	return nil
+}
+
+// RemoveReaction 移除表情反应（实现 ReactionCapable 接口）
+func (p *Plugin) RemoveReaction(channelID, messageTS, reaction string) error {
+	return nil
+}
+
+// EditMessage 编辑消息（实现 MessageEditor 接口）
+func (p *Plugin) EditMessage(channelID, messageTS, newContent string) error {
+	token := p.cfg.BotToken
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/editMessageText", token)
+
+	params := map[string]string{
+		"chat_id":    channelID,
+		"message_id": messageTS,
+		"text":       newContent,
+	}
+
+	_, err := p.callAPI(url, params)
+	return err
+}
+
+// DeleteMessage 删除消息（实现 MessageEditor 接口）
+func (p *Plugin) DeleteMessage(channelID, messageTS string) error {
+	token := p.cfg.BotToken
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/deleteMessage", token)
+
+	params := map[string]string{
+		"chat_id":    channelID,
+		"message_id": messageTS,
+	}
+
+	_, err := p.callAPI(url, params)
+	return err
+}
+
 // Start 启动插件
 func (p *Plugin) Start(ctx context.Context) error {
 	if !p.cfg.Enabled {

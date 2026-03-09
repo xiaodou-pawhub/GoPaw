@@ -145,6 +145,32 @@ func (p *Plugin) SetMediaStore(store plugin.MediaStore) {
 	p.store = store
 }
 
+// AddReaction 添加表情反应（实现 ReactionCapable 接口）
+func (p *Plugin) AddReaction(channelID, messageTS, reaction string) error {
+	// 企业微信暂不支持表情反应
+	p.logger.Debug("wecom does not support reactions")
+	return nil
+}
+
+// RemoveReaction 移除表情反应（实现 ReactionCapable 接口）
+func (p *Plugin) RemoveReaction(channelID, messageTS, reaction string) error {
+	return nil
+}
+
+// EditMessage 编辑消息（实现 MessageEditor 接口）
+func (p *Plugin) EditMessage(channelID, messageTS, newContent string) error {
+	// 企业微信暂不支持消息编辑
+	p.logger.Debug("wecom does not support message editing")
+	return nil
+}
+
+// DeleteMessage 删除消息（实现 MessageEditor 接口）
+func (p *Plugin) DeleteMessage(channelID, messageTS string) error {
+	// 企业微信暂不支持消息删除
+	p.logger.Debug("wecom does not support message deletion")
+	return nil
+}
+
 // Start 启动插件
 func (p *Plugin) Start(ctx context.Context) error {
 	if !p.cfg.Enabled {

@@ -222,6 +222,33 @@ func (p *Plugin) SetMediaStore(store plugin.MediaStore) {
 	// TODO: 使用 store 处理媒体文件
 }
 
+// AddReaction 添加表情反应（实现 ReactionCapable 接口）
+func (p *Plugin) AddReaction(channelID, messageTS, reaction string) error {
+	// 钉钉暂不支持表情反应
+	p.logger.Debug("dingtalk does not support reactions")
+	return nil
+}
+
+// RemoveReaction 移除表情反应（实现 ReactionCapable 接口）
+func (p *Plugin) RemoveReaction(channelID, messageTS, reaction string) error {
+	// 钉钉暂不支持表情反应
+	return nil
+}
+
+// EditMessage 编辑消息（实现 MessageEditor 接口）
+func (p *Plugin) EditMessage(channelID, messageTS, newContent string) error {
+	// 钉钉暂不支持消息编辑
+	p.logger.Debug("dingtalk does not support message editing")
+	return nil
+}
+
+// DeleteMessage 删除消息（实现 MessageEditor 接口）
+func (p *Plugin) DeleteMessage(channelID, messageTS string) error {
+	// 钉钉暂不支持消息删除
+	p.logger.Debug("dingtalk does not support message deletion")
+	return nil
+}
+
 // createMessageHandler 创建消息处理器
 func (p *Plugin) createMessageHandler() chatbot.IChatBotMessageHandler {
 	return func(ctx context.Context, data *chatbot.BotCallbackDataModel) ([]byte, error) {

@@ -90,6 +90,71 @@ func (p *Plugin) SetMediaStore(store plugin.MediaStore) {
 	p.store = store
 }
 
+// AddReaction 添加表情反应（实现 ReactionCapable 接口）
+func (p *Plugin) AddReaction(channelID, messageTS, reaction string) error {
+	item := slack.NewRefToMessage(channelID, messageTS)
+	return p.client.AddReaction(reaction, item)
+}
+
+// RemoveReaction 移除表情反应（实现 ReactionCapable 接口）
+func (p *Plugin) RemoveReaction(channelID, messageTS, reaction string) error {
+	item := slack.NewRefToMessage(channelID, messageTS)
+	return p.client.RemoveReaction(reaction, item)
+}
+
+// EditMessage 编辑消息（实现 MessageEditor 接口）
+func (p *Plugin) EditMessage(channelID, messageTS, newContent string) error {
+	_, _, _, err := p.client.UpdateMessage(
+		channelID,
+		messageTS,
+		slack.MsgOptionText(newContent, false),
+	)
+	return err
+}
+
+// DeleteMessage 删除消息（实现 MessageEditor 接口）
+func (p *Plugin) DeleteMessage(channelID, messageTS string) error {
+	_, _, err := p.client.DeleteMessage(channelID, messageTS)
+	return err
+}
+
+// SendThreadMessage 发送线程消息（实现 ThreadCapable 接口）
+func (p *Plugin) SendThreadMessage(channelID, parentTS, content string) error {
+	_, _, err := p.client.PostMessage(
+		channelID,
+		slack.MsgOptionText(content, false),
+		slack.MsgOptionTS(parentTS),
+	)
+	return err
+}
+
+// GetThreadHistory 获取线程历史（实现 ThreadCapable 接口）
+func (p *Plugin) GetThreadHistory(channelID, parentTS string) ([]types.Message, error) {
+	params := &slack.GetConversationRepliesParameters{
+		ChannelID: channelID,
+		Timestamp: parentTS,
+	}
+
+	messages, _, _, err := p.client.GetConversationReplies(params)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []types.Message
+	for _, msg := range messages {
+		result = append(result, types.Message{
+			ID:        fmt.Sprintf("slack_%s", msg.Msg.Timestamp),
+			Channel:   "slack",
+			UserID:    msg.Msg.User,
+			ChatID:    channelID,
+			Content:   msg.Msg.Text,
+			Timestamp: int64(parseSlackTimestamp(msg.Msg.Timestamp)),
+		})
+	}
+
+	return result, nil
+}
+
 // Start 启动插件
 func (p *Plugin) Start(ctx context.Context) error {
 	if !p.cfg.Enabled {

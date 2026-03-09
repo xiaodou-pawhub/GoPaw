@@ -70,11 +70,6 @@ type Plugin struct {
 
 // 确保实现所有必需的接口
 var _ plugin.MediaStoreReceiver = (*Plugin)(nil)
-var _ plugin.TypingCapable = (*Plugin)(nil)
-var _ plugin.ReactionCapable = (*Plugin)(nil)
-var _ plugin.MessageEditor = (*Plugin)(nil)
-var _ plugin.PlaceholderCapable = (*Plugin)(nil)
-var _ plugin.ApprovalUI = (*Plugin)(nil)
 
 func New() *Plugin {
 	return &Plugin{
@@ -788,11 +783,11 @@ func (p *Plugin) downloadResource(msgID string, msgData *larkim.EventMessage) (s
 // mapReaction maps standard reaction types to Feishu-specific emoji.
 func (p *Plugin) mapReaction(rt string) string {
 	switch rt {
-	case plugin.ReactionWait:
+	case "wait":
 		return "Get" // 飞书中的"了解/Get"表情
-	case plugin.ReactionSuccess:
+	case "success":
 		return "DONE" // 飞书中的"完成"表情
-	case plugin.ReactionError:
+	case "error":
 		return "WRONG" // 飞书中的"错误"表情
 	default:
 		return ""
