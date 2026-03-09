@@ -25,8 +25,21 @@
 
       <!-- 会话列表 -->
       <div class="session-list">
-        <template v-if="filteredSessions.length === 0">
-          <div class="empty-sessions">暂无会话</div>
+        <template v-if="sessionsLoading">
+          <Skeleton v-for="i in 5" :key="i" width="100%" height="40px" shape="round" style="margin-bottom: 8px;" />
+        </template>
+        <template v-else-if="filteredSessions.length === 0">
+          <EmptyState
+            :icon="MessageSquareIcon"
+            title="暂无会话"
+            description="点击新对话按钮开始聊天"
+            :icon-size="32"
+          >
+            <button class="btn-primary btn-sm" @click="createNewSession">
+              <PlusIcon :size="14" />
+              新对话
+            </button>
+          </EmptyState>
         </template>
         <template v-else>
           <div
@@ -72,11 +85,17 @@
 
       <!-- 消息区 -->
       <div ref="messagesRef" class="messages-area">
-        <div v-if="messages.length === 0" class="empty-chat">
-          <div class="empty-chat-icon">
-            <img src="/assets/logo.png" alt="GoPaw" width="48" height="48" style="border-radius: 12px;" />
-          </div>
-          <p class="empty-chat-text">{{ t('chat.welcome') }}</p>
+        <div v-if="messagesLoading" class="messages-loading">
+          <Skeleton v-for="i in 3" :key="i" width="100%" height="60px" shape="round" style="margin-bottom: 12px;" />
+        </div>
+        <div v-else-if="messages.length === 0" class="empty-chat">
+          <EmptyState
+            :icon="BotIcon"
+            :title="t('chat.welcome')"
+            description="有什么可以帮你的吗？"
+            :icon-size="48"
+            centered
+          />
         </div>
 
         <div
@@ -248,7 +267,7 @@ import { useRouter, useRoute } from 'vue-router'
 import {
   PlusIcon, SearchIcon, MessageSquareIcon, PencilIcon, TrashIcon,
   BarChartIcon, CopyIcon, PaperclipIcon, StopCircleIcon, ArrowUpIcon,
-  LoaderIcon, ChevronDownIcon, FileTextIcon, XIcon
+  LoaderIcon, ChevronDownIcon, FileTextIcon, XIcon, BotIcon
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -257,6 +276,8 @@ import { getSessionMessages, getSessionStats, getSessions, deleteSession, update
 import type { ChatMessage, SessionStats, SessionInfo } from '@/types'
 import { default as markdownIt } from 'markdown-it'
 import highlightjs from 'highlight.js'
+import Skeleton from '@/components/Skeleton.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -275,6 +296,8 @@ const pendingFile = ref<{ name: string; content: string; type: string } | null>(
 const inputFocused = ref(false)
 const searchOpen = ref(false)
 const searchQuery = ref('')
+const sessionsLoading = ref(true)
+const messagesLoading = ref(true)
 
 const isThinking = ref(false)
 const isStreaming = ref(false)
@@ -440,6 +463,7 @@ function stopChatStream() {
 }
 
 async function loadSessions(): Promise<SessionInfo[]> {
+  sessionsLoading.value = true
   try {
     const list = await getSessions()
     sessions.value = list
@@ -447,6 +471,8 @@ async function loadSessions(): Promise<SessionInfo[]> {
   } catch {
     toast.error('加载会话列表失败')
     return []
+  } finally {
+    sessionsLoading.value = false
   }
 }
 
@@ -467,6 +493,7 @@ async function handleSessionSwitch(id: string) {
     return
   }
   stopChatStream()
+  messagesLoading.value = true
   currentSessionId.value = id
   loadStats(id)
   try {
@@ -475,6 +502,8 @@ async function handleSessionSwitch(id: string) {
     scrollToBottom()
   } catch {
     toast.error('加载历史记录失败')
+  } finally {
+    messagesLoading.value = false
   }
 }
 
@@ -777,6 +806,20 @@ onUnmounted(() => {
   padding: 24px 0;
 }
 
+/* EmptyState 覆盖样式 */
+.session-list :deep(.empty-state) {
+  padding: 32px 16px;
+}
+
+.session-list :deep(.empty-title) {
+  font-size: 14px;
+}
+
+.session-list :deep(.empty-description) {
+  font-size: 12px;
+  margin-bottom: 16px;
+}
+
 .session-item {
   display: flex;
   align-items: center;
@@ -891,6 +934,13 @@ onUnmounted(() => {
   padding: 20px 0;
   display: flex;
   flex-direction: column;
+}
+
+.messages-loading {
+  padding: 20px 24px;
+  max-width: 800px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .empty-chat {
