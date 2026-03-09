@@ -171,6 +171,123 @@ func (p *Plugin) DeleteMessage(channelID, messageTS string) error {
 	return nil
 }
 
+// SendMarkdown 发送 Markdown 消息（实现 RichTextCapable 接口）
+func (p *Plugin) SendMarkdown(channelID, markdown string) error {
+	token, err := p.GetAccessToken()
+	if err != nil {
+		return err
+	}
+
+	// 企业微信支持 Markdown 消息类型
+	req := SendMessageRequest{
+		ToUser:  channelID,
+		MsgType: "markdown",
+		AgentID: p.cfg.AgentID,
+	}
+	req.Markdown.Content = markdown
+
+	jsonBody, _ := json.Marshal(req)
+	url := fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=%s", token)
+
+	resp, err := p.httpClient.Post(url, "application/json", bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+
+	var apiResp APIResponse
+	if err := json.Unmarshal(respBody, &apiResp); err != nil {
+		return fmt.Errorf("unmarshal response: %w", err)
+	}
+
+	if apiResp.ErrCode != 0 {
+		return fmt.Errorf("wecom API error (%d): %s", apiResp.ErrCode, apiResp.ErrMsg)
+	}
+
+	return nil
+}
+
+// SendHTML 发送 HTML 消息（实现 RichTextCapable 接口）
+func (p *Plugin) SendHTML(channelID, html string) error {
+	token, err := p.GetAccessToken()
+	if err != nil {
+		return err
+	}
+
+	// 企业微信支持文本消息，可以包含 HTML
+	req := SendMessageRequest{
+		ToUser:  channelID,
+		MsgType: "text",
+		AgentID: p.cfg.AgentID,
+	}
+	req.Text.Content = html
+
+	jsonBody, _ := json.Marshal(req)
+	url := fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=%s", token)
+
+	resp, err := p.httpClient.Post(url, "application/json", bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+
+	var apiResp APIResponse
+	if err := json.Unmarshal(respBody, &apiResp); err != nil {
+		return fmt.Errorf("unmarshal response: %w", err)
+	}
+
+	if apiResp.ErrCode != 0 {
+		return fmt.Errorf("wecom API error (%d): %s", apiResp.ErrCode, apiResp.ErrMsg)
+	}
+
+	return nil
+}
+
+// SendBlockKit 发送 Block Kit 消息（实现 RichTextCapable 接口）
+func (p *Plugin) SendBlockKit(channelID string, blocks []plugin.Block) error {
+	// 企业微信暂不支持 Block Kit
+	p.logger.Debug("wecom does not support Block Kit")
+	return nil
+}
+
+// SendFile 发送文件（实现 FileCapable 接口）
+func (p *Plugin) SendFile(channelID, filePath, caption string) error {
+	// 企业微信暂不支持文件上传
+	p.logger.Debug("wecom does not support file upload yet")
+	return nil
+}
+
+// SendImage 发送图片（实现 FileCapable 接口）
+func (p *Plugin) SendImage(channelID, imagePath, caption string) error {
+	// 企业微信暂不支持图片上传
+	p.logger.Debug("wecom does not support image upload yet")
+	return nil
+}
+
+// SendVideo 发送视频（实现 FileCapable 接口）
+func (p *Plugin) SendVideo(channelID, videoPath, caption string) error {
+	// 企业微信暂不支持视频上传
+	p.logger.Debug("wecom does not support video upload yet")
+	return nil
+}
+
+// SendAudio 发送音频（实现 FileCapable 接口）
+func (p *Plugin) SendAudio(channelID, audioPath, caption string) error {
+	// 企业微信暂不支持音频上传
+	p.logger.Debug("wecom does not support audio upload yet")
+	return nil
+}
+
 // Start 启动插件
 func (p *Plugin) Start(ctx context.Context) error {
 	if !p.cfg.Enabled {

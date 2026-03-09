@@ -155,6 +155,135 @@ func (p *Plugin) GetThreadHistory(channelID, parentTS string) ([]types.Message, 
 	return result, nil
 }
 
+// SendMarkdown 发送 Markdown 消息（实现 RichTextCapable 接口）
+func (p *Plugin) SendMarkdown(channelID, markdown string) error {
+	_, _, err := p.client.PostMessage(
+		channelID,
+		slack.MsgOptionText(markdown, false),
+		slack.MsgOptionAsUser(true),
+	)
+	return err
+}
+
+// SendHTML 发送 HTML 消息（实现 RichTextCapable 接口）
+func (p *Plugin) SendHTML(channelID, html string) error {
+	// Slack 不支持 HTML，使用 mrkdwn 替代
+	_, _, err := p.client.PostMessage(
+		channelID,
+		slack.MsgOptionText(html, false),
+		slack.MsgOptionAsUser(true),
+	)
+	return err
+}
+
+// SendBlockKit 发送 Block Kit 消息（实现 RichTextCapable 接口）
+func (p *Plugin) SendBlockKit(channelID string, blocks []plugin.Block) error {
+	// 转换为 Slack Block Kit 格式
+	slackBlocks := make([]slack.Block, len(blocks))
+	for i, block := range blocks {
+		slackBlocks[i] = convertToSlackBlock(block)
+	}
+
+	_, _, err := p.client.PostMessage(
+		channelID,
+		slack.MsgOptionBlocks(slackBlocks...),
+		slack.MsgOptionAsUser(true),
+	)
+	return err
+}
+
+// SendButton 发送按钮消息（实现 InteractiveCapable 接口）
+func (p *Plugin) SendButton(channelID, text string, buttons []plugin.Button) error {
+	blocks := []slack.Block{
+		slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", text, false, false), nil, nil),
+	}
+
+	// 添加按钮
+	actionElements := make([]slack.BlockElement, len(buttons))
+	for i, btn := range buttons {
+		btnElem := slack.NewButtonBlockElement(btn.ID, btn.Value, slack.NewTextBlockObject("plain_text", btn.Text, false, false))
+		if btn.Style == "danger" {
+			btnElem = btnElem.WithStyle(slack.StyleDanger)
+		} else if btn.Style == "primary" {
+			btnElem = btnElem.WithStyle(slack.StylePrimary)
+		}
+		actionElements[i] = btnElem
+	}
+	blocks = append(blocks, slack.NewActionBlock("", actionElements...))
+
+	_, _, err := p.client.PostMessage(
+		channelID,
+		slack.MsgOptionBlocks(blocks...),
+		slack.MsgOptionAsUser(true),
+	)
+	return err
+}
+
+// SendSelectMenu 发送选择菜单（实现 InteractiveCapable 接口）
+func (p *Plugin) SendSelectMenu(channelID, text string, options []plugin.SelectOption) error {
+	slackOptions := make([]*slack.OptionBlockObject, len(options))
+	for i, opt := range options {
+		slackOptions[i] = slack.NewOptionBlockObject(opt.Value, slack.NewTextBlockObject("plain_text", opt.Text, false, false), nil)
+	}
+
+	selectElement := slack.NewOptionsSelectBlockElement("static_select", nil, "action_select", slackOptions...)
+
+	blocks := []slack.Block{
+		slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", text, false, false), nil, nil),
+		slack.NewActionBlock("", selectElement),
+	}
+
+	_, _, err := p.client.PostMessage(
+		channelID,
+		slack.MsgOptionBlocks(blocks...),
+		slack.MsgOptionAsUser(true),
+	)
+	return err
+}
+
+// SendMultiSelectMenu 发送多选菜单（实现 InteractiveCapable 接口）
+func (p *Plugin) SendMultiSelectMenu(channelID, text string, options []plugin.SelectOption) error {
+	slackOptions := make([]*slack.OptionBlockObject, len(options))
+	for i, opt := range options {
+		slackOptions[i] = slack.NewOptionBlockObject(opt.Value, slack.NewTextBlockObject("plain_text", opt.Text, false, false), nil)
+	}
+
+	selectElement := slack.NewOptionsMultiSelectBlockElement("multi_static_select", nil, "action_multiselect", slackOptions...)
+
+	blocks := []slack.Block{
+		slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", text, false, false), nil, nil),
+		slack.NewActionBlock("", selectElement),
+	}
+
+	_, _, err := p.client.PostMessage(
+		channelID,
+		slack.MsgOptionBlocks(blocks...),
+		slack.MsgOptionAsUser(true),
+	)
+	return err
+}
+
+// convertToSlackBlock 转换为 Slack Block
+func convertToSlackBlock(block plugin.Block) slack.Block {
+	switch block.Type {
+	case "section":
+		if block.Text != nil {
+			return slack.NewSectionBlock(
+				slack.NewTextBlockObject("mrkdwn", block.Text.Text, false, false),
+				nil,
+				nil,
+			)
+		}
+	case "divider":
+		return slack.NewDividerBlock()
+	case "header":
+		if block.Text != nil {
+			return slack.NewHeaderBlock(slack.NewTextBlockObject("plain_text", block.Text.Text, false, false))
+		}
+	}
+	return slack.NewSectionBlock(slack.NewTextBlockObject("mrkdwn", "", false, false), nil, nil)
+}
+
 // Start 启动插件
 func (p *Plugin) Start(ctx context.Context) error {
 	if !p.cfg.Enabled {

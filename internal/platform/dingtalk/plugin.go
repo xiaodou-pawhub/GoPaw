@@ -249,6 +249,94 @@ func (p *Plugin) DeleteMessage(channelID, messageTS string) error {
 	return nil
 }
 
+// SendMarkdown 发送 Markdown 消息（实现 RichTextCapable 接口）
+func (p *Plugin) SendMarkdown(channelID, markdown string) error {
+	token, err := p.GetAccessToken()
+	if err != nil {
+		return err
+	}
+
+	// 钉钉使用 sampleMarkdown 模板
+	url := "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"
+	payload := map[string]interface{}{
+		"robotCode": p.cfg.ClientID,
+		"userIds":   []string{channelID},
+		"msgKey":    "sampleMarkdown",
+		"msgParam":  fmt.Sprintf(`{"text":"%s","title":"GoPaw"}`, markdown),
+	}
+
+	return p.sendDingTalkRequest(token, url, payload)
+}
+
+// SendHTML 发送 HTML 消息（实现 RichTextCapable 接口）
+func (p *Plugin) SendHTML(channelID, html string) error {
+	// 钉钉暂不支持纯 HTML，使用 Markdown 替代
+	return p.SendMarkdown(channelID, html)
+}
+
+// SendBlockKit 发送 Block Kit 消息（实现 RichTextCapable 接口）
+func (p *Plugin) SendBlockKit(channelID string, blocks []plugin.Block) error {
+	// 钉钉暂不支持 Block Kit
+	p.logger.Debug("dingtalk does not support Block Kit")
+	return nil
+}
+
+// SendFile 发送文件（实现 FileCapable 接口）
+func (p *Plugin) SendFile(channelID, filePath, caption string) error {
+	// 钉钉暂不支持文件上传
+	p.logger.Debug("dingtalk does not support file upload yet")
+	return nil
+}
+
+// SendImage 发送图片（实现 FileCapable 接口）
+func (p *Plugin) SendImage(channelID, imagePath, caption string) error {
+	// 钉钉暂不支持图片上传
+	p.logger.Debug("dingtalk does not support image upload yet")
+	return nil
+}
+
+// SendVideo 发送视频（实现 FileCapable 接口）
+func (p *Plugin) SendVideo(channelID, videoPath, caption string) error {
+	// 钉钉暂不支持视频上传
+	p.logger.Debug("dingtalk does not support video upload yet")
+	return nil
+}
+
+// SendAudio 发送音频（实现 FileCapable 接口）
+func (p *Plugin) SendAudio(channelID, audioPath, caption string) error {
+	// 钉钉暂不支持音频上传
+	p.logger.Debug("dingtalk does not support audio upload yet")
+	return nil
+}
+
+// sendDingTalkRequest 发送钉钉请求（内部方法）
+func (p *Plugin) sendDingTalkRequest(token, url string, payload map[string]interface{}) error {
+	jsonBody, _ := json.Marshal(payload)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-acs-dingtalk-access-token", token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("dingtalk API error (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
 // createMessageHandler 创建消息处理器
 func (p *Plugin) createMessageHandler() chatbot.IChatBotMessageHandler {
 	return func(ctx context.Context, data *chatbot.BotCallbackDataModel) ([]byte, error) {
