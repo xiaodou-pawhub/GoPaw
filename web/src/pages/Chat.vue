@@ -278,6 +278,7 @@ import { default as markdownIt } from 'markdown-it'
 import highlightjs from 'highlight.js'
 import Skeleton from '@/components/Skeleton.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import { saveCurrentSession, getCurrentSession } from '@/utils/storage'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -478,6 +479,8 @@ async function loadSessions(): Promise<SessionInfo[]> {
 
 function selectSession(id: string) {
   if (currentSessionId.value === id) return
+  // 保存当前会话 ID 到存储
+  saveCurrentSession(id)
   router.push({ name: 'Chat', params: { id } })
 }
 
@@ -678,11 +681,23 @@ function handleChatKey(e: KeyboardEvent) {
 }
 
 onMounted(async () => {
+  // 从存储恢复当前会话
+  const storedSessionId = getCurrentSession()
+  
   const list = await loadSessions()
   const routeId = route.params.id as string
-  if (routeId) handleSessionSwitch(routeId)
-  else if (list.length > 0) selectSession(list[0].id)
-  else createNewSession()
+  
+  if (routeId) {
+    handleSessionSwitch(routeId)
+  } else if (storedSessionId && list.some(s => s.id === storedSessionId)) {
+    // 恢复存储的会话
+    selectSession(storedSessionId)
+  } else if (list.length > 0) {
+    selectSession(list[0].id)
+  } else {
+    createNewSession()
+  }
+  
   window.addEventListener('keydown', handleChatKey)
 })
 
@@ -1402,5 +1417,33 @@ onUnmounted(() => {
 
 .btn-primary:hover {
   background: var(--accent-hover);
+}
+
+/* ===== 响应式布局 ===== */
+@media (max-width: 768px) {
+  .chat-root {
+    flex-direction: column;
+  }
+  
+  .session-panel {
+    width: 100%;
+    height: auto;
+    max-height: 300px;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  
+  .chat-main {
+    flex: 1;
+    min-height: 0;
+  }
+  
+  .message-row {
+    padding: 8px 16px;
+  }
+  
+  .input-area {
+    padding: 0 16px 16px;
+  }
 }
 </style>

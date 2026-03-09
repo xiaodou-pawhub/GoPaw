@@ -52,6 +52,7 @@ const tabs = [
 
 const activeTab = ref('providers')
 
+// 懒加载 Tab 组件（代码分割）
 const tabComponents: Record<string, any> = {
   providers: defineAsyncComponent(() => import('@/components/settings/ProvidersTab.vue')),
   agent: defineAsyncComponent(() => import('@/components/settings/AgentTab.vue')),
