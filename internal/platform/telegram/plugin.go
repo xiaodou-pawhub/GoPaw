@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/gopaw/gopaw/internal/channel"
+	"github.com/gopaw/gopaw/internal/optimizer"
 	"github.com/gopaw/gopaw/pkg/plugin"
 	"github.com/gopaw/gopaw/pkg/types"
 )
@@ -32,6 +33,11 @@ type Plugin struct {
 
 	// 媒体存储
 	store plugin.MediaStore
+
+	// 性能优化
+	rateLimiter  *optimizer.RateLimiter
+	userCache    *optimizer.Cache[string]
+	msgBatcher   *optimizer.BatchProcessor[*types.Message]
 
 	// 状态
 	running   bool
@@ -161,7 +167,17 @@ func (p *Plugin) Init(cfg json.RawMessage) error {
 	p.logger = zap.L().Named("telegram")
 	p.httpClient = &http.Client{
 		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second,
+		},
 	}
+
+	// 初始化性能优化组件
+	p.rateLimiter = optimizer.NewRateLimiter(30, 50) // 30 req/s, burst 50
+	p.userCache = optimizer.NewCache[string](5*time.Minute, 1000) // 5 分钟 TTL, 1000 条目
+	// p.msgBatcher = optimizer.NewBatchProcessor(100, 5*time.Second, p.flushMessages)
 
 	return nil
 }
