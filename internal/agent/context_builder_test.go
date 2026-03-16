@@ -14,7 +14,7 @@ import (
 
 func TestNewContextBuilder(t *testing.T) {
 	logger := zap.NewNop()
-	builder := NewContextBuilder("test persona", nil, nil, 1000, logger)
+	builder := NewContextBuilder("test persona", nil, nil, nil, "", 1000, logger)
 
 	assert.NotNil(t, builder)
 	assert.Equal(t, "test persona", builder.persona)
@@ -23,7 +23,7 @@ func TestNewContextBuilder(t *testing.T) {
 
 func TestNewContextBuilder_DefaultTokenBudget(t *testing.T) {
 	logger := zap.NewNop()
-	builder := NewContextBuilder("test persona", nil, nil, 0, logger)
+	builder := NewContextBuilder("test persona", nil, nil, nil, "", 0, logger)
 
 	assert.NotNil(t, builder)
 	assert.Equal(t, 2000, builder.tokenBudget) // Default value
@@ -31,15 +31,15 @@ func TestNewContextBuilder_DefaultTokenBudget(t *testing.T) {
 
 func TestContextBuilder_Build_NoManagers(t *testing.T) {
 	logger := zap.NewNop()
-	builder := NewContextBuilder("Test Persona", nil, nil, 2000, logger)
-	
+	builder := NewContextBuilder("Test Persona", nil, nil, nil, "", 2000, logger)
+
 	ctx := testingContext()
 	result, err := builder.Build(ctx, "session1", "hello")
 
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Contains(t, result.SystemPrompt, "Test Persona")
-	assert.NotContains(t, result.SystemPrompt, "相关记忆")
+	assert.NotContains(t, result.SystemPrompt, "记忆")
 	assert.NotContains(t, result.SystemPrompt, "相关技能")
 	assert.Contains(t, result.SystemPrompt, "当前时间")
 	assert.Equal(t, 0, result.MemoriesUsed)
@@ -48,10 +48,10 @@ func TestContextBuilder_Build_NoManagers(t *testing.T) {
 
 func TestContextBuilder_buildTimeContext(t *testing.T) {
 	logger := zap.NewNop()
-	builder := NewContextBuilder("test", nil, nil, 2000, logger)
-	
+	builder := NewContextBuilder("test", nil, nil, nil, "", 2000, logger)
+
 	timeContext := builder.buildTimeContext()
-	
+
 	assert.NotEmpty(t, timeContext)
 	assert.Contains(t, timeContext, "当前时间")
 	assert.Contains(t, timeContext, "星期")

@@ -8,6 +8,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -20,11 +21,13 @@ import (
 // It retrieves relevant memories, matches active skills, and includes time context
 // to provide personalized and contextual responses.
 type ContextBuilder struct {
-	persona      string           // Base persona from AGENT.md
-	memoryMgr    *memory.Manager  // Memory manager for retrieval
-	skillMgr     *skill.Manager   // Skill manager for matching
-	tokenBudget  int              // Maximum tokens for dynamic content
-	logger       *zap.Logger
+	persona        string           // Base persona from AGENT.md
+	memoryMgr      *memory.Manager  // Memory manager for retrieval
+	ltmStore       *memory.LTMStore // Long-term memory store for Core memories
+	skillMgr       *skill.Manager   // Skill manager for matching
+	memoryNotesDir string           // Directory for daily notes
+	tokenBudget    int              // Maximum tokens for dynamic content
+	logger         *zap.Logger
 }
 
 // ContextBuildResult holds the result of context building.
@@ -39,7 +42,9 @@ type ContextBuildResult struct {
 func NewContextBuilder(
 	persona string,
 	memoryMgr *memory.Manager,
+	ltmStore *memory.LTMStore,
 	skillMgr *skill.Manager,
+	memoryNotesDir string,
 	tokenBudget int,
 	logger *zap.Logger,
 ) *ContextBuilder {
@@ -48,11 +53,13 @@ func NewContextBuilder(
 	}
 
 	return &ContextBuilder{
-		persona:     persona,
-		memoryMgr:   memoryMgr,
-		skillMgr:    skillMgr,
-		tokenBudget: tokenBudget,
-		logger:      logger.Named("context_builder"),
+		persona:        persona,
+		memoryMgr:      memoryMgr,
+		ltmStore:       ltmStore,
+		skillMgr:       skillMgr,
+		memoryNotesDir: memoryNotesDir,
+		tokenBudget:    tokenBudget,
+		logger:         logger.Named("context_builder"),
 	}
 }
 
@@ -71,8 +78,8 @@ func (b *ContextBuilder) Build(ctx context.Context, sessionID, userInput string)
 	// 1. Base Persona (always included)
 	parts = append(parts, b.persona)
 
-	// 2. Relevant Memories (dynamic, token budget controlled)
-	memoriesSection, memoriesUsed := b.buildRelevantMemories(ctx, sessionID, userInput)
+	// 2. Memory Section (Core + Daily Notes + Relevant)
+	memoriesSection, memoriesUsed := b.buildMemorySection(ctx, sessionID, userInput)
 	if memoriesSection != "" {
 		parts = append(parts, memoriesSection)
 		result.MemoriesUsed = memoriesUsed
@@ -103,53 +110,106 @@ func (b *ContextBuilder) Build(ctx context.Context, sessionID, userInput string)
 	return result, nil
 }
 
-// buildRelevantMemories retrieves and formats relevant memories.
-func (b *ContextBuilder) buildRelevantMemories(ctx context.Context, sessionID, query string) (string, int) {
-	if b.memoryMgr == nil {
-		return "", 0
-	}
-
-	// Search for relevant memories
-	snippets, err := b.memoryMgr.Search(ctx, sessionID, query, 5, 0.5)
-	if err != nil {
-		b.logger.Warn("failed to search memories", zap.Error(err))
-		return "", 0
-	}
-
-	if len(snippets) == 0 {
-		return "", 0
-	}
-
-	var sb strings.Builder
-	sb.WriteString("## 相关记忆\n\n")
-
-	used := 0
+// buildMemorySection builds the complete memory section including Core, Daily Notes, and Relevant memories.
+func (b *ContextBuilder) buildMemorySection(ctx context.Context, sessionID, query string) (string, int) {
+	var sections []string
+	totalUsed := 0
 	totalTokens := 0
 	maxTokens := b.tokenBudget
 
-	for _, snippet := range snippets {
-		// Estimate tokens (rough approximation: 4 chars ≈ 1 token)
-		content := fmt.Sprintf("- %s\n", snippet.Content)
-		estimatedTokens := len(content) / 4
-
-		if totalTokens+estimatedTokens > maxTokens {
-			b.logger.Debug("memory token budget exceeded",
-				zap.Int("used", used),
-				zap.Int("total_tokens", totalTokens),
-			)
-			break
+	// 1. Core Memories (from LTMStore)
+	if b.ltmStore != nil {
+		cores, err := b.ltmStore.List(memory.CategoryCore, 5)
+		if err == nil && len(cores) > 0 {
+			var sb strings.Builder
+			sb.WriteString("### 核心记忆\n\n")
+			for _, e := range cores {
+				content := fmt.Sprintf("- **%s**: %s\n", e.Key, e.Content)
+				estimatedTokens := len(content) / 4
+				if totalTokens+estimatedTokens > maxTokens {
+					break
+				}
+				sb.WriteString(content)
+				totalTokens += estimatedTokens
+				totalUsed++
+			}
+			if totalUsed > 0 {
+				sections = append(sections, sb.String())
+			}
 		}
-
-		sb.WriteString(content)
-		totalTokens += estimatedTokens
-		used++
 	}
 
-	if used == 0 {
+	// 2. Daily Notes (last 3 days)
+	if b.memoryNotesDir != "" {
+		notes := b.buildDailyNotes()
+		if notes != "" {
+			estimatedTokens := len(notes) / 4
+			if totalTokens+estimatedTokens <= maxTokens {
+				sections = append(sections, notes)
+				totalTokens += estimatedTokens
+			}
+		}
+	}
+
+	// 3. Relevant Memories (based on user input)
+	if b.memoryMgr != nil && totalTokens < maxTokens {
+		snippets, err := b.memoryMgr.Search(ctx, sessionID, query, 5, 0.5)
+		if err == nil && len(snippets) > 0 {
+			var sb strings.Builder
+			sb.WriteString("### 相关记忆\n\n")
+			used := 0
+			for _, snippet := range snippets {
+				content := fmt.Sprintf("- %s\n", snippet.Content)
+				estimatedTokens := len(content) / 4
+				if totalTokens+estimatedTokens > maxTokens {
+					break
+				}
+				sb.WriteString(content)
+				totalTokens += estimatedTokens
+				used++
+				totalUsed++
+			}
+			if used > 0 {
+				sections = append(sections, sb.String())
+			}
+		}
+	}
+
+	if len(sections) == 0 {
 		return "", 0
 	}
 
-	return sb.String(), used
+	var result strings.Builder
+	result.WriteString("## 记忆\n\n")
+	result.WriteString(strings.Join(sections, "\n"))
+
+	return result.String(), totalUsed
+}
+
+// buildDailyNotes reads the last 3 days of daily notes.
+func (b *ContextBuilder) buildDailyNotes() string {
+	var sb strings.Builder
+	now := time.Now()
+
+	for i := 0; i < 3; i++ {
+		date := now.AddDate(0, 0, -i)
+		monthDir := b.memoryNotesDir + "/" + date.Format("200601")
+		dayFile := monthDir + "/" + date.Format("20060102") + ".md"
+
+		data, err := os.ReadFile(dayFile)
+		if err != nil {
+			continue
+		}
+
+		if sb.Len() == 0 {
+			sb.WriteString("### 最近日记\n\n")
+		}
+		sb.WriteString(fmt.Sprintf("**%s**:\n", date.Format("2006-01-02")))
+		sb.Write(data)
+		sb.WriteString("\n\n")
+	}
+
+	return sb.String()
 }
 
 // buildActiveSkills matches and formats active skills.

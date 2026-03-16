@@ -101,7 +101,9 @@ func New(
 	agent.contextBuilder = NewContextBuilder(
 		persona,
 		memoryManager,
+		cfg.LTMStore,
 		skillManager,
+		cfg.MemoryNotesDir,
 		2000, // Token budget for dynamic content
 		logger,
 	)
@@ -126,66 +128,12 @@ func (a *ReActAgent) SetApprovalUI(ui tool.ApprovalUI) {
 	a.toolExecutor.SetApprovalUI(ui)
 }
 
-// memoryTokenBudget is the maximum number of runes of memory content injected into the system prompt.
-const memoryTokenBudget = 2000
-
 // contextWarnTokens: log a warning when the prompt exceeds this many tokens.
 const contextWarnTokens = 100_000
 
 // contextHardLimitTokens: abort the agent loop when the prompt exceeds this many tokens.
 // Most frontier models top out at 128K–200K context; 150K is a safe hard limit.
 const contextHardLimitTokens = 150_000
-
-// currentMemoryContent assembles the memory block for the system prompt from memories.db.
-func (a *ReActAgent) currentMemoryContent() string {
-	var sb strings.Builder
-
-	// Core memories (up to 20, sorted by updated_at DESC)
-	cores, err := a.ltmStore.List(memory.CategoryCore, 20)
-	if err == nil && len(cores) > 0 {
-		sb.WriteString("## Long-term Memory (Core)\n\n")
-		for _, e := range cores {
-			fmt.Fprintf(&sb, "- **%s**: %s\n", e.Key, e.Content)
-		}
-	}
-
-	// Recent daily notes (last 3 days)
-	if a.memoryNotesDir != "" {
-		notes := readRecentDailyNotes(a.memoryNotesDir, 3)
-		if notes != "" {
-			if sb.Len() > 0 {
-				sb.WriteString("\n")
-			}
-			sb.WriteString("## Recent Daily Notes\n\n")
-			sb.WriteString(notes)
-		}
-	}
-
-	content := strings.TrimSpace(sb.String())
-	runes := []rune(content)
-	if len(runes) > memoryTokenBudget {
-		content = string(runes[:memoryTokenBudget]) + "\n\n<!-- [记忆已截断，可用 memory_recall 工具搜索更多] -->"
-	}
-	return content
-}
-
-// readRecentDailyNotes reads the last N days of daily note files from the notes directory.
-func readRecentDailyNotes(notesDir string, days int) string {
-	var sb strings.Builder
-	now := timeNow()
-	for i := 0; i < days; i++ {
-		date := now.AddDate(0, 0, -i)
-		monthDir := notesDir + "/" + date.Format("200601")
-		dayFile := monthDir + "/" + date.Format("20060102") + ".md"
-		data, err := os.ReadFile(dayFile)
-		if err != nil {
-			continue
-		}
-		sb.Write(data)
-		sb.WriteString("\n")
-	}
-	return sb.String()
-}
 
 // buildToolDefinitions converts plugin.Tool slice to LLM ToolDefinition slice.
 func buildToolDefinitions(tools []plugin.Tool) []llm.ToolDefinition {
@@ -306,14 +254,14 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 	history, _ = a.memoryManager.GetContext(req.SessionID, 0)
 
 	// Build system prompt dynamically using ContextBuilder.
-	// This includes persona, relevant memories, active skills, and time context.
+	// This includes persona, memories (Core + Daily + Relevant), skills, and time context.
 	allTools := a.toolRegistry.All()
 	var systemPrompt string
 	if a.contextBuilder != nil {
 		ctxResult, err := a.contextBuilder.Build(ctx, req.SessionID, req.Content)
 		if err != nil {
-			a.logger.Warn("failed to build dynamic context, falling back to static", zap.Error(err))
-			systemPrompt = buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.FragmentsForInput(req.Content), buildCapabilityFragment(allTools))
+			a.logger.Warn("failed to build dynamic context, using base persona", zap.Error(err))
+			systemPrompt = a.currentBasePrompt() + "\n\n---\n" + buildCapabilityFragment(allTools)
 		} else {
 			systemPrompt = ctxResult.SystemPrompt + "\n\n---\n" + buildCapabilityFragment(allTools)
 			a.logger.Debug("dynamic context built",
@@ -323,8 +271,8 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 			)
 		}
 	} else {
-		// Fallback to static prompt if context builder is not initialized
-		systemPrompt = buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.FragmentsForInput(req.Content), buildCapabilityFragment(allTools))
+		// Fallback to base persona if context builder is not initialized
+		systemPrompt = a.currentBasePrompt() + "\n\n---\n" + buildCapabilityFragment(allTools)
 	}
 	toolDefs := buildToolDefinitions(allTools)
 
@@ -517,13 +465,13 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 	if a.contextBuilder != nil {
 		ctxResult, err := a.contextBuilder.Build(ctx, req.SessionID, req.Content)
 		if err != nil {
-			a.logger.Warn("failed to build dynamic context, falling back to static", zap.Error(err))
-			systemPrompt = buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.FragmentsForInput(req.Content), buildCapabilityFragment(allTools))
+			a.logger.Warn("failed to build dynamic context, using base persona", zap.Error(err))
+			systemPrompt = a.currentBasePrompt() + "\n\n---\n" + buildCapabilityFragment(allTools)
 		} else {
 			systemPrompt = ctxResult.SystemPrompt + "\n\n---\n" + buildCapabilityFragment(allTools)
 		}
 	} else {
-		systemPrompt = buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.FragmentsForInput(req.Content), buildCapabilityFragment(allTools))
+		systemPrompt = a.currentBasePrompt() + "\n\n---\n" + buildCapabilityFragment(allTools)
 	}
 	toolDefs := buildToolDefinitions(allTools)
 	messages := buildMessages(systemPrompt, history, req.Content, req.Files)
