@@ -212,22 +212,21 @@ func (b *ContextBuilder) buildDailyNotes() string {
 	return sb.String()
 }
 
-// buildActiveSkills matches and formats active skills.
+// buildActiveSkills matches and formats active skills using intelligent selection.
 func (b *ContextBuilder) buildActiveSkills(input string) (string, int) {
 	if b.skillMgr == nil {
 		return "", 0
 	}
 
-	// Get skill fragments based on input
-	fragments := b.skillMgr.FragmentsForInput(input)
+	// Calculate remaining token budget for skills
+	// Assume persona and memories use ~60% of budget
+	skillsBudget := b.tokenBudget * 2 / 5 // 40% for skills
+
+	// Use smart selection with token budget
+	fragments := b.skillMgr.SmartSelectForInput(input, skillsBudget)
 	if fragments == "" {
 		return "", 0
 	}
-
-	var sb strings.Builder
-	sb.WriteString("## 相关技能\n")
-	sb.WriteString(fragments)
-	sb.WriteString("\n\n⚠️ 使用技能前请先读取完整文件")
 
 	// Count matched skills (rough estimate based on lines)
 	lines := strings.Split(fragments, "\n")
@@ -238,7 +237,7 @@ func (b *ContextBuilder) buildActiveSkills(input string) (string, int) {
 		}
 	}
 
-	return sb.String(), skillsMatched
+	return fragments, skillsMatched
 }
 
 // buildTimeContext generates time-related context.

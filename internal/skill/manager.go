@@ -3,6 +3,7 @@ package skill
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gopaw/gopaw/internal/tool"
 	"go.uber.org/zap"
@@ -13,6 +14,7 @@ type Manager struct {
 	registry  *Registry
 	loader    *Loader
 	toolReg   *tool.Registry
+	selector  *SmartSelector
 	logger    *zap.Logger
 }
 
@@ -20,10 +22,12 @@ type Manager struct {
 func NewManager(skillsDir string, toolReg *tool.Registry, logger *zap.Logger) *Manager {
 	registry := NewRegistry()
 	loader := NewLoader(skillsDir, registry, logger)
+	selector := NewSmartSelector(registry, logger)
 	return &Manager{
 		registry: registry,
 		loader:   loader,
 		toolReg:  toolReg,
+		selector: selector,
 		logger:   logger,
 	}
 }
@@ -53,8 +57,66 @@ func (m *Manager) Load(enabledList []string) error {
 // FragmentsForInput returns skill prompt fragments matched against the current user input.
 // Skills with always:true are always included; others are included only when the input
 // contains at least one of their declared keywords.
+// Deprecated: Use SmartSelectForInput for intelligent skill selection.
 func (m *Manager) FragmentsForInput(input string) string {
 	return m.registry.ActivePromptFragmentsForInput(input)
+}
+
+// SmartSelectForInput returns skill fragments using intelligent selection.
+// It considers keyword matching, usage frequency, and context budget.
+func (m *Manager) SmartSelectForInput(input string, contextBudget int) string {
+	opts := DefaultSelectionOptions()
+	opts.ContextBudget = contextBudget
+
+	scores := m.selector.SelectSkills(input, opts)
+	if len(scores) == 0 {
+		return ""
+	}
+
+	var fragments strings.Builder
+	fragments.WriteString("## 相关技能\n\n")
+	fragments.WriteString("| 技能 | 描述 | 文件 |\n")
+	fragments.WriteString("|------|------|------|\n")
+
+	totalTokens := 0
+	maxTokens := contextBudget
+
+	for _, score := range scores {
+		// Estimate tokens
+		line := fmt.Sprintf("| %s | %s | skills/%s.md |\n",
+			score.Entry.Manifest.Name,
+			score.Entry.Manifest.Description,
+			score.Entry.Manifest.Name)
+		estimatedTokens := len(line) / 4
+
+		if totalTokens+estimatedTokens > maxTokens {
+			m.logger.Debug("skill token budget exceeded",
+				zap.Int("selected", len(scores)),
+				zap.Int("total_tokens", totalTokens),
+			)
+			break
+		}
+
+		fragments.WriteString(line)
+		totalTokens += estimatedTokens
+
+		// Record usage for learning
+		m.selector.RecordUsage(score.Entry.Manifest.Name)
+	}
+
+	fragments.WriteString("\n⚠️ 使用技能前请先读取完整文件")
+
+	return fragments.String()
+}
+
+// RecordSkillUsage records that a skill was used (for learning).
+func (m *Manager) RecordSkillUsage(skillName string) {
+	m.selector.RecordUsage(skillName)
+}
+
+// GetSkillUsageStats returns usage statistics for all skills.
+func (m *Manager) GetSkillUsageStats() map[string]int {
+	return m.selector.GetUsageStats()
 }
 
 // Reload clears all registered skills and re-scans the skills directory.
