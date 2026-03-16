@@ -24,6 +24,7 @@ type ApprovalRequest struct {
 	ToolName  string
 	Args      map[string]interface{}
 	Summary   string // Human-readable summary of the operation
+	Level     string // Autonomy level (L1/L2/L3) for display
 	ChannelID string
 	ChatID    string
 	SessionID string
@@ -52,13 +53,14 @@ var GlobalApprovalStore = NewApprovalStore()
 
 // CreateRequest registers a new pending approval and returns the request ID.
 // It automatically starts a 5-minute timeout goroutine that will auto-deny if not resolved.
-func (s *ApprovalStore) CreateRequest(toolName string, args map[string]interface{}, channel, chatID, session string) *ApprovalRequest {
+func (s *ApprovalStore) CreateRequest(toolName string, args map[string]interface{}, level, channel, chatID, session string) *ApprovalRequest {
 	summary := fmt.Sprintf("执行工具 %s", toolName)
 	req := &ApprovalRequest{
 		ID:        uuid.New().String(),
 		ToolName:  toolName,
 		Args:      args,
 		Summary:   summary,
+		Level:     level,
 		ChannelID: channel,
 		ChatID:    chatID,
 		SessionID: session,

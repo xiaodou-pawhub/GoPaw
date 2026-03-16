@@ -313,6 +313,16 @@ func runStart() {
 	// Connect approval UI to tool executor
 	agentInstance.SetApprovalUI(compositeUI)
 
+	// Connect L2 notification callback to tool executor
+	agentInstance.SetL2NotificationCallback(func(ctx context.Context, toolName string, args map[string]interface{}, channel, chatID, session string) {
+		logger.Info("L2 tool executed",
+			zap.String("tool", toolName),
+			zap.String("channel", channel),
+			zap.String("session", session),
+		)
+		// TODO: Send notification to user via WebSocket or Feishu
+	})
+
 	// Connect immediate result callback to tool executor.
 	// chatID is the platform-level chat room ID (e.g. Feishu oc_xxx) threaded from req.ChatID.
 	agentInstance.Executor().SetResultCallback(func(ctx context.Context, channel, chatID, session, user string, result *plugin.ToolResult) {

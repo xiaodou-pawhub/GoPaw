@@ -128,6 +128,11 @@ func (a *ReActAgent) SetApprovalUI(ui tool.ApprovalUI) {
 	a.toolExecutor.SetApprovalUI(ui)
 }
 
+// SetL2NotificationCallback sets the callback for L2 tool execution notifications.
+func (a *ReActAgent) SetL2NotificationCallback(cb tool.L2NotificationCallback) {
+	a.toolExecutor.SetL2NotificationCallback(cb)
+}
+
 // contextWarnTokens: log a warning when the prompt exceeds this many tokens.
 const contextWarnTokens = 100_000
 

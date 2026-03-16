@@ -28,12 +28,17 @@ type ApprovalUI interface {
 // to route the response back to the correct conversation.
 type ResultCallback func(ctx context.Context, channel, chatID, session, user string, result *plugin.ToolResult)
 
+// L2NotificationCallback is invoked when an L2 tool is executed.
+// Used to notify users of regular operations that were auto-executed.
+type L2NotificationCallback func(ctx context.Context, toolName string, args map[string]interface{}, channel, chatID, session string)
+
 // Executor provides a higher-level API for the agent to call tools.
 type Executor struct {
-	registry       *Registry
-	logger         *zap.Logger
-	approvalUI     ApprovalUI
-	resultCallback ResultCallback
+	registry         *Registry
+	logger           *zap.Logger
+	approvalUI       ApprovalUI
+	resultCallback   ResultCallback
+	l2NotifyCallback L2NotificationCallback
 }
 
 // NewExecutor creates an Executor backed by the given registry.
@@ -52,6 +57,11 @@ func (e *Executor) SetApprovalUI(ui ApprovalUI) {
 // SetResultCallback injects a handler for user-facing tool results.
 func (e *Executor) SetResultCallback(cb ResultCallback) {
 	e.resultCallback = cb
+}
+
+// SetL2NotificationCallback injects a handler for L2 tool execution notifications.
+func (e *Executor) SetL2NotificationCallback(cb L2NotificationCallback) {
+	e.l2NotifyCallback = cb
 }
 
 // Execute parses argsJSON and calls the tool identified by toolName.
@@ -75,9 +85,9 @@ func (e *Executor) Execute(ctx context.Context, toolName, argsJSON, channel, cha
 		zap.Any("args", args))
 
 	// 2. Check autonomy level and handle approval if needed.
+	level := plugin.AutonomyL1 // Default to L1 for safety
 	t, ok := e.registry.Get(toolName)
 	if ok {
-		level := plugin.AutonomyL1 // Default to L1 for safety
 		if at, ok := t.(plugin.AutonomyTool); ok {
 			level = at.AutonomyLevel()
 		}
@@ -101,9 +111,9 @@ func (e *Executor) Execute(ctx context.Context, toolName, argsJSON, channel, cha
 				return "Error: this tool requires manual approval but no approval handler is configured", nil
 			}
 
-			req := GlobalApprovalStore.CreateRequest(toolName, args, channel, chatID, session)
-			if st, ok := t.(plugin.SummaryCapableTool); ok {
-				req.Summary = st.Summary(args)
+			req := GlobalApprovalStore.CreateRequest(toolName, args, level.String(), channel, chatID, session)
+			if st, ok := t.(plugin.ApprovalSummaryCapable); ok {
+				req.Summary = st.ApprovalSummary(args)
 			}
 
 			if err := e.approvalUI.RequestApproval(ctx, req); err != nil {
@@ -147,6 +157,11 @@ func (e *Executor) Execute(ctx context.Context, toolName, argsJSON, channel, cha
 		// 4. Handle user-facing content immediately if callback is set.
 		if e.resultCallback != nil && (result.UserOutput != "" || len(result.Media) > 0) {
 			e.resultCallback(ctx, channel, chatID, session, user, result)
+		}
+
+		// 5. Send L2 notification if callback is set and tool is L2.
+		if level == plugin.AutonomyL2 && e.l2NotifyCallback != nil {
+			e.l2NotifyCallback(ctx, toolName, args, channel, chatID, session)
 		}
 	}
 
