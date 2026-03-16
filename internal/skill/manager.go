@@ -11,11 +11,12 @@ import (
 
 // Manager coordinates Skill loading and exposes helpers used by other modules.
 type Manager struct {
-	registry  *Registry
-	loader    *Loader
-	toolReg   *tool.Registry
-	selector  *SmartSelector
-	logger    *zap.Logger
+	registry    *Registry
+	loader      *Loader
+	toolReg     *tool.Registry
+	selector    *SmartSelector
+	toolToSkill map[string]string // tool name -> skill name
+	logger      *zap.Logger
 }
 
 // NewManager creates a Manager.
@@ -24,11 +25,12 @@ func NewManager(skillsDir string, toolReg *tool.Registry, logger *zap.Logger) *M
 	loader := NewLoader(skillsDir, registry, logger)
 	selector := NewSmartSelector(registry, logger)
 	return &Manager{
-		registry: registry,
-		loader:   loader,
-		toolReg:  toolReg,
-		selector: selector,
-		logger:   logger,
+		registry:    registry,
+		loader:      loader,
+		toolReg:     toolReg,
+		selector:    selector,
+		toolToSkill: make(map[string]string),
+		logger:      logger,
 	}
 }
 
@@ -39,12 +41,14 @@ func (m *Manager) Load(enabledList []string) error {
 	}
 
 	// Register tools from Level-3 code skills that are enabled.
+	// Build tool -> skill mapping for usage tracking.
 	for _, e := range m.registry.All() {
 		if !e.Enabled || e.CodeSkill == nil {
 			continue
 		}
 		for _, t := range e.CodeSkill.Tools() {
 			m.toolReg.Register(t)
+			m.toolToSkill[t.Name()] = e.Manifest.Name // Build mapping
 			m.logger.Info("skill tool registered",
 				zap.String("skill", e.Manifest.Name),
 				zap.String("tool", t.Name()),
@@ -99,9 +103,6 @@ func (m *Manager) SmartSelectForInput(input string, contextBudget int) string {
 
 		fragments.WriteString(line)
 		totalTokens += estimatedTokens
-
-		// Record usage for learning
-		m.selector.RecordUsage(score.Entry.Manifest.Name)
 	}
 
 	fragments.WriteString("\n⚠️ 使用技能前请先读取完整文件")
@@ -119,10 +120,17 @@ func (m *Manager) GetSkillUsageStats() map[string]int {
 	return m.selector.GetUsageStats()
 }
 
+// GetSkillByTool returns the skill name that owns the given tool.
+// Returns empty string if the tool doesn't belong to any skill.
+func (m *Manager) GetSkillByTool(toolName string) string {
+	return m.toolToSkill[toolName]
+}
+
 // Reload clears all registered skills and re-scans the skills directory.
 // Useful when the user adds or removes skill files at runtime.
 func (m *Manager) Reload() error {
 	m.registry.Clear()
+	m.toolToSkill = make(map[string]string) // Clear tool mapping
 	m.logger.Info("skill registry cleared, reloading from disk")
 	return m.Load(nil)
 }

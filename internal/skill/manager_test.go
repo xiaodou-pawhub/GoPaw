@@ -357,3 +357,62 @@ keywords:
 		_ = manager.FragmentsForInput("test keyword_5 input")
 	}
 }
+
+// TestManager_GetSkillByTool tests the tool to skill mapping.
+func TestManager_GetSkillByTool(t *testing.T) {
+	dir := setupTestSkillDir(t)
+
+	// Create a Level-3 skill with tools
+	skillContent := `name: test_skill
+version: "1.0"
+display_name: Test Skill
+description: A test skill with tools
+level: 3
+activation:
+  always: false
+  keywords:
+    - test
+`
+	createSkillFile(t, dir, "test_skill/manifest.yaml", skillContent)
+
+	// Create a simple Go skill file
+	codeContent := `package main
+// This is a test skill
+`
+	createSkillFile(t, dir, "test_skill/skill.go", codeContent)
+
+	logger := zap.NewNop()
+	toolReg := tool.NewRegistry(logger)
+	manager := NewManager(dir, toolReg, logger)
+
+	// Before loading, mapping should be empty
+	skillName := manager.GetSkillByTool("nonexistent_tool")
+	assert.Empty(t, skillName)
+
+	// Load skills
+	err := manager.Load(nil)
+	require.NoError(t, err)
+
+	// After loading, check that toolToSkill mapping is initialized
+	assert.NotNil(t, manager.toolToSkill)
+}
+
+// TestManager_GetSkillUsageStats tests getting usage statistics.
+func TestManager_GetSkillUsageStats(t *testing.T) {
+	dir := setupTestSkillDir(t)
+	manager := setupTestManager(t, dir)
+
+	// Initially stats should be empty
+	stats := manager.GetSkillUsageStats()
+	assert.Empty(t, stats)
+
+	// Record some usage
+	manager.RecordSkillUsage("skill1")
+	manager.RecordSkillUsage("skill1")
+	manager.RecordSkillUsage("skill2")
+
+	// Check stats
+	stats = manager.GetSkillUsageStats()
+	assert.Equal(t, 2, stats["skill1"])
+	assert.Equal(t, 1, stats["skill2"])
+}

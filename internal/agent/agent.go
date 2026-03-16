@@ -383,6 +383,17 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 			// PostTool hooks: fire-and-forget side effects (logging, metrics, etc.).
 			a.hooks.runPostTool(ctx, r.call.Function.Name, r.output, r.err)
 
+			// Record skill usage for learning (if tool belongs to a skill)
+			if a.skillManager != nil {
+				if skillName := a.skillManager.GetSkillByTool(r.call.Function.Name); skillName != "" {
+					a.skillManager.RecordSkillUsage(skillName)
+					a.logger.Debug("skill usage recorded",
+						zap.String("tool", r.call.Function.Name),
+						zap.String("skill", skillName),
+					)
+				}
+			}
+
 			messages = append(messages, llm.ChatMessage{
 				Role:       llm.RoleTool,
 				ToolCallID: r.call.ID,
