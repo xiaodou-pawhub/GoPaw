@@ -321,7 +321,13 @@ func runStart() {
 	})
 
 	// Setup hot-reload for configuration files
-	setupHotReload(agentInstance, skillMgr, wp, logger)
+	hotReloadCancels := setupHotReload(agentInstance, skillMgr, wp, logger)
+	// Register cleanup on shutdown
+	defer func() {
+		for _, cancel := range hotReloadCancels {
+			cancel()
+		}
+	}()
 
 	// Connect immediate result callback to tool executor.
 	// chatID is the platform-level chat room ID (e.g. Feishu oc_xxx) threaded from req.ChatID.
@@ -480,30 +486,39 @@ func buildPluginConfigsFromDB(store *settings.Store, logger *zap.Logger) map[str
 }
 
 // setupHotReload initializes file watchers for hot-reloading configuration.
-func setupHotReload(agentInstance *agent.ReActAgent, skillMgr *skill.Manager, wp *workspace.Paths, logger *zap.Logger) {
+// Returns cancel functions that should be called on shutdown to clean up resources.
+func setupHotReload(agentInstance *agent.ReActAgent, skillMgr *skill.Manager, wp *workspace.Paths, logger *zap.Logger) []context.CancelFunc {
+	var cancels []context.CancelFunc
+
 	// Watch AGENT.md for persona changes
 	if agentMDPath := agentInstance.GetAgentMDPath(); agentMDPath != "" {
-		if err := config.WatchFile(agentMDPath, func() {
+		cancel, err := config.WatchFile(agentMDPath, func() {
 			logger.Info("AGENT.md changed, reloading persona",
 				zap.String("path", agentMDPath),
 			)
 			agentInstance.ReloadPersona()
-		}, logger); err != nil {
+		}, logger)
+		if err != nil {
 			logger.Warn("failed to watch AGENT.md", zap.Error(err))
+		} else {
+			cancels = append(cancels, cancel)
 		}
 	}
 
 	// Watch skills directory for skill changes
 	if wp.SkillsDir != "" {
-		if err := config.WatchDir(wp.SkillsDir, func(path string) {
+		cancel, err := config.WatchDir(wp.SkillsDir, func(path string) {
 			logger.Info("skills directory changed, reloading skills",
 				zap.String("path", path),
 			)
 			if err := skillMgr.Reload(); err != nil {
 				logger.Error("failed to reload skills", zap.Error(err))
 			}
-		}, logger); err != nil {
+		}, logger)
+		if err != nil {
 			logger.Warn("failed to watch skills directory", zap.Error(err))
+		} else {
+			cancels = append(cancels, cancel)
 		}
 	}
 
@@ -511,4 +526,6 @@ func setupHotReload(agentInstance *agent.ReActAgent, skillMgr *skill.Manager, wp
 		zap.String("agent_md", agentInstance.GetAgentMDPath()),
 		zap.String("skills_dir", wp.SkillsDir),
 	)
+
+	return cancels
 }
