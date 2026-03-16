@@ -1,3 +1,7 @@
+// Copyright (C) 2026 luoxiaodou
+// This file is part of GoPaw, licensed under the AGPL-3.0 License.
+// See the LICENSE file in the project root for full license terms.
+
 // Package agent implements the native Function Calling agent engine.
 // The agent orchestrates LLM calls, tool execution, and memory management to
 // produce responses to user messages.

@@ -1,3 +1,7 @@
+// Copyright (C) 2026 luoxiaodou
+// This file is part of GoPaw, licensed under the AGPL-3.0 License.
+// See the LICENSE file in the project root for full license terms.
+
 // Command gopaw is the main entry point for the GoPaw AI assistant workbench.
 package main
 
