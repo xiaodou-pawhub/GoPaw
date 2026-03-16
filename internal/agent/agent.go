@@ -38,6 +38,7 @@ type ReActAgent struct {
 	memoryManager  *memory.Manager
 	ltmStore       *memory.LTMStore // structured long-term memory (memories.db)
 	sessionManager *SessionManager
+	contextBuilder *ContextBuilder // dynamic context builder
 	// defaultPrompt is used when agentMDPath is not set or the file cannot be read.
 	defaultPrompt string
 	// agentMDPath is the path to data/AGENT.md. When set, the system prompt is
@@ -78,7 +79,7 @@ func New(
 	cfg Config,
 	logger *zap.Logger,
 ) *ReActAgent {
-	return &ReActAgent{
+	agent := &ReActAgent{
 		llmClient:      llmClient,
 		toolRegistry:   toolRegistry,
 		toolExecutor:   tool.NewExecutor(toolRegistry, logger),
@@ -94,6 +95,18 @@ func New(
 		logger:         logger,
 		convlog:        cfg.ConvLog,
 	}
+
+	// Initialize context builder with base persona
+	persona := agent.currentBasePrompt()
+	agent.contextBuilder = NewContextBuilder(
+		persona,
+		memoryManager,
+		skillManager,
+		2000, // Token budget for dynamic content
+		logger,
+	)
+
+	return agent
 }
 
 // currentBasePrompt returns the active system prompt.
@@ -292,10 +305,27 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 	// Reload context after potential compression.
 	history, _ = a.memoryManager.GetContext(req.SessionID, 0)
 
-	// Build system prompt (reads from AGENT.md + memory on each call for hot-reload).
-	// Tools are passed via the API Tools field, not embedded in the system prompt.
+	// Build system prompt dynamically using ContextBuilder.
+	// This includes persona, relevant memories, active skills, and time context.
 	allTools := a.toolRegistry.All()
-	systemPrompt := buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.FragmentsForInput(req.Content), buildCapabilityFragment(allTools))
+	var systemPrompt string
+	if a.contextBuilder != nil {
+		ctxResult, err := a.contextBuilder.Build(ctx, req.SessionID, req.Content)
+		if err != nil {
+			a.logger.Warn("failed to build dynamic context, falling back to static", zap.Error(err))
+			systemPrompt = buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.FragmentsForInput(req.Content), buildCapabilityFragment(allTools))
+		} else {
+			systemPrompt = ctxResult.SystemPrompt + "\n\n---\n" + buildCapabilityFragment(allTools)
+			a.logger.Debug("dynamic context built",
+				zap.Int("memories_used", ctxResult.MemoriesUsed),
+				zap.Int("skills_matched", ctxResult.SkillsMatched),
+				zap.Duration("build_time", ctxResult.BuildTime),
+			)
+		}
+	} else {
+		// Fallback to static prompt if context builder is not initialized
+		systemPrompt = buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.FragmentsForInput(req.Content), buildCapabilityFragment(allTools))
+	}
 	toolDefs := buildToolDefinitions(allTools)
 
 	// Assemble the initial message list (req.Files triggers media manifest injection).
@@ -481,8 +511,20 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 	a.memoryManager.MaybeCompress(req.SessionID)
 	history, _ = a.memoryManager.GetContext(req.SessionID, 0)
 
+	// Build system prompt dynamically using ContextBuilder
 	allTools := a.toolRegistry.All()
-	systemPrompt := buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.FragmentsForInput(req.Content), buildCapabilityFragment(allTools))
+	var systemPrompt string
+	if a.contextBuilder != nil {
+		ctxResult, err := a.contextBuilder.Build(ctx, req.SessionID, req.Content)
+		if err != nil {
+			a.logger.Warn("failed to build dynamic context, falling back to static", zap.Error(err))
+			systemPrompt = buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.FragmentsForInput(req.Content), buildCapabilityFragment(allTools))
+		} else {
+			systemPrompt = ctxResult.SystemPrompt + "\n\n---\n" + buildCapabilityFragment(allTools)
+		}
+	} else {
+		systemPrompt = buildSystemPrompt(a.currentBasePrompt(), a.currentMemoryContent(), a.skillManager.FragmentsForInput(req.Content), buildCapabilityFragment(allTools))
+	}
 	toolDefs := buildToolDefinitions(allTools)
 	messages := buildMessages(systemPrompt, history, req.Content, req.Files)
 
