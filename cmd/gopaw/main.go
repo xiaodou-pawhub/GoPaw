@@ -140,9 +140,6 @@ func runStart() {
 	logger, _ := buildLogger(cfg.Log, wp.LogFile)
 	defer logger.Sync()
 
-	watcher := config.NewWatcher(cfgMgr, logger)
-	watcher.Start()
-
 	// ---------- Media Store ----------
 	mediaBaseDir := filepath.Join(wp.Root, "media")
 	mediaStore := channel.NewMediaStore(mediaBaseDir, 1*time.Hour, logger)
@@ -323,6 +320,9 @@ func runStart() {
 		// TODO: Send notification to user via WebSocket or Feishu
 	})
 
+	// Setup hot-reload for configuration files
+	setupHotReload(agentInstance, skillMgr, wp, logger)
+
 	// Connect immediate result callback to tool executor.
 	// chatID is the platform-level chat room ID (e.g. Feishu oc_xxx) threaded from req.ChatID.
 	agentInstance.Executor().SetResultCallback(func(ctx context.Context, channel, chatID, session, user string, result *plugin.ToolResult) {
@@ -477,4 +477,38 @@ func buildPluginConfigsFromDB(store *settings.Store, logger *zap.Logger) map[str
 		out[p.Name()] = json.RawMessage(cfgJSON)
 	}
 	return out
+}
+
+// setupHotReload initializes file watchers for hot-reloading configuration.
+func setupHotReload(agentInstance *agent.ReActAgent, skillMgr *skill.Manager, wp *workspace.Paths, logger *zap.Logger) {
+	// Watch AGENT.md for persona changes
+	if agentMDPath := agentInstance.GetAgentMDPath(); agentMDPath != "" {
+		if err := config.WatchFile(agentMDPath, func() {
+			logger.Info("AGENT.md changed, reloading persona",
+				zap.String("path", agentMDPath),
+			)
+			agentInstance.ReloadPersona()
+		}, logger); err != nil {
+			logger.Warn("failed to watch AGENT.md", zap.Error(err))
+		}
+	}
+
+	// Watch skills directory for skill changes
+	if wp.SkillsDir != "" {
+		if err := config.WatchDir(wp.SkillsDir, func(path string) {
+			logger.Info("skills directory changed, reloading skills",
+				zap.String("path", path),
+			)
+			if err := skillMgr.Reload(); err != nil {
+				logger.Error("failed to reload skills", zap.Error(err))
+			}
+		}, logger); err != nil {
+			logger.Warn("failed to watch skills directory", zap.Error(err))
+		}
+	}
+
+	logger.Info("hot-reload watching started",
+		zap.String("agent_md", agentInstance.GetAgentMDPath()),
+		zap.String("skills_dir", wp.SkillsDir),
+	)
 }

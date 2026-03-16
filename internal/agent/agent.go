@@ -133,6 +133,21 @@ func (a *ReActAgent) SetL2NotificationCallback(cb tool.L2NotificationCallback) {
 	a.toolExecutor.SetL2NotificationCallback(cb)
 }
 
+// ReloadPersona reloads the persona from AGENT.md and updates the context builder.
+// This is called when the AGENT.md file changes (hot reload).
+func (a *ReActAgent) ReloadPersona() {
+	newPersona := a.currentBasePrompt()
+	a.contextBuilder.SetPersona(newPersona)
+	a.logger.Info("persona reloaded from file",
+		zap.String("path", a.agentMDPath),
+	)
+}
+
+// GetAgentMDPath returns the path to the AGENT.md file.
+func (a *ReActAgent) GetAgentMDPath() string {
+	return a.agentMDPath
+}
+
 // contextWarnTokens: log a warning when the prompt exceeds this many tokens.
 const contextWarnTokens = 100_000
 

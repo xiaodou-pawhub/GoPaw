@@ -63,6 +63,12 @@ func NewContextBuilder(
 	}
 }
 
+// SetPersona updates the base persona.
+// This is used for hot-reloading when AGENT.md changes.
+func (b *ContextBuilder) SetPersona(persona string) {
+	b.persona = persona
+}
+
 // Build constructs a dynamic system prompt based on user input.
 //
 // Token Budget Allocation Strategy (default 2000 tokens):
