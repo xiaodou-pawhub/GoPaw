@@ -13,6 +13,7 @@ require (
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
 	github.com/larksuite/oapi-sdk-go/v3 v3.5.3
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
+	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/nguyenthenguyen/docx v0.0.0-20230621112118-9c8e795a11db
 	github.com/open-dingtalk/dingtalk-stream-sdk-go v0.9.1
 	github.com/pkoukk/tiktoken-go v0.1.8
@@ -67,7 +68,6 @@ require (
 	github.com/spf13/afero v1.11.0 // indirect
 	github.com/spf13/cast v1.6.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect

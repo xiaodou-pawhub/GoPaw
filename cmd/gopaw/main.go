@@ -196,7 +196,7 @@ func runStart() {
 	builtin.SetLTMStore(ltmStore)
 	builtin.SetMemoryNotesDir(wp.MemoryNotesDir)
 	builtin.SetWorkspaceRoot(wp.Root)
-	skillMgr := skill.NewManager(wp.SkillsDir, toolReg, logger)
+	skillMgr := skill.NewManager(wp.SkillsDir, toolReg, nil, logger)
 	skillMgr.Load(cfg.Skills.Enabled)
 	builtin.SetSkillManager(skillMgr)
 

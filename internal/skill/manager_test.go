@@ -33,7 +33,7 @@ func createSkillFile(t *testing.T, dir, path, content string) {
 func setupTestManager(t *testing.T, skillDir string) *Manager {
 	logger := zap.NewNop()
 	toolReg := tool.NewRegistry(logger)
-	manager := NewManager(skillDir, toolReg, logger)
+	manager := NewManager(skillDir, toolReg, nil, logger)
 	return manager
 }
 
@@ -323,7 +323,7 @@ level: 1
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		toolReg := tool.NewRegistry(logger)
-		manager := NewManager(dir, toolReg, logger)
+		manager := NewManager(dir, toolReg, nil, logger)
 		_ = manager.Load(nil)
 	}
 }
@@ -349,7 +349,7 @@ keywords:
 	}
 
 	toolReg := tool.NewRegistry(logger)
-	manager := NewManager(dir, toolReg, logger)
+	manager := NewManager(dir, toolReg, nil, logger)
 	_ = manager.Load(nil)
 
 	b.ResetTimer()
@@ -383,7 +383,7 @@ activation:
 
 	logger := zap.NewNop()
 	toolReg := tool.NewRegistry(logger)
-	manager := NewManager(dir, toolReg, logger)
+	manager := NewManager(dir, toolReg, nil, logger)
 
 	// Before loading, mapping should be empty
 	skillName := manager.GetSkillByTool("nonexistent_tool")

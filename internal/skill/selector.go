@@ -23,6 +23,7 @@ type SkillScore struct {
 // SmartSelector provides intelligent skill selection based on user input.
 type SmartSelector struct {
 	registry  *Registry
+	store     *UsageStore
 	logger    *zap.Logger
 
 	// Usage tracking for learning
@@ -33,13 +34,47 @@ type SmartSelector struct {
 }
 
 // NewSmartSelector creates a new smart skill selector.
-func NewSmartSelector(registry *Registry, logger *zap.Logger) *SmartSelector {
-	return &SmartSelector{
+// If store is provided, it will load persisted usage data.
+func NewSmartSelector(registry *Registry, store *UsageStore, logger *zap.Logger) *SmartSelector {
+	s := &SmartSelector{
 		registry:   registry,
+		store:      store,
 		logger:     logger.Named("skill_selector"),
 		usageCount: make(map[string]int),
 		lastUsed:   make(map[string]time.Time),
 	}
+
+	// Load persisted data if store is available
+	if store != nil {
+		if err := s.loadFromStore(); err != nil {
+			logger.Warn("failed to load skill usage from store", zap.Error(err))
+		}
+	}
+
+	return s
+}
+
+// loadFromStore loads usage data from the persistent store.
+func (s *SmartSelector) loadFromStore() error {
+	records, err := s.store.LoadAll()
+	if err != nil {
+		return err
+	}
+
+	s.usageMu.Lock()
+	defer s.usageMu.Unlock()
+
+	for _, r := range records {
+		s.usageCount[r.SkillName] = r.Count
+		s.lastUsed[r.SkillName] = r.LastUsed
+		s.totalUsage += r.Count
+	}
+
+	s.logger.Info("loaded skill usage from store",
+		zap.Int("records", len(records)),
+		zap.Int("total_usage", s.totalUsage),
+	)
+	return nil
 }
 
 // SelectSkills returns skills sorted by relevance to the user input.
@@ -188,6 +223,21 @@ func (s *SmartSelector) RecordUsage(skillName string) {
 	s.lastUsed[skillName] = time.Now()
 	s.totalUsage++
 
+	// Persist to store if available
+	if s.store != nil {
+		record := &UsageRecord{
+			SkillName: skillName,
+			Count:     s.usageCount[skillName],
+			LastUsed:  s.lastUsed[skillName],
+		}
+		if err := s.store.Save(record); err != nil {
+			s.logger.Warn("failed to persist skill usage",
+				zap.String("skill", skillName),
+				zap.Error(err),
+			)
+		}
+	}
+
 	s.logger.Debug("skill usage recorded",
 		zap.String("skill", skillName),
 		zap.Int("count", s.usageCount[skillName]),
@@ -204,6 +254,46 @@ func (s *SmartSelector) GetUsageStats() map[string]int {
 		stats[name] = count
 	}
 	return stats
+}
+
+// Cleanup removes stale usage records for skills not used in the given duration.
+// This prevents memory leaks from accumulated usage data.
+func (s *SmartSelector) Cleanup(maxAge time.Duration) {
+	s.usageMu.Lock()
+	defer s.usageMu.Unlock()
+
+	cutoff := time.Now().Add(-maxAge)
+	cleaned := 0
+
+	for name, lastUse := range s.lastUsed {
+		if lastUse.Before(cutoff) {
+			// Remove stale records
+			s.totalUsage -= s.usageCount[name]
+			delete(s.usageCount, name)
+			delete(s.lastUsed, name)
+			cleaned++
+		}
+	}
+
+	if cleaned > 0 {
+		s.logger.Info("cleaned up stale skill usage records",
+			zap.Int("cleaned", cleaned),
+			zap.Duration("max_age", maxAge),
+		)
+	}
+}
+
+// Reset clears all usage data.
+// Useful for testing or when user explicitly wants to reset learning.
+func (s *SmartSelector) Reset() {
+	s.usageMu.Lock()
+	defer s.usageMu.Unlock()
+
+	s.usageCount = make(map[string]int)
+	s.lastUsed = make(map[string]time.Time)
+	s.totalUsage = 0
+
+	s.logger.Info("skill usage data reset")
 }
 
 // sortSkillsByScore sorts skills by score descending.

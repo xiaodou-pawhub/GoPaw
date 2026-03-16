@@ -20,10 +20,11 @@ type Manager struct {
 }
 
 // NewManager creates a Manager.
-func NewManager(skillsDir string, toolReg *tool.Registry, logger *zap.Logger) *Manager {
+// UsageStore is optional - if nil, usage data will not be persisted.
+func NewManager(skillsDir string, toolReg *tool.Registry, store *UsageStore, logger *zap.Logger) *Manager {
 	registry := NewRegistry()
 	loader := NewLoader(skillsDir, registry, logger)
-	selector := NewSmartSelector(registry, logger)
+	selector := NewSmartSelector(registry, store, logger)
 	return &Manager{
 		registry:    registry,
 		loader:      loader,

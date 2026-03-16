@@ -595,6 +595,17 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 			}
 			a.hooks.runPostTool(ctx, r.call.Function.Name, r.output, r.err)
 
+			// Record skill usage for learning (if tool belongs to a skill)
+			if a.skillManager != nil {
+				if skillName := a.skillManager.GetSkillByTool(r.call.Function.Name); skillName != "" {
+					a.skillManager.RecordSkillUsage(skillName)
+					a.logger.Debug("skill usage recorded",
+						zap.String("tool", r.call.Function.Name),
+						zap.String("skill", skillName),
+					)
+				}
+			}
+
 			if progressFn != nil {
 				progressFn(ProgressEvent{
 					Type:     ProgressToolResult,

@@ -15,7 +15,7 @@ import (
 func TestNewSmartSelector(t *testing.T) {
 	registry := NewRegistry()
 	logger := zap.NewNop()
-	selector := NewSmartSelector(registry, logger)
+	selector := NewSmartSelector(registry, nil, logger)
 
 	assert.NotNil(t, selector)
 	assert.NotNil(t, selector.registry)
@@ -26,7 +26,7 @@ func TestNewSmartSelector(t *testing.T) {
 func TestSmartSelector_SelectSkills_Always(t *testing.T) {
 	registry := NewRegistry()
 	logger := zap.NewNop()
-	selector := NewSmartSelector(registry, logger)
+	selector := NewSmartSelector(registry, nil, logger)
 
 	// Register a skill with always:true
 	entry := &Entry{
@@ -54,7 +54,7 @@ func TestSmartSelector_SelectSkills_Always(t *testing.T) {
 func TestSmartSelector_SelectSkills_KeywordMatch(t *testing.T) {
 	registry := NewRegistry()
 	logger := zap.NewNop()
-	selector := NewSmartSelector(registry, logger)
+	selector := NewSmartSelector(registry, nil, logger)
 
 	// Register a skill with keywords
 	entry := &Entry{
@@ -88,7 +88,7 @@ func TestSmartSelector_SelectSkills_KeywordMatch(t *testing.T) {
 func TestSmartSelector_SelectSkills_Disabled(t *testing.T) {
 	registry := NewRegistry()
 	logger := zap.NewNop()
-	selector := NewSmartSelector(registry, logger)
+	selector := NewSmartSelector(registry, nil, logger)
 
 	// Register a disabled skill
 	entry := &Entry{
@@ -114,7 +114,7 @@ func TestSmartSelector_SelectSkills_Disabled(t *testing.T) {
 func TestSmartSelector_RecordUsage(t *testing.T) {
 	registry := NewRegistry()
 	logger := zap.NewNop()
-	selector := NewSmartSelector(registry, logger)
+	selector := NewSmartSelector(registry, nil, logger)
 
 	// Record usage
 	selector.RecordUsage("skill1")
@@ -130,7 +130,7 @@ func TestSmartSelector_RecordUsage(t *testing.T) {
 func TestSmartSelector_GetFrequencyBoost(t *testing.T) {
 	registry := NewRegistry()
 	logger := zap.NewNop()
-	selector := NewSmartSelector(registry, logger)
+	selector := NewSmartSelector(registry, nil, logger)
 
 	// Initially no boost
 	boost := selector.getFrequencyBoost("skill1")
