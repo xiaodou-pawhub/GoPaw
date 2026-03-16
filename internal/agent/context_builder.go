@@ -64,6 +64,19 @@ func NewContextBuilder(
 }
 
 // Build constructs a dynamic system prompt based on user input.
+//
+// Token Budget Allocation Strategy (default 2000 tokens):
+//   - Persona: Always included (not counted in budget)
+//   - Memory Section: ~60% of budget (1200 tokens)
+//     - Core memories (LTMStore)
+//     - Daily notes (last 3 days)
+//     - Relevant memories (FTS5 + vector search)
+//   - Skills Section: ~40% of budget (800 tokens)
+//     - Smart selection based on input matching
+//     - Token budget controlled
+//   - Time Context: Fixed small overhead
+//
+// The budget is enforced per section to ensure balanced context.
 func (b *ContextBuilder) Build(ctx context.Context, sessionID, userInput string) (*ContextBuildResult, error) {
 	start := time.Now()
 	result := &ContextBuildResult{}
@@ -71,14 +84,16 @@ func (b *ContextBuilder) Build(ctx context.Context, sessionID, userInput string)
 	b.logger.Debug("building context",
 		zap.String("session", sessionID),
 		zap.String("input", userInput[:min(len(userInput), 50)]),
+		zap.Int("token_budget", b.tokenBudget),
 	)
 
 	var parts []string
 
-	// 1. Base Persona (always included)
+	// 1. Base Persona (always included, not counted in budget)
 	parts = append(parts, b.persona)
 
 	// 2. Memory Section (Core + Daily Notes + Relevant)
+	// Uses up to ~60% of token budget
 	memoriesSection, memoriesUsed := b.buildMemorySection(ctx, sessionID, userInput)
 	if memoriesSection != "" {
 		parts = append(parts, memoriesSection)
@@ -86,13 +101,14 @@ func (b *ContextBuilder) Build(ctx context.Context, sessionID, userInput string)
 	}
 
 	// 3. Active Skills (dynamic, based on input matching)
+	// Uses up to ~40% of token budget
 	skillsSection, skillsMatched := b.buildActiveSkills(userInput)
 	if skillsSection != "" {
 		parts = append(parts, skillsSection)
 		result.SkillsMatched = skillsMatched
 	}
 
-	// 4. Time Context (dynamic)
+	// 4. Time Context (dynamic, fixed small overhead)
 	parts = append(parts, b.buildTimeContext())
 
 	// Combine all parts
@@ -120,7 +136,9 @@ func (b *ContextBuilder) buildMemorySection(ctx context.Context, sessionID, quer
 	// 1. Core Memories (from LTMStore)
 	if b.ltmStore != nil {
 		cores, err := b.ltmStore.List(memory.CategoryCore, 5)
-		if err == nil && len(cores) > 0 {
+		if err != nil {
+			b.logger.Warn("failed to list core memories", zap.Error(err))
+		} else if len(cores) > 0 {
 			var sb strings.Builder
 			sb.WriteString("### 核心记忆\n\n")
 			for _, e := range cores {
@@ -154,7 +172,9 @@ func (b *ContextBuilder) buildMemorySection(ctx context.Context, sessionID, quer
 	// 3. Relevant Memories (based on user input)
 	if b.memoryMgr != nil && totalTokens < maxTokens {
 		snippets, err := b.memoryMgr.Search(ctx, sessionID, query, 5, 0.5)
-		if err == nil && len(snippets) > 0 {
+		if err != nil {
+			b.logger.Warn("failed to search relevant memories", zap.Error(err))
+		} else if len(snippets) > 0 {
 			var sb strings.Builder
 			sb.WriteString("### 相关记忆\n\n")
 			used := 0
