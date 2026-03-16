@@ -70,10 +70,29 @@ func (e *Executor) Execute(ctx context.Context, toolName, argsJSON, channel, cha
 		zap.String("session", session),
 		zap.Any("args", args))
 
-	// 2. Check for manual approval if needed.
+	// 2. Check autonomy level and handle approval if needed.
 	t, ok := e.registry.Get(toolName)
 	if ok {
-		if gt, ok := t.(plugin.GuardedTool); ok && gt.RequireApproval(args) {
+		level := plugin.AutonomyL1 // Default to L1 for safety
+		if at, ok := t.(plugin.AutonomyTool); ok {
+			level = at.AutonomyLevel()
+		}
+
+		e.logger.Info("tool autonomy level",
+			zap.String("tool", toolName),
+			zap.String("level", level.String()))
+
+		switch level {
+		case plugin.AutonomyL1:
+			// L1: Auto-execute, only log
+			e.logger.Debug("L1 tool executing", zap.String("tool", toolName))
+
+		case plugin.AutonomyL2:
+			// L2: Auto-execute, will notify after execution
+			e.logger.Info("L2 tool executing", zap.String("tool", toolName))
+
+		case plugin.AutonomyL3:
+			// L3: Require explicit approval
 			if e.approvalUI == nil {
 				return "Error: this tool requires manual approval but no approval handler is configured", nil
 			}
@@ -82,18 +101,18 @@ func (e *Executor) Execute(ctx context.Context, toolName, argsJSON, channel, cha
 			if st, ok := t.(plugin.SummaryCapableTool); ok {
 				req.Summary = st.Summary(args)
 			}
-			
+
 			if err := e.approvalUI.RequestApproval(ctx, req); err != nil {
 				return fmt.Sprintf("Error: failed to send approval request: %v", err), nil
 			}
 
-			e.logger.Info("tool execution suspended, waiting for approval", zap.String("request_id", req.ID))
+			e.logger.Info("L3 tool waiting for approval", zap.String("request_id", req.ID))
 			verdict := GlobalApprovalStore.WaitForVerdict(ctx, req, 10*time.Minute)
-			
+
 			if verdict != VerdictAllowed {
 				return fmt.Sprintf("Error: execution was %s by the user", verdict), nil
 			}
-			e.logger.Info("tool execution approved", zap.String("request_id", req.ID))
+			e.logger.Info("L3 tool approved", zap.String("request_id", req.ID))
 		}
 	}
 

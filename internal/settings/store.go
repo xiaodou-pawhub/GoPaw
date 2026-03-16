@@ -23,10 +23,32 @@ type ProviderConfig struct {
 	Model      string   `json:"model"`
 	MaxTokens  int      `json:"max_tokens"`
 	TimeoutSec int      `json:"timeout_sec"`
-	IsActive   bool     `json:"is_active"`
-	Tags       []string `json:"tags"` // capability tags like ["fc", "vision"]
+	
+	// New fields for priority-based model management
+	Priority   int      `json:"priority"`             // Priority order (0 = highest)
+	Enabled    bool     `json:"enabled"`              // Whether provider is enabled
+	Tags       []string `json:"tags"`                 // Capability tags like ["vision", "function_call"]
+	
+	// Legacy field for backward compatibility
+	IsActive   bool     `json:"is_active"`            // Deprecated: use Enabled instead
+	
 	CreatedAt  int64    `json:"created_at"`
 	UpdatedAt  int64    `json:"updated_at"`
+}
+
+// HasCapability checks if provider has a specific capability tag.
+func (p *ProviderConfig) HasCapability(capability string) bool {
+	for _, tag := range p.Tags {
+		if tag == capability {
+			return true
+		}
+	}
+	return false
+}
+
+// IsVisionCapable returns true if provider supports vision.
+func (p *ProviderConfig) IsVisionCapable() bool {
+	return p.HasCapability("vision") || p.HasCapability("multimodal")
 }
 
 // Store manages runtime settings backed by the shared SQLite database.
@@ -36,10 +58,185 @@ type Store struct {
 
 // NewStore creates a Store backed by the given database connection.
 func NewStore(db *sql.DB) *Store {
-	return &Store{db: db}
+	store := &Store{db: db}
+	
+	// Run database migration for priority-based model management
+	store.migrateProviderSchema()
+	
+	return store
+}
+
+// migrateProviderSchema adds new columns for priority-based model management.
+func (s *Store) migrateProviderSchema() {
+	// Add priority column if not exists
+	_, _ = s.db.Exec(`
+		ALTER TABLE providers ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
+	`)
+	
+	// Add enabled column if not exists
+	_, _ = s.db.Exec(`
+		ALTER TABLE providers ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;
+	`)
+	
+	// Migrate existing is_active to enabled for backward compatibility
+	_, _ = s.db.Exec(`
+		UPDATE providers SET enabled = is_active WHERE enabled = 0 AND is_active = 1;
+	`)
+	
+	// Set priority based on creation order for existing providers
+	_, _ = s.db.Exec(`
+		UPDATE providers 
+		SET priority = (
+			SELECT COUNT(*) 
+			FROM providers p2 
+			WHERE p2.created_at < providers.created_at
+		)
+		WHERE priority = 0;
+	`)
 }
 
 // ── LLM Providers ──────────────────────────────────────────────────────────
+
+// ListProvidersByPriority returns all enabled LLM providers ordered by priority.
+func (s *Store) ListProvidersByPriority() ([]ProviderConfig, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, 
+		       is_active, tags, priority, enabled, created_at, updated_at
+		FROM providers
+		WHERE enabled = 1
+		ORDER BY priority ASC, created_at ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []ProviderConfig
+	for rows.Next() {
+		p := &ProviderConfig{}
+		var isActiveInt, enabledInt int
+		var tagsJSON string
+		if err := rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKey, &p.Model,
+			&p.MaxTokens, &p.TimeoutSec, &isActiveInt, &tagsJSON, &p.Priority, &enabledInt,
+			&p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		p.IsActive = isActiveInt == 1
+		p.Enabled = enabledInt == 1
+		_ = json.Unmarshal([]byte(tagsJSON), &p.Tags)
+		if p.Tags == nil {
+			p.Tags = []string{}
+		}
+		// Mask API key for safety
+		if len(p.APIKey) > 8 {
+			p.APIKey = p.APIKey[:4] + "****" + p.APIKey[len(p.APIKey)-4:]
+		} else {
+			p.APIKey = "****"
+		}
+		list = append(list, *p)
+	}
+	return list, rows.Err()
+}
+
+// SetProviderEnabled enables or disables a provider by ID.
+func (s *Store) SetProviderEnabled(id string, enabled bool) error {
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
+	now := time.Now().UnixMilli()
+	_, err := s.db.Exec(`
+		UPDATE providers 
+		SET enabled = ?, updated_at = ? 
+		WHERE id = ?
+	`, enabledInt, now, id)
+	return err
+}
+
+// ReorderProviders updates priorities based on new order.
+func (s *Store) ReorderProviders(providerIDs []string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now().UnixMilli()
+	for i, id := range providerIDs {
+		if _, err := tx.Exec(`
+			UPDATE providers 
+			SET priority = ?, updated_at = ? 
+			WHERE id = ?
+		`, i, now, id); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetProvidersByCapability returns enabled providers that have the specified capability.
+func (s *Store) GetProvidersByCapability(capability string) ([]ProviderConfig, error) {
+	rows, err := s.db.Query(`
+		SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, 
+		       is_active, tags, priority, enabled, created_at, updated_at
+		FROM providers
+		WHERE enabled = 1
+		ORDER BY priority ASC, created_at ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []ProviderConfig
+	for rows.Next() {
+		p := &ProviderConfig{}
+		var isActiveInt, enabledInt int
+		var tagsJSON string
+		if err := rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKey, &p.Model,
+			&p.MaxTokens, &p.TimeoutSec, &isActiveInt, &tagsJSON, &p.Priority, &enabledInt,
+			&p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		p.IsActive = isActiveInt == 1
+		p.Enabled = enabledInt == 1
+		_ = json.Unmarshal([]byte(tagsJSON), &p.Tags)
+		if p.Tags == nil {
+			p.Tags = []string{}
+		}
+
+		// Filter by capability
+		if p.HasCapability(capability) {
+			// Mask API key for safety
+			if len(p.APIKey) > 8 {
+				p.APIKey = p.APIKey[:4] + "****" + p.APIKey[len(p.APIKey)-4:]
+			} else {
+				p.APIKey = "****"
+			}
+			list = append(list, *p)
+		}
+	}
+	return list, rows.Err()
+}
+
+// GetFirstVisionCapableProvider returns the first enabled vision-capable provider.
+func (s *Store) GetFirstVisionCapableProvider() (*ProviderConfig, error) {
+	providers, err := s.GetProvidersByCapability("vision")
+	if err != nil {
+		return nil, err
+	}
+	if len(providers) == 0 {
+		providers, err = s.GetProvidersByCapability("multimodal")
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(providers) == 0 {
+		return nil, fmt.Errorf("no vision-capable provider configured")
+	}
+	return &providers[0], nil
+}
 
 // GetActiveProvider returns the currently active LLM provider, or nil if none is set.
 func (s *Store) GetActiveProvider() (*ProviderConfig, error) {
@@ -145,7 +342,7 @@ func (s *Store) SaveProvider(p *ProviderConfig) error {
 	if p.TimeoutSec == 0 {
 		p.TimeoutSec = 60
 	}
-	
+
 	// 中文：如果 API Key 为空或脱敏值，保留旧值
 	// English: If API Key is empty or masked, preserve the old value
 	if p.APIKey == "" || p.APIKey == "****" || (len(p.APIKey) == 8 && p.APIKey[4:] == "****") {
@@ -154,9 +351,22 @@ func (s *Store) SaveProvider(p *ProviderConfig) error {
 			p.APIKey = old.APIKey
 		}
 	}
-	
+
+	// Support both legacy IsActive and new Enabled fields
 	isActive := 0
 	if p.IsActive {
+		isActive = 1
+	}
+	enabledInt := 0
+	if p.Enabled {
+		enabledInt = 1
+	}
+	
+	// Keep IsActive and Enabled in sync for backward compatibility
+	if p.IsActive && !p.Enabled {
+		enabledInt = 1
+	}
+	if !p.IsActive && p.Enabled {
 		isActive = 1
 	}
 
@@ -166,14 +376,16 @@ func (s *Store) SaveProvider(p *ProviderConfig) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO providers (id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, tags, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO providers (id, name, base_url, api_key, model, max_tokens, timeout_sec, 
+		                        is_active, tags, priority, enabled, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   name=excluded.name, base_url=excluded.base_url,
 		   model=excluded.model, max_tokens=excluded.max_tokens, timeout_sec=excluded.timeout_sec,
-		   is_active=excluded.is_active, tags=excluded.tags, updated_at=excluded.updated_at`,
+		   is_active=excluded.is_active, tags=excluded.tags, 
+		   priority=excluded.priority, enabled=excluded.enabled, updated_at=excluded.updated_at`,
 		p.ID, p.Name, p.BaseURL, p.APIKey, p.Model,
-		p.MaxTokens, p.TimeoutSec, isActive, string(tagsData), p.CreatedAt, p.UpdatedAt,
+		p.MaxTokens, p.TimeoutSec, isActive, string(tagsData), p.Priority, enabledInt, p.CreatedAt, p.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("settings: save provider: %w", err)

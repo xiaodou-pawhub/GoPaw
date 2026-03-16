@@ -29,12 +29,67 @@ func NewSettingsHandler(store *settings.Store, agentMDPath string, channelMgr *c
 
 // ListProviders handles GET /api/settings/providers
 func (h *SettingsHandler) ListProviders(c *gin.Context) {
-	list, err := h.store.ListProviders()
+	// Use new priority-based listing
+	list, err := h.store.ListProvidersByPriority()
 	if err != nil {
-		h.logger.Error("settings: list providers", zap.Error(err))
+		h.logger.Error("settings: list providers by priority", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	c.JSON(http.StatusOK, gin.H{"providers": list})
+}
+
+// ToggleProvider handles POST /api/settings/providers/:id/toggle
+func (h *SettingsHandler) ToggleProvider(c *gin.Context) {
+	id := c.Param("id")
+	
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	
+	if err := h.store.SetProviderEnabled(id, body.Enabled); err != nil {
+		h.logger.Error("settings: toggle provider", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{"id": id, "enabled": body.Enabled})
+}
+
+// ReorderProviders handles POST /api/settings/providers/reorder
+func (h *SettingsHandler) ReorderProviders(c *gin.Context) {
+	var body struct {
+		ProviderIDs []string `json:"provider_ids"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	
+	if err := h.store.ReorderProviders(body.ProviderIDs); err != nil {
+		h.logger.Error("settings: reorder providers", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// GetCapableProviders handles GET /api/settings/providers/capable/:capability
+func (h *SettingsHandler) GetCapableProviders(c *gin.Context) {
+	capability := c.Param("capability") // e.g., "vision", "multimodal"
+	
+	list, err := h.store.GetProvidersByCapability(capability)
+	if err != nil {
+		h.logger.Error("settings: get capable providers", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	
 	c.JSON(http.StatusOK, gin.H{"providers": list})
 }
 

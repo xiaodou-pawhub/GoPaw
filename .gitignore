@@ -55,3 +55,6 @@ gitee_actions_key.pub
 
 # Reports directory (local development reports, not for repo)
 reports/
+
+# Documentation (local development docs, not for repo)
+docs/

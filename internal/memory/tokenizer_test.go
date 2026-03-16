@@ -54,13 +54,12 @@ func TestCountTokens_Fallback(t *testing.T) {
 	}
 }
 
-// TestEstimateTokens_Compatibility tests that EstimateTokens still works (alias).
-func TestEstimateTokens_Compatibility(t *testing.T) {
+// TestCountTokens_Basic tests basic token counting.
+func TestCountTokens_Basic(t *testing.T) {
 	msgs := []MemoryMessage{
 		{Role: "user", Content: "Test message", CreatedAt: time.Now()},
 	}
-	// EstimateTokens should return same as CountTokens now
-	result := EstimateTokens(msgs)
+	result := CountTokens(msgs)
 	if result <= 0 {
 		t.Fatalf("expected positive token count, got %d", result)
 	}

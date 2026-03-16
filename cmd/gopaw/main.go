@@ -300,8 +300,14 @@ func runStart() {
 	sessionLocker := channel.NewSessionLocker()
 	coord := channel.NewCapabilityCoordinator(channelMgr, mediaStore)
 
+	// Create Web Console approval UI
+	webConsoleUI := server.NewWebConsoleApprovalUI(tool.GlobalApprovalStore, logger)
+
+	// Create composite approval UI that supports both Feishu and Web Console
+	compositeUI := server.NewCompositeApprovalUI(coord, webConsoleUI, logger)
+
 	// Connect approval UI to tool executor
-	agentInstance.Executor().SetApprovalUI(coord)
+	agentInstance.SetApprovalUI(compositeUI)
 
 	// Connect immediate result callback to tool executor.
 	// chatID is the platform-level chat room ID (e.g. Feishu oc_xxx) threaded from req.ChatID.

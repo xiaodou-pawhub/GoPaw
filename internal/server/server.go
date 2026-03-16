@@ -18,6 +18,7 @@ import (
 	"github.com/gopaw/gopaw/internal/server/handlers"
 	"github.com/gopaw/gopaw/internal/settings"
 	"github.com/gopaw/gopaw/internal/skill"
+	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"go.uber.org/zap"
 )
@@ -92,6 +93,11 @@ func (s *Server) registerRoutes(
 	// WebSocket endpoint — protected by WebAuth (cookie must be valid).
 	s.engine.GET("/ws", WebAuth(adminToken), s.wsHandler.Handle)
 
+	// Approval WebSocket endpoint — for tool execution approval in Web Console.
+	approvalHandler := NewApprovalWSHandler(tool.GlobalApprovalStore, s.logger)
+	s.engine.GET("/ws/approval", WebAuth(adminToken), approvalHandler.Handle)
+	_ = approvalHandler // avoid unused warning for now
+
 	// /api/auth — public, no auth required
 	authH := handlers.NewAuthHandler(adminToken)
 	authG := s.engine.Group("/api/auth")
@@ -135,6 +141,12 @@ func (s *Server) registerRoutes(
 		settingsG.POST("/providers", settingsH.SaveProvider)
 		settingsG.PUT("/providers/:id/active", settingsH.SetActiveProvider)
 		settingsG.DELETE("/providers/:id", settingsH.DeleteProvider)
+		
+		// New endpoints for priority-based model management
+		settingsG.POST("/providers/:id/toggle", settingsH.ToggleProvider)
+		settingsG.POST("/providers/reorder", settingsH.ReorderProviders)
+		settingsG.GET("/providers/capable/:capability", settingsH.GetCapableProviders)
+		
 		settingsG.GET("/channels/:name", settingsH.GetChannelConfig)
 		settingsG.PUT("/channels/:name", settingsH.SetChannelConfig)
 		settingsG.GET("/agent", settingsH.GetAgentMD)

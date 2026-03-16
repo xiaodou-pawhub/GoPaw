@@ -104,6 +104,11 @@ func (a *ReActAgent) currentBasePrompt() string {
 	return a.defaultPrompt
 }
 
+// SetApprovalUI sets the approval UI handler for tool execution.
+func (a *ReActAgent) SetApprovalUI(ui tool.ApprovalUI) {
+	a.toolExecutor.SetApprovalUI(ui)
+}
+
 // memoryTokenBudget is the maximum number of runes of memory content injected into the system prompt.
 const memoryTokenBudget = 2000
 

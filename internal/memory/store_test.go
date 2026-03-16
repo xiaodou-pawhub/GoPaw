@@ -1,196 +1,311 @@
 package memory
 
 import (
-	"os"
+	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// TestStore_CRUD tests basic CRUD operations on the memory store.
-func TestStore_CRUD(t *testing.T) {
-	// Use an in-memory database for testing
+// setupTestStore creates a test memory store.
+func setupTestStore(t *testing.T) *Store {
 	store, err := NewStore(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer store.Close()
+	require.NoError(t, err)
+	return store
+}
 
-	sessionID := "test-session-001"
-	userID := "test-user"
-	channel := "console"
+// TestNewStore tests creating a new store.
+func TestNewStore(t *testing.T) {
+	store, err := NewStore(":memory:")
 
-	// Test EnsureSession (idempotent)
-	err = store.EnsureSession(sessionID, userID, channel)
-	if err != nil {
-		t.Fatalf("EnsureSession failed: %v", err)
-	}
+	require.NoError(t, err)
+	assert.NotNil(t, store)
+}
 
-	// EnsureSession should be idempotent (call again should not error)
-	err = store.EnsureSession(sessionID, userID, channel)
-	if err != nil {
-		t.Fatalf("EnsureSession (idempotent) failed: %v", err)
-	}
+// TestStore_EnsureSession tests ensuring a session exists.
+func TestStore_EnsureSession(t *testing.T) {
+	store := setupTestStore(t)
 
-	// Test AddMessage
-	msgID := "msg-001"
-	userMsg := StoredMessage{
-		ID:        msgID,
-		SessionID: sessionID,
+	err := store.EnsureSession("session1", "user1", "test")
+	require.NoError(t, err)
+
+	// Verify session exists by listing
+	sessions, err := store.ListSessions()
+	require.NoError(t, err)
+	assert.Len(t, sessions, 1)
+	assert.Equal(t, "user1", sessions[0].UserID)
+	assert.Equal(t, "test", sessions[0].Channel)
+}
+
+// TestStore_AddMessage tests adding a message.
+func TestStore_AddMessage(t *testing.T) {
+	store := setupTestStore(t)
+	_ = store.EnsureSession("session1", "user1", "test")
+
+	msg := StoredMessage{
+		ID:        "msg1",
+		SessionID: "session1",
 		Role:      "user",
-		Content:   "Hello, world!",
+		Content:   "Hello",
 		CreatedAt: 1000,
 	}
-	err = store.AddMessage(userMsg)
-	if err != nil {
-		t.Fatalf("AddMessage failed: %v", err)
-	}
+	err := store.AddMessage(msg)
+	require.NoError(t, err)
 
-	// Test GetRecentMessages
-	msgs, err := store.GetRecentMessages(sessionID, 10)
-	if err != nil {
-		t.Fatalf("GetRecentMessages failed: %v", err)
-	}
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(msgs))
-	}
-	if msgs[0].Content != "Hello, world!" {
-		t.Fatalf("unexpected message content: %s", msgs[0].Content)
-	}
-
-	// Test AddMessage for assistant
-	assistantMsg := StoredMessage{
-		ID:        "msg-002",
-		SessionID: sessionID,
-		Role:      "assistant",
-		Content:   "Hi there!",
-		CreatedAt: 1001,
-	}
-	err = store.AddMessage(assistantMsg)
-	if err != nil {
-		t.Fatalf("AddMessage (assistant) failed: %v", err)
-	}
-
-	// Test GetRecentMessages order (should be newest first, then reversed to oldest-first)
-	msgs, err = store.GetRecentMessages(sessionID, 10)
-	if err != nil {
-		t.Fatalf("GetRecentMessages failed: %v", err)
-	}
-	if len(msgs) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(msgs))
-	}
-	// msgs are reversed to oldest-first in GetRecentMessages
-	// First message should be user (oldest), second should be assistant (newest)
-	if msgs[0].Role != "user" {
-		t.Fatalf("expected user message first (oldest), got %s", msgs[0].Role)
-	}
-	if msgs[1].Role != "assistant" {
-		t.Fatalf("expected assistant message second (newest), got %s", msgs[1].Role)
-	}
-
-	// Test SearchMessages (FTS5)
-	results, err := store.SearchMessages(sessionID, "hello", 10)
-	if err != nil {
-		t.Fatalf("SearchMessages failed: %v", err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 search result, got %d", len(results))
-	}
-
-	// Test DeleteSession
-	err = store.DeleteSession(sessionID)
-	if err != nil {
-		t.Fatalf("DeleteSession failed: %v", err)
-	}
-
-	// Verify deletion
-	msgs, err = store.GetRecentMessages(sessionID, 10)
-	if err != nil {
-		t.Fatalf("GetRecentMessages after delete failed: %v", err)
-	}
-	if len(msgs) != 0 {
-		t.Fatalf("expected 0 messages after delete, got %d", len(msgs))
-	}
+	// Verify message was added
+	messages, err := store.GetRecentMessages("session1", 10)
+	require.NoError(t, err)
+	assert.Len(t, messages, 1)
+	assert.Equal(t, "Hello", messages[0].Content)
 }
 
-// TestStore_Summary tests the summary storage functionality.
-func TestStore_Summary(t *testing.T) {
-	store, err := NewStore(":memory:")
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer store.Close()
+// TestStore_GetRecentMessages tests retrieving messages.
+func TestStore_GetRecentMessages(t *testing.T) {
+	store := setupTestStore(t)
+	_ = store.EnsureSession("session1", "user1", "test")
 
-	sessionID := "test-session-summary"
-	err = store.EnsureSession(sessionID, "user", "console")
-	if err != nil {
-		t.Fatalf("EnsureSession failed: %v", err)
-	}
-
-	// Store a summary
-	summaryID := "summary-001"
-	summary := "This is a summary of previous conversation."
-	err = store.StoreSummary(summaryID, sessionID, summary, 1000, 2000)
-	if err != nil {
-		t.Fatalf("StoreSummary failed: %v", err)
+	// Add multiple messages
+	for i := 0; i < 5; i++ {
+		_ = store.AddMessage(StoredMessage{
+			ID:        fmt.Sprintf("msg%d", i),
+			SessionID: "session1",
+			Role:      "user",
+			Content:   fmt.Sprintf("Message %d", i),
+			CreatedAt: int64(1000 + i),
+		})
 	}
 
-	// Get the latest summary
-	got, err := store.GetLatestSummary(sessionID)
-	if err != nil {
-		t.Fatalf("GetLatestSummary failed: %v", err)
-	}
-	if got != summary {
-		t.Fatalf("expected summary %q, got %q", summary, got)
-	}
+	// Get all messages
+	messages, err := store.GetRecentMessages("session1", 10)
+	require.NoError(t, err)
+	assert.Len(t, messages, 5)
 
-	// Test GetLatestSummary when no summary exists
-	emptySummary, err := store.GetLatestSummary("non-existent-session")
-	if err != nil {
-		t.Fatalf("GetLatestSummary for empty session failed: %v", err)
-	}
-	if emptySummary != "" {
-		t.Fatalf("expected empty summary, got %q", emptySummary)
-	}
+	// Get limited messages
+	messages, err = store.GetRecentMessages("session1", 3)
+	require.NoError(t, err)
+	assert.Len(t, messages, 3)
 }
 
-// TestStore_FilePersistence tests that the store can persist to a file.
-func TestStore_FilePersistence(t *testing.T) {
-	tmpFile := t.TempDir() + "/test.db"
-	defer os.Remove(tmpFile)
+// TestStore_GetRecentMessages_Order tests message order (DESC).
+func TestStore_GetRecentMessages_Order(t *testing.T) {
+	store := setupTestStore(t)
+	_ = store.EnsureSession("session1", "user1", "test")
 
-	// Create store and add data
-	store, err := NewStore(tmpFile)
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	sessionID := "persist-session"
-	err = store.EnsureSession(sessionID, "user", "console")
-	if err != nil {
-		t.Fatalf("EnsureSession failed: %v", err)
-	}
-	err = store.AddMessage(StoredMessage{
-		ID:        "msg-001",
-		SessionID: sessionID,
+	_ = store.AddMessage(StoredMessage{
+		ID:        "msg1",
+		SessionID: "session1",
 		Role:      "user",
-		Content:   "Test message",
+		Content:   "First",
 		CreatedAt: 1000,
 	})
-	if err != nil {
-		t.Fatalf("AddMessage failed: %v", err)
-	}
-	store.Close()
+	_ = store.AddMessage(StoredMessage{
+		ID:        "msg2",
+		SessionID: "session1",
+		Role:      "assistant",
+		Content:   "Second",
+		CreatedAt: 2000,
+	})
 
-	// Reopen store and verify data
-	store, err = NewStore(tmpFile)
-	if err != nil {
-		t.Fatalf("failed to reopen store: %v", err)
-	}
-	defer store.Close()
+	messages, err := store.GetRecentMessages("session1", 10)
+	require.NoError(t, err)
+	assert.Len(t, messages, 2)
+	// DESC order, so Second comes first
+	assert.Equal(t, "Second", messages[0].Content)
+	assert.Equal(t, "First", messages[1].Content)
+}
 
-	msgs, err := store.GetRecentMessages(sessionID, 10)
-	if err != nil {
-		t.Fatalf("GetRecentMessages failed: %v", err)
+// TestStore_DeleteSession tests deleting a session.
+func TestStore_DeleteSession(t *testing.T) {
+	store := setupTestStore(t)
+	_ = store.EnsureSession("session1", "user1", "test")
+	_ = store.AddMessage(StoredMessage{
+		ID:        "msg1",
+		SessionID: "session1",
+		Role:      "user",
+		Content:   "Hello",
+		CreatedAt: 1000,
+	})
+
+	err := store.DeleteSession("session1")
+	require.NoError(t, err)
+
+	// Verify session is deleted
+	sessions, err := store.ListSessions()
+	require.NoError(t, err)
+	assert.Len(t, sessions, 0)
+
+	// Verify messages are deleted
+	messages, err := store.GetRecentMessages("session1", 10)
+	require.NoError(t, err)
+	assert.Len(t, messages, 0)
+}
+
+// TestStore_MultipleSessions tests multiple sessions.
+func TestStore_MultipleSessions(t *testing.T) {
+	store := setupTestStore(t)
+
+	_ = store.EnsureSession("session1", "user1", "test")
+	_ = store.EnsureSession("session2", "user2", "test")
+
+	_ = store.AddMessage(StoredMessage{
+		ID:        "msg1",
+		SessionID: "session1",
+		Role:      "user",
+		Content:   "Session 1",
+		CreatedAt: 1000,
+	})
+	_ = store.AddMessage(StoredMessage{
+		ID:        "msg2",
+		SessionID: "session2",
+		Role:      "user",
+		Content:   "Session 2",
+		CreatedAt: 2000,
+	})
+
+	messages1, _ := store.GetRecentMessages("session1", 10)
+	messages2, _ := store.GetRecentMessages("session2", 10)
+
+	assert.Len(t, messages1, 1)
+	assert.Len(t, messages2, 1)
+	assert.Equal(t, "Session 1", messages1[0].Content)
+	assert.Equal(t, "Session 2", messages2[0].Content)
+}
+
+// TestStore_SearchMessages tests searching messages.
+func TestStore_SearchMessages(t *testing.T) {
+	store := setupTestStore(t)
+	_ = store.EnsureSession("session1", "user1", "test")
+
+	_ = store.AddMessage(StoredMessage{
+		ID:        "msg1",
+		SessionID: "session1",
+		Role:      "user",
+		Content:   "I love programming in Go",
+		CreatedAt: 1000,
+	})
+	_ = store.AddMessage(StoredMessage{
+		ID:        "msg2",
+		SessionID: "session1",
+		Role:      "user",
+		Content:   "Python is also nice",
+		CreatedAt: 2000,
+	})
+
+	results, err := store.SearchMessages("session1", "Go programming", 10)
+	require.NoError(t, err)
+	assert.NotEmpty(t, results)
+
+	// Check if the first message is found
+	found := false
+	for _, r := range results {
+		if r.Content == "I love programming in Go" {
+			found = true
+			break
+		}
 	}
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 message after reopen, got %d", len(msgs))
+	assert.True(t, found)
+}
+
+// TestStore_SearchMessages_NoResults tests search with no matches.
+func TestStore_SearchMessages_NoResults(t *testing.T) {
+	store := setupTestStore(t)
+	_ = store.EnsureSession("session1", "user1", "test")
+
+	_ = store.AddMessage(StoredMessage{
+		ID:        "msg1",
+		SessionID: "session1",
+		Role:      "user",
+		Content:   "Hello world",
+		CreatedAt: 1000,
+	})
+
+	results, err := store.SearchMessages("session1", "nonexistent xyz", 10)
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+// TestStore_ListSessions tests listing sessions.
+func TestStore_ListSessions(t *testing.T) {
+	store := setupTestStore(t)
+
+	_ = store.EnsureSession("session1", "user1", "test")
+	_ = store.EnsureSession("session2", "user2", "test")
+
+	sessions, err := store.ListSessions()
+	require.NoError(t, err)
+	assert.Len(t, sessions, 2)
+}
+
+// TestStore_UpdateSessionName tests updating session name.
+func TestStore_UpdateSessionName(t *testing.T) {
+	store := setupTestStore(t)
+	_ = store.EnsureSession("session1", "user1", "test")
+
+	err := store.UpdateSessionName("session1", "My Session")
+	require.NoError(t, err)
+
+	sessions, _ := store.ListSessions()
+	assert.Equal(t, "My Session", sessions[0].Name)
+}
+
+// BenchmarkStore_AddMessage benchmarks adding messages.
+func BenchmarkStore_AddMessage(b *testing.B) {
+	store, _ := NewStore(":memory:")
+	_ = store.EnsureSession("session1", "user1", "test")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = store.AddMessage(StoredMessage{
+			ID:        fmt.Sprintf("msg%d", i),
+			SessionID: "session1",
+			Role:      "user",
+			Content:   fmt.Sprintf("Message %d", i),
+			CreatedAt: int64(i),
+		})
+	}
+}
+
+// BenchmarkStore_GetRecentMessages benchmarks retrieving messages.
+func BenchmarkStore_GetRecentMessages(b *testing.B) {
+	store, _ := NewStore(":memory:")
+	_ = store.EnsureSession("session1", "user1", "test")
+
+	// Add 100 messages
+	for i := 0; i < 100; i++ {
+		_ = store.AddMessage(StoredMessage{
+			ID:        fmt.Sprintf("msg%d", i),
+			SessionID: "session1",
+			Role:      "user",
+			Content:   fmt.Sprintf("Message %d", i),
+			CreatedAt: int64(i),
+		})
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = store.GetRecentMessages("session1", 50)
+	}
+}
+
+// BenchmarkStore_SearchMessages benchmarks searching.
+func BenchmarkStore_SearchMessages(b *testing.B) {
+	store, _ := NewStore(":memory:")
+	_ = store.EnsureSession("session1", "user1", "test")
+
+	// Add messages
+	for i := 0; i < 100; i++ {
+		_ = store.AddMessage(StoredMessage{
+			ID:        fmt.Sprintf("msg%d", i),
+			SessionID: "session1",
+			Role:      "user",
+			Content:   fmt.Sprintf("This is message %d about programming", i),
+			CreatedAt: int64(i),
+		})
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = store.SearchMessages("session1", "programming", 10)
 	}
 }

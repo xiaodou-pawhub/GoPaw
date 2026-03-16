@@ -1,10 +1,11 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
+import tailwindcss from '@tailwindcss/vite';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 // https://vitejs.dev/config/
 export default defineConfig({
-    plugins: [vue()],
+    plugins: [vue(), tailwindcss()],
     resolve: {
         alias: {
             '@': resolve(dirname(fileURLToPath(import.meta.url)), 'src')
@@ -28,11 +29,4 @@ export default defineConfig({
         assetsDir: 'assets',
         emptyOutDir: true
     },
-    css: {
-        preprocessorOptions: {
-            scss: {
-                additionalData: "// @use \"@/styles/variables.scss\" as *; // Imported in each component"
-            }
-        }
-    }
 });

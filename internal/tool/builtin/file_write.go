@@ -17,8 +17,14 @@ func init() {
 type FileWriteTool struct{}
 
 var _ plugin.ApprovalSummaryCapable = (*FileWriteTool)(nil)
+var _ plugin.AutonomyTool = (*FileWriteTool)(nil)
 
 func (t *FileWriteTool) Name() string { return "write_file" }
+
+// AutonomyLevel returns L2 (regular operation - auto execute + notify)
+func (t *FileWriteTool) AutonomyLevel() plugin.AutonomyLevel {
+	return plugin.AutonomyL2
+}
 
 func (t *FileWriteTool) Description() string {
 	return "Write content to a file. Overwrites existing files. Uses atomic write mechanism."

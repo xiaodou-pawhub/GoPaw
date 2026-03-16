@@ -23,6 +23,11 @@ type FileReadTool struct{}
 
 func (t *FileReadTool) Name() string { return "read_file" }
 
+// AutonomyLevel returns L1 (safe operation - auto execute)
+func (t *FileReadTool) AutonomyLevel() plugin.AutonomyLevel {
+	return plugin.AutonomyL1
+}
+
 func (t *FileReadTool) Description() string {
 	return "Read the contents of a file. Supports plain text, PDF, DOCX, and Excel (XLSX). " +
 		"For text files, supports line ranges. For Excel, supports sheet selection and pagination."

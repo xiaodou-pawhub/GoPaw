@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/gopaw/gopaw/internal/tool"
@@ -17,31 +16,18 @@ func init() {
 
 type ShellTool struct{}
 
-var _ plugin.GuardedTool = (*ShellTool)(nil)
 var _ plugin.ApprovalSummaryCapable = (*ShellTool)(nil)
+var _ plugin.AutonomyTool = (*ShellTool)(nil)
 
 func (t *ShellTool) Name() string { return "shell" }
 
-func (t *ShellTool) Description() string {
-	return "Execute a shell command and return its output. Use for system inspection, running scripts, or one-off commands. Dangerous commands require manual approval."
+// AutonomyLevel returns L3 (sensitive operation - require approval)
+func (t *ShellTool) AutonomyLevel() plugin.AutonomyLevel {
+	return plugin.AutonomyL3
 }
 
-// RequireApproval checks if the command is dangerous.
-func (t *ShellTool) RequireApproval(args map[string]interface{}) bool {
-	cmdStr, _ := args["command"].(string)
-	cmdStr = strings.ToLower(cmdStr)
-
-	// List of high-risk commands or patterns
-	dangerousKeywords := []string{
-		"rm ", ">", "kill ", "shutdown", "reboot", "format ", "mkfs", "dd ",
-	}
-
-	for _, k := range dangerousKeywords {
-		if strings.Contains(cmdStr, k) {
-			return true
-		}
-	}
-	return false
+func (t *ShellTool) Description() string {
+	return "Execute a shell command and return its output. Use for system inspection, running scripts, or one-off commands."
 }
 
 // ApprovalSummary returns a user-friendly summary for the approval card.

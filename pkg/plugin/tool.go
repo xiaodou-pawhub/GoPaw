@@ -71,12 +71,42 @@ type ApprovalSummaryCapable interface {
 	ApprovalDetail(args map[string]interface{}) string
 }
 
-// GuardedTool is an optional interface for tools that require manual
-// user approval before execution.
-type GuardedTool interface {
+// AutonomyLevel represents the autonomy level for tool execution.
+// L1: Auto-execute, only log (safe operations)
+// L2: Auto-execute, notify user (regular operations)
+// L3: Require explicit approval (sensitive operations)
+type AutonomyLevel int
+
+const (
+	AutonomyL1 AutonomyLevel = 1
+	AutonomyL2 AutonomyLevel = 2
+	AutonomyL3 AutonomyLevel = 3
+)
+
+// String returns the string representation of autonomy level.
+func (a AutonomyLevel) String() string {
+	switch a {
+	case AutonomyL1:
+		return "L1"
+	case AutonomyL2:
+		return "L2"
+	case AutonomyL3:
+		return "L3"
+	default:
+		return "L2"
+	}
+}
+
+// AutonomyTool is an optional interface for tools that declare their autonomy level.
+// This allows tools to define their own permission requirements in code,
+// making it harder to tamper with compared to external configuration.
+type AutonomyTool interface {
 	Tool
-	// RequireApproval returns true if the tool should be gated by a user confirmation.
-	RequireApproval(args map[string]interface{}) bool
+	// AutonomyLevel returns the autonomy level for this tool.
+	// L1: Safe operations (read, search) - auto execute
+	// L2: Regular operations (write, send) - auto execute + notify
+	// L3: Sensitive operations (delete, shell) - require approval
+	AutonomyLevel() AutonomyLevel
 }
 
 // AsyncCallback is invoked when an AsyncTool completes its work.
