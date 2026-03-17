@@ -24,6 +24,7 @@ const pageTitle = computed(() => {
   if (route.path.startsWith('/mcp')) return 'MCP 服务器'
   if (route.path.startsWith('/triggers')) return 'Triggers'
   if (route.path.startsWith('/agent-messages')) return 'Agent 消息'
+  if (route.path.startsWith('/workflows')) return '工作流'
   if (route.path.startsWith('/settings')) return '设置'
   return 'GoPaw'
 })

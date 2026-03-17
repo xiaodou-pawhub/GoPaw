@@ -50,6 +50,11 @@ const routes: RouteRecordRaw[] = [
         path: 'agent-messages',
         name: 'AgentMessages',
         component: () => import('@/pages/AgentMessages.vue')
+      },
+      {
+        path: 'workflows',
+        name: 'Workflows',
+        component: () => import('@/pages/Workflows.vue')
       }
     ]
   }

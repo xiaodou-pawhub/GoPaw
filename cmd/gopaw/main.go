@@ -37,6 +37,7 @@ import (
 	"github.com/gopaw/gopaw/internal/tool/builtin"
 	"github.com/gopaw/gopaw/internal/trace"
 	"github.com/gopaw/gopaw/internal/trigger"
+	"github.com/gopaw/gopaw/internal/workflow"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"github.com/gopaw/gopaw/pkg/plugin"
 	"github.com/gopaw/gopaw/pkg/types"
@@ -516,7 +517,14 @@ func runStart() {
 		agentMsgMgr = nil
 	}
 
-	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, wp, web.FS(), logger)
+	// Initialize workflow engine
+	workflowEngine, err := workflow.NewEngine(store.DB(), agentMsgMgr, agentRouter, logger)
+	if err != nil {
+		logger.Warn("failed to initialize workflow engine", zap.Error(err))
+		workflowEngine = nil
+	}
+
+	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, wp, web.FS(), logger)
 	go srv.Start()
 
 	quit := make(chan os.Signal, 1)

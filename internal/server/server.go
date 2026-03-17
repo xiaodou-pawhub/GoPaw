@@ -27,6 +27,7 @@ import (
 	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/internal/trace"
 	"github.com/gopaw/gopaw/internal/trigger"
+	"github.com/gopaw/gopaw/internal/workflow"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"go.uber.org/zap"
 )
@@ -61,6 +62,7 @@ func New(
 	triggerMgr *trigger.Manager,
 	triggerEngine *trigger.Engine,
 	agentMsgMgr *message.Manager,
+	workflowEngine *workflow.Engine,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 	logger *zap.Logger,
@@ -79,7 +81,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, wp, staticFS)
+	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -109,6 +111,7 @@ func (s *Server) registerRoutes(
 	triggerMgr *trigger.Manager,
 	triggerEngine *trigger.Engine,
 	agentMsgMgr *message.Manager,
+	workflowEngine *workflow.Engine,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 ) {
@@ -349,6 +352,25 @@ func (s *Server) registerRoutes(
 	// Health check at root — public, for load balancers / uptime monitors.
 	// /api/system/health is already registered inside the api group above (behind WebAuth).
 	s.engine.GET("/health", sysH.Health)
+
+	// /api/workflows — workflow management
+	if workflowEngine != nil {
+		workflowH := handlers.NewWorkflowHandler(workflowEngine, s.logger)
+		workflowsG := api.Group("/workflows")
+		{
+			workflowsG.GET("", workflowH.ListWorkflows)
+			workflowsG.POST("", workflowH.CreateWorkflow)
+			workflowsG.POST("/validate", workflowH.ValidateWorkflow)
+			workflowsG.GET("/:id", workflowH.GetWorkflow)
+			workflowsG.PUT("/:id", workflowH.UpdateWorkflow)
+			workflowsG.DELETE("/:id", workflowH.DeleteWorkflow)
+			workflowsG.POST("/:id/execute", workflowH.ExecuteWorkflow)
+			workflowsG.GET("/:workflow_id/executions", workflowH.ListExecutions)
+			workflowsG.GET("/:workflow_id/stats", workflowH.GetStats)
+			workflowsG.GET("/executions/:id", workflowH.GetExecution)
+			workflowsG.POST("/executions/:id/cancel", workflowH.CancelExecution)
+		}
+	}
 
 	// DingTalk channel routes (no /api prefix).
 	dingTalkH := handlers.NewDingTalkHandler(channelMgr)
