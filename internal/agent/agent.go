@@ -22,6 +22,7 @@ import (
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/skill"
 	"github.com/gopaw/gopaw/internal/tool"
+	"github.com/gopaw/gopaw/internal/trace"
 	"github.com/gopaw/gopaw/pkg/plugin"
 	"github.com/gopaw/gopaw/pkg/types"
 	"go.uber.org/zap"
@@ -40,6 +41,7 @@ type ReActAgent struct {
 	ltmStore       *memory.LTMStore // structured long-term memory (memories.db)
 	sessionManager *SessionManager
 	contextBuilder *ContextBuilder // dynamic context builder
+	traceManager   *trace.Manager  // execution trace manager (may be nil)
 	// defaultPrompt is used when agentMDPath is not set or the file cannot be read.
 	defaultPrompt string
 	// agentMDPath is the path to data/AGENT.md. When set, the system prompt is
@@ -71,6 +73,8 @@ type Config struct {
 	ConvLog *convlog.Logger
 	// FocusManager is the optional focus task manager.
 	FocusManager *focus.Manager
+	// TraceManager is the optional execution trace manager.
+	TraceManager *trace.Manager
 }
 
 // New creates a ReActAgent.
@@ -97,6 +101,7 @@ func New(
 		hooks:          cfg.Hooks,
 		logger:         logger,
 		convlog:        cfg.ConvLog,
+		traceManager:   cfg.TraceManager,
 	}
 
 	// Initialize context builder with base persona
@@ -227,9 +232,10 @@ type ProgressEvent struct {
 
 // toolCallResult pairs a tool call with its execution result.
 type toolCallResult struct {
-	call   llm.ToolCall
-	output string
-	err    error
+	call     llm.ToolCall
+	output   string
+	err      error
+	duration time.Duration
 }
 
 // executeToolCallsParallel runs all tool calls from one LLM response concurrently.
@@ -249,12 +255,14 @@ func (a *ReActAgent) executeToolCallsParallel(ctx context.Context, calls []llm.T
 
 			if loopErr != nil {
 				mu.Lock()
-				results[idx] = toolCallResult{call: call, output: loopErr.Error(), err: loopErr}
+				results[idx] = toolCallResult{call: call, output: loopErr.Error(), err: loopErr, duration: 0}
 				mu.Unlock()
 				return
 			}
 
+			start := time.Now()
 			output, execErr := a.toolExecutor.Execute(ctx, call.Function.Name, call.Function.Arguments, channel, chatID, session, user)
+			duration := time.Since(start)
 
 			mu.Lock()
 			if execErr != nil {
@@ -263,7 +271,7 @@ func (a *ReActAgent) executeToolCallsParallel(ctx context.Context, calls []llm.T
 			} else {
 				detector.recordSuccess()
 			}
-			results[idx] = toolCallResult{call: call, output: output, err: execErr}
+			results[idx] = toolCallResult{call: call, output: output, err: execErr, duration: duration}
 			mu.Unlock()
 		}(i, tc)
 	}
@@ -278,14 +286,26 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 		req.SessionID = "default"
 	}
 
+	// Start execution trace if enabled
+	var execTrace *trace.Trace
+	if a.traceManager != nil {
+		execTrace = a.traceManager.StartTrace(req.SessionID)
+	}
+
 	// Retrieve (or create) the session.
 	s, err := a.sessionManager.GetOrCreate(req.SessionID, req.UserID, req.Channel)
 	if err != nil {
+		if execTrace != nil {
+			a.traceManager.EndTraceWithError(execTrace, err)
+		}
 		return nil, fmt.Errorf("agent: session: %w", err)
 	}
 
 	// [P0] Acquire session lock to prevent concurrent requests to the same session.
 	if err := s.Acquire(); err != nil {
+		if execTrace != nil {
+			a.traceManager.EndTraceWithError(execTrace, err)
+		}
 		return nil, err
 	}
 	defer s.Release()
@@ -313,8 +333,11 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 	// This includes persona, memories (Core + Daily + Relevant), skills, and time context.
 	allTools := a.toolRegistry.All()
 	var systemPrompt string
+	var ctxBuildStep *trace.Step
 	if a.contextBuilder != nil {
+		ctxBuildStart := time.Now()
 		ctxResult, err := a.contextBuilder.Build(ctx, req.SessionID, req.Content)
+		ctxBuildDuration := time.Since(ctxBuildStart)
 		if err != nil {
 			a.logger.Warn("failed to build dynamic context, using base persona", zap.Error(err))
 			systemPrompt = a.currentBasePrompt() + "\n\n---\n" + buildCapabilityFragment(allTools)
@@ -325,6 +348,25 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 				zap.Int("skills_matched", ctxResult.SkillsMatched),
 				zap.Duration("build_time", ctxResult.BuildTime),
 			)
+			// Record context build step
+			if execTrace != nil {
+				ctxBuildStep = trace.NewStep(execTrace.ID, 0, trace.StepTypeContextBuild)
+				ctxBuildStep.SetInput(trace.ContextBuildInput{
+					UserInput: req.Content,
+					SessionID: req.SessionID,
+				})
+				ctxBuildStep.SetOutput(trace.ContextBuildOutput{
+					SystemPrompt:  ctxResult.SystemPrompt,
+					MemoriesUsed:  ctxResult.MemoriesUsed,
+					SkillsMatched: ctxResult.SkillsMatched,
+				})
+				ctxBuildStep.SetMetadata(trace.ContextBuildMetadata{
+					TokenBudget: 2000,
+					BuildTimeMs: int(ctxBuildDuration.Milliseconds()),
+				})
+				ctxBuildStep.End()
+				a.traceManager.AddStep(execTrace.ID, ctxBuildStep)
+			}
 		}
 	} else {
 		// Fallback to base persona if context builder is not initialized
@@ -366,15 +408,58 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 		// PreReasoning hooks: may modify messages (e.g. inject current time).
 		hooked, hookErr := a.hooks.runPreReasoning(ctx, messages)
 		if hookErr != nil {
+			if execTrace != nil {
+				a.traceManager.EndTraceWithError(execTrace, hookErr)
+			}
 			return nil, hookErr
 		}
 
+		// Record LLM call step
+		var llmStep *trace.Step
+		if execTrace != nil {
+			llmStep = trace.NewStep(execTrace.ID, step+1, trace.StepTypeLLMCall)
+			llmStep.SetInput(trace.LLMCallInput{
+				Messages: messagesToMaps(hooked),
+				Tools:    toolDefsToMaps(toolDefs),
+			})
+		}
+
+		llmStart := time.Now()
 		resp, err := a.llmClient.Chat(ctx, llm.ChatRequest{
 			Messages: hooked,
 			Tools:    toolDefs,
 		})
+		llmDuration := time.Since(llmStart)
+
 		if err != nil {
+			if execTrace != nil {
+				a.traceManager.EndTraceWithError(execTrace, err)
+			}
 			return nil, fmt.Errorf("agent: llm call step %d: %w", step, err)
+		}
+
+		// Record LLM call output
+		if llmStep != nil {
+			llmStep.SetOutput(trace.LLMCallOutput{
+				Message:      messageToMap(resp.Message),
+				FinishReason: resp.FinishReason,
+				Usage: struct {
+					PromptTokens     int `json:"prompt_tokens"`
+					CompletionTokens int `json:"completion_tokens"`
+					TotalTokens      int `json:"total_tokens"`
+				}{
+					PromptTokens:     resp.Usage.PromptTokens,
+					CompletionTokens: resp.Usage.CompletionTokens,
+					TotalTokens:      resp.Usage.TotalTokens,
+				},
+			})
+			llmStep.SetMetadata(trace.LLMCallMetadata{
+				Model:       "unknown", // TODO: get from config
+				Temperature: 0.7,
+				DurationMs:  int(llmDuration.Milliseconds()),
+			})
+			llmStep.End()
+			a.traceManager.AddStep(execTrace.ID, llmStep)
 		}
 
 		// Context Window Guard: check token usage reported by the provider.
@@ -433,6 +518,30 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 				zap.String("tool", r.call.Function.Name),
 				zap.String("result", truncate(r.output, 200)),
 			)
+
+			// Record tool execution step
+			if execTrace != nil {
+				toolStep := trace.NewStep(execTrace.ID, step+1, trace.StepTypeToolExecution)
+				toolStep.SetInput(trace.ToolExecutionInput{
+					ToolName:  r.call.Function.Name,
+					Arguments: parseJSONArgs(r.call.Function.Arguments),
+				})
+				errStr := ""
+				if r.err != nil {
+					errStr = r.err.Error()
+				}
+				toolStep.SetOutput(trace.ToolExecutionOutput{
+					Result:   r.output,
+					Error:    errStr,
+					Duration: int(r.duration.Milliseconds()),
+				})
+				toolStep.SetMetadata(trace.ToolExecutionMetadata{
+					Parallel:   true,
+					ToolCallID: r.call.ID,
+				})
+				toolStep.End()
+				a.traceManager.AddStep(execTrace.ID, toolStep)
+			}
 
 			if a.convlog != nil {
 				rawArgs := json.RawMessage(r.call.Function.Arguments)
@@ -519,6 +628,11 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 		a.logger.Warn("agent: failed to save memory", zap.Error(memErr))
 	}
 
+	// End execution trace
+	if execTrace != nil {
+		a.traceManager.EndTrace(execTrace)
+	}
+
 	return &types.Response{
 		Content: finalAnswer,
 		MsgType: types.MsgTypeText,
@@ -537,13 +651,25 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 		req.SessionID = "default"
 	}
 
+	// Start execution trace if enabled
+	var execTrace *trace.Trace
+	if a.traceManager != nil {
+		execTrace = a.traceManager.StartTrace(req.SessionID)
+	}
+
 	s, err := a.sessionManager.GetOrCreate(req.SessionID, req.UserID, req.Channel)
 	if err != nil {
+		if execTrace != nil {
+			a.traceManager.EndTraceWithError(execTrace, err)
+		}
 		return "", fmt.Errorf("agent: session: %w", err)
 	}
 
 	// [P0] Acquire session lock to prevent concurrent requests to the same session.
 	if err := s.Acquire(); err != nil {
+		if execTrace != nil {
+			a.traceManager.EndTraceWithError(execTrace, err)
+		}
 		return "", err
 	}
 	defer s.Release()
@@ -778,6 +904,11 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 		a.logger.Warn("agent: failed to save memory", zap.Error(memErr))
 	}
 
+	// End execution trace
+	if execTrace != nil {
+		a.traceManager.EndTrace(execTrace)
+	}
+
 	return finalAnswer, nil
 }
 
@@ -798,4 +929,65 @@ func (a *ReActAgent) Sessions() *SessionManager {
 // Executor returns the tool executor.
 func (a *ReActAgent) Executor() *tool.Executor {
 	return a.toolExecutor
+}
+
+// Helper functions for trace recording
+
+// messagesToMaps converts ChatMessage slice to map slice for JSON serialization.
+func messagesToMaps(messages []llm.ChatMessage) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(messages))
+	for i, msg := range messages {
+		m := map[string]interface{}{
+			"role": msg.Role,
+		}
+		if msg.Content != "" {
+			m["content"] = msg.Content
+		}
+		if msg.Name != "" {
+			m["name"] = msg.Name
+		}
+		if len(msg.ToolCalls) > 0 {
+			m["tool_calls"] = msg.ToolCalls
+		}
+		result[i] = m
+	}
+	return result
+}
+
+// toolDefsToMaps converts ToolDefinition slice to map slice for JSON serialization.
+func toolDefsToMaps(tools []llm.ToolDefinition) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(tools))
+	for i, tool := range tools {
+		result[i] = map[string]interface{}{
+			"type":     tool.Type,
+			"function": tool.Function,
+		}
+	}
+	return result
+}
+
+// messageToMap converts ChatMessage to map for JSON serialization.
+func messageToMap(msg llm.ChatMessage) map[string]interface{} {
+	m := map[string]interface{}{
+		"role": msg.Role,
+	}
+	if msg.Content != "" {
+		m["content"] = msg.Content
+	}
+	if msg.Name != "" {
+		m["name"] = msg.Name
+	}
+	if len(msg.ToolCalls) > 0 {
+		m["tool_calls"] = msg.ToolCalls
+	}
+	return m
+}
+
+// parseJSONArgs parses JSON arguments string to map.
+func parseJSONArgs(args string) map[string]interface{} {
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(args), &result); err != nil {
+		return map[string]interface{}{"raw": args}
+	}
+	return result
 }

@@ -32,6 +32,7 @@ import (
 	"github.com/gopaw/gopaw/internal/skill"
 	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/internal/tool/builtin"
+	"github.com/gopaw/gopaw/internal/trace"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"github.com/gopaw/gopaw/pkg/plugin"
 	"github.com/gopaw/gopaw/pkg/types"
@@ -214,6 +215,14 @@ func runStart() {
 		}
 	}
 
+	// Initialize trace manager
+	traceDBPath := filepath.Join(wp.Root, "traces.db")
+	traceMgr, err := trace.NewManager(traceDBPath, 7, logger) // 7 days retention
+	if err != nil {
+		logger.Warn("failed to initialize trace manager", zap.Error(err))
+		traceMgr = nil
+	}
+
 	agentInstance := agent.New(llmClient, toolReg, skillMgr, memMgr, agent.Config{
 		DefaultPrompt:  basePrompt,
 		AgentMDPath:    wp.AgentMDFile,
@@ -226,6 +235,7 @@ func runStart() {
 		},
 		ConvLog:      convLogger,
 		FocusManager: focusMgr,
+		TraceManager: traceMgr,
 	}, logger)
 
 	builtin.SetSubAgentFn(func(ctx context.Context, req *types.Request) (string, error) {
