@@ -331,8 +331,8 @@ func NewMessageHandler(engine *trigger.Engine, logger *zap.Logger) *MessageHandl
 	}
 }
 
-// SendMessageRequest represents a request to send a message to an agent.
-type SendMessageRequest struct {
+// TriggerMessageRequest represents a request to send a message to an agent via trigger.
+type TriggerMessageRequest struct {
 	From    string                 `json:"from" binding:"required"`
 	To      string                 `json:"to" binding:"required"`
 	Payload map[string]interface{} `json:"payload"`
@@ -340,7 +340,7 @@ type SendMessageRequest struct {
 
 // SendMessage sends a message to trigger another agent.
 func (h *MessageHandler) SendMessage(c *gin.Context) {
-	var req SendMessageRequest
+	var req TriggerMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

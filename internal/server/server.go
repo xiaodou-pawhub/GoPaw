@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/agent"
+	"github.com/gopaw/gopaw/internal/agent/message"
 	"github.com/gopaw/gopaw/internal/channel"
 	"github.com/gopaw/gopaw/internal/config"
 	"github.com/gopaw/gopaw/internal/cron"
@@ -59,6 +60,7 @@ func New(
 	mcpMgr *mcp.Manager,
 	triggerMgr *trigger.Manager,
 	triggerEngine *trigger.Engine,
+	agentMsgMgr *message.Manager,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 	logger *zap.Logger,
@@ -77,7 +79,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, wp, staticFS)
+	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -106,6 +108,7 @@ func (s *Server) registerRoutes(
 	mcpMgr *mcp.Manager,
 	triggerMgr *trigger.Manager,
 	triggerEngine *trigger.Engine,
+	agentMsgMgr *message.Manager,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 ) {
@@ -320,6 +323,27 @@ func (s *Server) registerRoutes(
 
 		// Message endpoint
 		api.POST("/messages", messageH.SendMessage)
+	}
+
+	// /api/agent-messages — agent-to-agent messaging
+	if agentMsgMgr != nil {
+		agentMsgH := handlers.NewAgentMessageHandler(agentMsgMgr, s.logger)
+		agentMsgG := api.Group("/agent-messages")
+		{
+			agentMsgG.POST("", agentMsgH.SendMessage)
+			agentMsgG.POST("/task", agentMsgH.SendTask)
+			agentMsgG.POST("/response", agentMsgH.SendResponse)
+			agentMsgG.POST("/notify", agentMsgH.SendNotify)
+			agentMsgG.POST("/query", agentMsgH.SendQuery)
+			agentMsgG.GET("/:id", agentMsgH.GetMessage)
+			agentMsgG.GET("/agent/:agent_id", agentMsgH.ListMessages)
+			agentMsgG.GET("/agent/:agent_id/sent", agentMsgH.ListSentMessages)
+			agentMsgG.GET("/agent/:agent_id/pending", agentMsgH.GetPendingMessages)
+			agentMsgG.GET("/agent/:agent_id/stats", agentMsgH.GetStats)
+			agentMsgG.GET("/agent/:agent_id/conversations", agentMsgH.ListConversations)
+			agentMsgG.GET("/conversation/:parent_id", agentMsgH.ListConversation)
+			agentMsgG.PUT("/:id/status", agentMsgH.UpdateStatus)
+		}
 	}
 
 	// Health check at root — public, for load balancers / uptime monitors.
