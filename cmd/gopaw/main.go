@@ -27,6 +27,7 @@ import (
 	"github.com/gopaw/gopaw/internal/focus"
 	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/memory"
+	"github.com/gopaw/gopaw/internal/sandbox"
 	"github.com/gopaw/gopaw/internal/server"
 	"github.com/gopaw/gopaw/internal/settings"
 	"github.com/gopaw/gopaw/internal/skill"
@@ -223,6 +224,14 @@ func runStart() {
 		traceMgr = nil
 	}
 
+	// Initialize sandbox manager
+	sandboxRoot := filepath.Join(wp.Root, "sessions")
+	sandboxMgr, err := sandbox.NewManager(sandboxRoot, logger)
+	if err != nil {
+		logger.Warn("failed to initialize sandbox manager", zap.Error(err))
+		sandboxMgr = nil
+	}
+
 	agentInstance := agent.New(llmClient, toolReg, skillMgr, memMgr, agent.Config{
 		DefaultPrompt:  basePrompt,
 		AgentMDPath:    wp.AgentMDFile,
@@ -233,9 +242,10 @@ func runStart() {
 			PreReasoning: []agent.HookPreReasoning{agent.InjectCurrentTime()},
 			PostTool:     []agent.HookPostTool{agent.AutoJournalHook(wp.MemoryNotesDir)},
 		},
-		ConvLog:      convLogger,
-		FocusManager: focusMgr,
-		TraceManager: traceMgr,
+		ConvLog:        convLogger,
+		FocusManager:   focusMgr,
+		TraceManager:   traceMgr,
+		SandboxManager: sandboxMgr,
 	}, logger)
 
 	builtin.SetSubAgentFn(func(ctx context.Context, req *types.Request) (string, error) {

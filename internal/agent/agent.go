@@ -42,6 +42,7 @@ type ReActAgent struct {
 	sessionManager *SessionManager
 	contextBuilder *ContextBuilder // dynamic context builder
 	traceManager   *trace.Manager  // execution trace manager (may be nil)
+	sandboxManager SandboxManager  // sandbox manager for file isolation (may be nil)
 	// defaultPrompt is used when agentMDPath is not set or the file cannot be read.
 	defaultPrompt string
 	// agentMDPath is the path to data/AGENT.md. When set, the system prompt is
@@ -75,6 +76,14 @@ type Config struct {
 	FocusManager *focus.Manager
 	// TraceManager is the optional execution trace manager.
 	TraceManager *trace.Manager
+	// SandboxManager is the optional sandbox manager for file isolation.
+	SandboxManager SandboxManager
+}
+
+// SandboxManager interface for sandbox operations.
+type SandboxManager interface {
+	ResolvePathForSession(sessionID, userPath string) (string, error)
+	GetFilesDir(sessionID string) (string, error)
 }
 
 // New creates a ReActAgent.
@@ -102,6 +111,12 @@ func New(
 		logger:         logger,
 		convlog:        cfg.ConvLog,
 		traceManager:   cfg.TraceManager,
+		sandboxManager: cfg.SandboxManager,
+	}
+
+	// Set sandbox manager for tool executor
+	if cfg.SandboxManager != nil {
+		agent.toolExecutor.SetSandboxManager(cfg.SandboxManager)
 	}
 
 	// Initialize context builder with base persona

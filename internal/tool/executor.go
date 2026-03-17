@@ -39,6 +39,13 @@ type Executor struct {
 	approvalUI       ApprovalUI
 	resultCallback   ResultCallback
 	l2NotifyCallback L2NotificationCallback
+	sandboxMgr       SandboxManager
+}
+
+// SandboxManager interface for sandbox operations.
+type SandboxManager interface {
+	ResolvePathForSession(sessionID, userPath string) (string, error)
+	GetFilesDir(sessionID string) (string, error)
 }
 
 // NewExecutor creates an Executor backed by the given registry.
@@ -47,6 +54,11 @@ func NewExecutor(registry *Registry, logger *zap.Logger) *Executor {
 		registry: registry,
 		logger:   logger.Named("tool_executor"),
 	}
+}
+
+// SetSandboxManager injects the sandbox manager for path isolation.
+func (e *Executor) SetSandboxManager(mgr SandboxManager) {
+	e.sandboxMgr = mgr
 }
 
 // SetApprovalUI injects the UI handler for gated tools.
@@ -130,7 +142,19 @@ func (e *Executor) Execute(ctx context.Context, toolName, argsJSON, channel, cha
 		}
 	}
 
-	// 3. Safe execution with panic recovery.
+	// 3. Apply sandbox path resolution for file-related tools.
+	if e.sandboxMgr != nil {
+		args = e.resolveSandboxPaths(toolName, args, session)
+	}
+
+	// 4. Inject sandbox directory into context for shell commands
+	if e.sandboxMgr != nil {
+		if sandboxDir, err := e.sandboxMgr.GetFilesDir(session); err == nil {
+			ctx = context.WithValue(ctx, "sandbox_dir", sandboxDir)
+		}
+	}
+
+	// 5. Safe execution with panic recovery.
 	var result *plugin.ToolResult
 	func() {
 		defer func() {
@@ -172,4 +196,48 @@ func (e *Executor) Execute(ctx context.Context, toolName, argsJSON, channel, cha
 	}
 
 	return output, nil
+}
+
+// resolveSandboxPaths converts path arguments to sandbox-resolved paths.
+// This ensures file operations are restricted to the session's sandbox.
+func (e *Executor) resolveSandboxPaths(toolName string, args map[string]interface{}, session string) map[string]interface{} {
+	// List of tools that operate on file paths
+	fileTools := map[string]bool{
+		"read_file":    true,
+		"write_file":   true,
+		"file_edit":    true,
+		"file_manage":  true,
+		"file_search":  true,
+	}
+
+	if !fileTools[toolName] {
+		return args
+	}
+
+	// Clone args to avoid modifying original
+	newArgs := make(map[string]interface{}, len(args))
+	for k, v := range args {
+		newArgs[k] = v
+	}
+
+	// Resolve path parameter
+	if path, ok := newArgs["path"].(string); ok && path != "" {
+		resolved, err := e.sandboxMgr.ResolvePathForSession(session, path)
+		if err != nil {
+			e.logger.Warn("failed to resolve sandbox path",
+				zap.String("tool", toolName),
+				zap.String("session", session),
+				zap.String("path", path),
+				zap.Error(err))
+			// Keep original path if resolution fails
+		} else {
+			newArgs["path"] = resolved
+			e.logger.Debug("resolved sandbox path",
+				zap.String("tool", toolName),
+				zap.String("original", path),
+				zap.String("resolved", resolved))
+		}
+	}
+
+	return newArgs
 }

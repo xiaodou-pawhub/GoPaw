@@ -82,6 +82,12 @@ func (t *ShellTool) Execute(ctx context.Context, args map[string]interface{}) *p
 	defer cancel()
 
 	cmd := exec.CommandContext(execCtx, "sh", "-c", cmdStr)
+
+	// Set working directory to sandbox if available
+	if sandboxDir, ok := ctx.Value("sandbox_dir").(string); ok && sandboxDir != "" {
+		cmd.Dir = sandboxDir
+	}
+
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
