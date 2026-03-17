@@ -13,18 +13,20 @@ import (
 	"time"
 
 	"github.com/gopaw/gopaw/internal/memory"
+	"github.com/gopaw/gopaw/internal/focus"
 	"github.com/gopaw/gopaw/internal/skill"
 	"go.uber.org/zap"
 )
 
 // ContextBuilder dynamically builds system prompts based on user input and context.
-// It retrieves relevant memories, matches active skills, and includes time context
-// to provide personalized and contextual responses.
+// It retrieves relevant memories, matches active skills, includes time context,
+// and current focus to provide personalized and contextual responses.
 type ContextBuilder struct {
 	persona        string           // Base persona from AGENT.md
 	memoryMgr      *memory.Manager  // Memory manager for retrieval
 	ltmStore       *memory.LTMStore // Long-term memory store for Core memories
 	skillMgr       *skill.Manager   // Skill manager for matching
+	focusMgr       *focus.Manager   // Focus manager for task tracking
 	memoryNotesDir string           // Directory for daily notes
 	tokenBudget    int              // Maximum tokens for dynamic content
 	logger         *zap.Logger
@@ -44,6 +46,7 @@ func NewContextBuilder(
 	memoryMgr *memory.Manager,
 	ltmStore *memory.LTMStore,
 	skillMgr *skill.Manager,
+	focusMgr *focus.Manager,
 	memoryNotesDir string,
 	tokenBudget int,
 	logger *zap.Logger,
@@ -57,6 +60,7 @@ func NewContextBuilder(
 		memoryMgr:      memoryMgr,
 		ltmStore:       ltmStore,
 		skillMgr:       skillMgr,
+		focusMgr:       focusMgr,
 		memoryNotesDir: memoryNotesDir,
 		tokenBudget:    tokenBudget,
 		logger:         logger.Named("context_builder"),
@@ -114,7 +118,14 @@ func (b *ContextBuilder) Build(ctx context.Context, sessionID, userInput string)
 		result.SkillsMatched = skillsMatched
 	}
 
-	// 4. Time Context (dynamic, fixed small overhead)
+	// 4. Focus Section (current tasks)
+	// Small fixed overhead
+	focusSection := b.buildFocusSection()
+	if focusSection != "" {
+		parts = append(parts, focusSection)
+	}
+
+	// 5. Time Context (dynamic, fixed small overhead)
 	parts = append(parts, b.buildTimeContext())
 
 	// Combine all parts
@@ -264,6 +275,20 @@ func (b *ContextBuilder) buildActiveSkills(input string) (string, int) {
 	}
 
 	return fragments, skillsMatched
+}
+
+// buildFocusSection builds the current focus section from focus manager.
+func (b *ContextBuilder) buildFocusSection() string {
+	if b.focusMgr == nil {
+		return ""
+	}
+
+	focusText := b.focusMgr.GetFocusText()
+	if focusText == "" || focusText == "No active focus tasks." {
+		return ""
+	}
+
+	return "## Current Focus\n\n" + focusText
 }
 
 // buildTimeContext generates time-related context.

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gopaw/gopaw/internal/convlog"
+	"github.com/gopaw/gopaw/internal/focus"
 	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/skill"
@@ -68,6 +69,8 @@ type Config struct {
 	Hooks Hooks
 	// ConvLog is an optional conversation event logger.
 	ConvLog *convlog.Logger
+	// FocusManager is the optional focus task manager.
+	FocusManager *focus.Manager
 }
 
 // New creates a ReActAgent.
@@ -103,6 +106,7 @@ func New(
 		memoryManager,
 		cfg.LTMStore,
 		skillManager,
+		cfg.FocusManager,
 		cfg.MemoryNotesDir,
 		2000, // Token budget for dynamic content
 		logger,

@@ -24,6 +24,7 @@ import (
 	"github.com/gopaw/gopaw/internal/config"
 	"github.com/gopaw/gopaw/internal/convlog"
 	"github.com/gopaw/gopaw/internal/cron"
+	"github.com/gopaw/gopaw/internal/focus"
 	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/server"
@@ -199,6 +200,20 @@ func runStart() {
 
 	convLogger, _ := convlog.New(wp.ConvLogFile, logger)
 
+	// Initialize focus manager
+	focusPath := filepath.Join(wp.Root, "FOCUS.md")
+	focusMgr := focus.NewManager(focusPath, logger)
+	if err := focusMgr.Load(); err != nil {
+		logger.Warn("failed to load focus file", zap.Error(err))
+	}
+
+	// Set focus manager for the update_focus tool
+	if focusTool, ok := toolReg.Get("update_focus"); ok {
+		if ft, ok := focusTool.(*builtin.FocusUpdateTool); ok {
+			ft.SetFocusManager(focusMgr)
+		}
+	}
+
 	agentInstance := agent.New(llmClient, toolReg, skillMgr, memMgr, agent.Config{
 		DefaultPrompt:  basePrompt,
 		AgentMDPath:    wp.AgentMDFile,
@@ -209,7 +224,8 @@ func runStart() {
 			PreReasoning: []agent.HookPreReasoning{agent.InjectCurrentTime()},
 			PostTool:     []agent.HookPostTool{agent.AutoJournalHook(wp.MemoryNotesDir)},
 		},
-		ConvLog: convLogger,
+		ConvLog:      convLogger,
+		FocusManager: focusMgr,
 	}, logger)
 
 	builtin.SetSubAgentFn(func(ctx context.Context, req *types.Request) (string, error) {
@@ -321,7 +337,7 @@ func runStart() {
 	})
 
 	// Setup hot-reload for configuration files
-	hotReloadCancels := setupHotReload(agentInstance, skillMgr, wp, logger)
+	hotReloadCancels := setupHotReload(agentInstance, skillMgr, focusMgr, wp, logger)
 	// Register cleanup on shutdown
 	defer func() {
 		for _, cancel := range hotReloadCancels {
@@ -487,7 +503,7 @@ func buildPluginConfigsFromDB(store *settings.Store, logger *zap.Logger) map[str
 
 // setupHotReload initializes file watchers for hot-reloading configuration.
 // Returns cancel functions that should be called on shutdown to clean up resources.
-func setupHotReload(agentInstance *agent.ReActAgent, skillMgr *skill.Manager, wp *workspace.Paths, logger *zap.Logger) []context.CancelFunc {
+func setupHotReload(agentInstance *agent.ReActAgent, skillMgr *skill.Manager, focusMgr *focus.Manager, wp *workspace.Paths, logger *zap.Logger) []context.CancelFunc {
 	var cancels []context.CancelFunc
 
 	// Watch AGENT.md for persona changes
@@ -522,9 +538,27 @@ func setupHotReload(agentInstance *agent.ReActAgent, skillMgr *skill.Manager, wp
 		}
 	}
 
+	// Watch FOCUS.md for focus changes
+	if focusMgr != nil && focusMgr.GetPath() != "" {
+		cancel, err := config.WatchFile(focusMgr.GetPath(), func() {
+			logger.Info("FOCUS.md changed, reloading focus",
+				zap.String("path", focusMgr.GetPath()),
+			)
+			if err := focusMgr.Load(); err != nil {
+				logger.Error("failed to reload focus", zap.Error(err))
+			}
+		}, logger)
+		if err != nil {
+			logger.Warn("failed to watch FOCUS.md", zap.Error(err))
+		} else {
+			cancels = append(cancels, cancel)
+		}
+	}
+
 	logger.Info("hot-reload watching started",
 		zap.String("agent_md", agentInstance.GetAgentMDPath()),
 		zap.String("skills_dir", wp.SkillsDir),
+		zap.String("focus_file", focusMgr.GetPath()),
 	)
 
 	return cancels
