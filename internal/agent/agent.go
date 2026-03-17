@@ -155,6 +155,12 @@ const contextWarnTokens = 100_000
 // Most frontier models top out at 128K–200K context; 150K is a safe hard limit.
 const contextHardLimitTokens = 150_000
 
+// Tool step limit thresholds for progressive warnings.
+const (
+	toolStepWarnThreshold = 0.8  // Warn at 80% of max steps
+	toolStepFinalWarning  = 0.96 // Final warning at 96% of max steps (maxSteps - 2)
+)
+
 // buildToolDefinitions converts plugin.Tool slice to LLM ToolDefinition slice.
 func buildToolDefinitions(tools []plugin.Tool) []llm.ToolDefinition {
 	defs := make([]llm.ToolDefinition, 0, len(tools))
@@ -169,6 +175,28 @@ func buildToolDefinitions(tools []plugin.Tool) []llm.ToolDefinition {
 		})
 	}
 	return defs
+}
+
+// checkToolStepLimit checks if the current step has reached warning thresholds.
+// Returns a warning message if applicable, or empty string if no warning needed.
+func checkToolStepLimit(step, maxSteps int) string {
+	if maxSteps <= 0 {
+		maxSteps = 20
+	}
+
+	// 80% threshold warning
+	warnThreshold := int(float64(maxSteps) * toolStepWarnThreshold)
+	if step == warnThreshold {
+		return fmt.Sprintf("⚠️ Tool call limit warning: %d/%d steps used (80%%). Consider wrapping up soon.", step, maxSteps)
+	}
+
+	// Final warning at maxSteps - 2
+	finalThreshold := maxSteps - 2
+	if step == finalThreshold && finalThreshold > warnThreshold {
+		return fmt.Sprintf("🚨 Final warning: %d/%d steps used. Only 2 steps remaining! Please provide final answer.", step, maxSteps)
+	}
+
+	return ""
 }
 
 // ProgressEventType identifies a progress event kind.
@@ -314,6 +342,19 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 			zap.String("session", req.SessionID),
 		)
 
+		// Check tool step limit and inject warning if needed
+		if warning := checkToolStepLimit(step, maxSteps); warning != "" {
+			a.logger.Warn("tool step limit warning",
+				zap.String("warning", warning),
+				zap.String("session", req.SessionID),
+			)
+			// Inject warning into messages for LLM to see
+			messages = append(messages, llm.ChatMessage{
+				Role:    llm.RoleSystem,
+				Content: warning,
+			})
+		}
+
 		// PreReasoning hooks: may modify messages (e.g. inject current time).
 		hooked, hookErr := a.hooks.runPreReasoning(ctx, messages)
 		if hookErr != nil {
@@ -423,7 +464,31 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 		}
 	}
 
+	// Max steps reached - add termination message and get final answer from LLM
+	a.logger.Warn("agent: max steps reached, forcing final answer",
+		zap.Int("max_steps", maxSteps),
+		zap.String("session", req.SessionID),
+	)
+
+	// Inject system message to force final answer
+	messages = append(messages, llm.ChatMessage{
+		Role:    llm.RoleSystem,
+		Content: fmt.Sprintf("🛑 Maximum tool calls (%d) reached. You must provide your final answer now based on the information gathered. Do not make any more tool calls.", maxSteps),
+	})
+
+	// Make one final LLM call to get the answer
+	finalResp, err := a.llmClient.Chat(ctx, llm.ChatRequest{
+		Messages: messages,
+		Tools:    nil, // No tools - force text response
+	})
+	if err != nil {
+		return nil, fmt.Errorf("agent: failed to get final answer after max steps: %w", err)
+	}
+
 	finalAnswer := fullContent.String()
+	if finalResp.Message.Content != "" {
+		finalAnswer = finalResp.Message.Content
+	}
 	if finalAnswer == "" {
 		return nil, fmt.Errorf("agent: max steps reached without any content")
 	}
@@ -521,6 +586,19 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 			zap.Int("step", step),
 			zap.String("session", req.SessionID),
 		)
+
+		// Check tool step limit and inject warning if needed
+		if warning := checkToolStepLimit(step, maxSteps); warning != "" {
+			a.logger.Warn("tool step limit warning",
+				zap.String("warning", warning),
+				zap.String("session", req.SessionID),
+			)
+			// Inject warning into messages for LLM to see
+			messages = append(messages, llm.ChatMessage{
+				Role:    llm.RoleSystem,
+				Content: warning,
+			})
+		}
 
 		// 显式推送当前步骤，触发前端视觉反馈
 		if progressFn != nil {
@@ -644,9 +722,37 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 		}
 	}
 
+	// Max steps reached - add termination message and get final answer from LLM
+	a.logger.Warn("agent: max steps reached, forcing final answer",
+		zap.Int("max_steps", maxSteps),
+		zap.String("session", req.SessionID),
+	)
+
+	// Inject system message to force final answer
+	messages = append(messages, llm.ChatMessage{
+		Role:    llm.RoleSystem,
+		Content: fmt.Sprintf("🛑 Maximum tool calls (%d) reached. You must provide your final answer now based on the information gathered. Do not make any more tool calls.", maxSteps),
+	})
+
+	// Make one final LLM call to get the answer
+	finalResp, err := a.llmClient.Chat(ctx, llm.ChatRequest{
+		Messages: messages,
+		Tools:    nil, // No tools - force text response
+	})
+	if err != nil {
+		return "", fmt.Errorf("agent: failed to get final answer after max steps: %w", err)
+	}
+
 	finalAnswer := fullContent.String()
+	if finalResp.Message.Content != "" {
+		finalAnswer = finalResp.Message.Content
+		// Stream the final answer if deltaFn is provided
+		if deltaFn != nil {
+			deltaFn(finalResp.Message.Content)
+		}
+	}
 	if finalAnswer == "" {
-		return "", fmt.Errorf("agent: sequence ended without any text content")
+		return "", fmt.Errorf("agent: max steps reached without any content")
 	}
 
 	if a.convlog != nil {
