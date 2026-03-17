@@ -153,51 +153,92 @@
     </v-row>
 
     <!-- 创建/编辑对话框 -->
-    <v-dialog v-model="dialog.show" max-width="800">
+    <v-dialog v-model="dialog.show" max-width="1200" fullscreen>
       <v-card>
-        <v-card-title>{{ dialog.isEdit ? '编辑工作流' : '新建工作流' }}</v-card-title>
-        <v-card-text>
+        <v-card-title class="d-flex align-center">
+          <span>{{ dialog.isEdit ? '编辑工作流' : '新建工作流' }}</span>
+          <v-spacer />
+          <v-btn icon="mdi-close" variant="text" @click="dialog.show = false" />
+        </v-card-title>
+        <v-card-text class="pa-0">
           <v-form ref="form" v-model="dialog.valid">
-            <v-text-field
-              v-model="dialog.data.id"
-              label="ID"
-              :disabled="dialog.isEdit"
-              :rules="[(v: string) => !!v || 'ID 不能为空']"
-              required
-            />
-            <v-text-field
-              v-model="dialog.data.name"
-              label="名称"
-              :rules="[(v: string) => !!v || '名称不能为空']"
-              required
-            />
-            <v-textarea
-              v-model="dialog.data.description"
-              label="描述"
-              rows="2"
-            />
-            <v-select
-              v-model="dialog.data.status"
-              :items="['draft', 'active', 'disabled']"
-              label="状态"
-            />
-            <v-textarea
-              v-model="dialog.definitionText"
-              label="定义 (JSON)"
-              rows="10"
-              :rules="[(v: string) => {
-                if (!v) return '定义不能为空'
-                try {
-                  JSON.parse(v)
-                  return true
-                } catch {
-                  return '无效的 JSON'
-                }
-              }]"
-            />
+            <v-row class="ma-0">
+              <!-- 左侧：基本信息 -->
+              <v-col cols="3" class="pa-4" style="border-right: 1px solid #e0e0e0;">
+                <v-text-field
+                  v-model="dialog.data.id"
+                  label="ID"
+                  :disabled="dialog.isEdit"
+                  :rules="[(v: string) => !!v || 'ID 不能为空']"
+                  required
+                  density="compact"
+                  class="mb-4"
+                />
+                <v-text-field
+                  v-model="dialog.data.name"
+                  label="名称"
+                  :rules="[(v: string) => !!v || '名称不能为空']"
+                  required
+                  density="compact"
+                  class="mb-4"
+                />
+                <v-textarea
+                  v-model="dialog.data.description"
+                  label="描述"
+                  rows="3"
+                  density="compact"
+                  class="mb-4"
+                />
+                <v-select
+                  v-model="dialog.data.status"
+                  :items="['draft', 'active', 'disabled']"
+                  label="状态"
+                  density="compact"
+                  class="mb-4"
+                />
+              </v-col>
+              
+              <!-- 右侧：设计器/JSON -->
+              <v-col cols="9" class="pa-0">
+                <v-tabs v-model="dialog.activeTab">
+                  <v-tab value="designer">设计器</v-tab>
+                  <v-tab value="json">JSON</v-tab>
+                </v-tabs>
+                
+                <v-window v-model="dialog.activeTab" class="fill-height" @update:model-value="onTabChange">
+                  <v-window-item value="designer" class="fill-height">
+                    <WorkflowDesigner
+                      :workflow="dialog.data.definition"
+                      :agents="agents"
+                      @save="onDesignerSave"
+                      @validate="onDesignerValidate"
+                      style="height: 600px;"
+                    />
+                  </v-window-item>
+                  
+                  <v-window-item value="json" class="fill-height">
+                    <v-textarea
+                      v-model="dialog.definitionText"
+                      label="定义 (JSON)"
+                      rows="25"
+                      :rules="[(v: string) => {
+                        if (!v) return '定义不能为空'
+                        try {
+                          JSON.parse(v)
+                          return true
+                        } catch {
+                          return '无效的 JSON'
+                        }
+                      }]"
+                      class="ma-4"
+                    />
+                  </v-window-item>
+                </v-window>
+              </v-col>
+            </v-row>
           </v-form>
         </v-card-text>
-        <v-card-actions>
+        <v-card-actions class="pa-4">
           <v-spacer />
           <v-btn variant="text" @click="dialog.show = false">取消</v-btn>
           <v-btn color="primary" :disabled="!dialog.valid" @click="saveWorkflow">
@@ -307,6 +348,7 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive } from 'vue'
 import { workflowsApi, type Workflow, type Execution, type ExecutionStats } from '@/api/workflows'
+import WorkflowDesigner from '@/components/workflow/WorkflowDesigner.vue'
 
 const showSnackbar = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
   console.log(`[${type}] ${message}`)
@@ -329,6 +371,7 @@ const dialog = reactive({
   show: false,
   isEdit: false,
   valid: false,
+  activeTab: 'designer' as 'designer' | 'json',
   data: {
     id: '',
     name: '',
@@ -340,6 +383,18 @@ const dialog = reactive({
   },
   definitionText: '',
 })
+
+// Agent 列表（用于设计器）
+const agents = ref<{ id: string; name: string }[]>([])
+
+async function loadAgents() {
+  try {
+    // 这里应该从 agentApi 获取，暂时返回空数组
+    agents.value = []
+  } catch (error) {
+    console.error('Failed to load agents:', error)
+  }
+}
 
 const executeDialog = reactive({
   show: false,
@@ -449,6 +504,7 @@ async function loadStats(workflowId: string) {
 
 function openCreateDialog() {
   dialog.isEdit = false
+  dialog.activeTab = 'designer'
   dialog.data = {
     id: '',
     name: '',
@@ -468,11 +524,13 @@ function openCreateDialog() {
     ],
   }, null, 2)
   dialog.show = true
+  loadAgents()
 }
 
 function openEditDialog() {
   if (!selectedWorkflow.value) return
   dialog.isEdit = true
+  dialog.activeTab = 'designer'
   dialog.data = {
     id: selectedWorkflow.value.id,
     name: selectedWorkflow.value.name,
@@ -482,6 +540,38 @@ function openEditDialog() {
   }
   dialog.definitionText = JSON.stringify(selectedWorkflow.value.definition, null, 2)
   dialog.show = true
+  loadAgents()
+}
+
+// 设计器保存
+function onDesignerSave(definition: any) {
+  dialog.data.definition = definition
+  dialog.definitionText = JSON.stringify(definition, null, 2)
+  showSnackbar('工作流定义已更新', 'success')
+}
+
+// 设计器验证
+function onDesignerValidate(definition: any) {
+  dialog.data.definition = definition
+  dialog.definitionText = JSON.stringify(definition, null, 2)
+  showSnackbar('工作流定义已验证', 'success')
+}
+
+// 标签页切换
+function onTabChange(tab: string) {
+  if (tab === 'designer') {
+    // 从 JSON 同步到设计器
+    try {
+      const definition = JSON.parse(dialog.definitionText)
+      dialog.data.definition = definition
+    } catch (e) {
+      showSnackbar('JSON 格式无效，无法切换到设计器', 'error')
+      dialog.activeTab = 'json'
+    }
+  } else if (tab === 'json') {
+    // 从设计器同步到 JSON
+    dialog.definitionText = JSON.stringify(dialog.data.definition, null, 2)
+  }
 }
 
 async function saveWorkflow() {
