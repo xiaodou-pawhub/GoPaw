@@ -40,6 +40,11 @@ const routes: RouteRecordRaw[] = [
         path: 'mcp',
         name: 'MCP',
         component: () => import('@/pages/MCP.vue')
+      },
+      {
+        path: 'triggers',
+        name: 'Triggers',
+        component: () => import('@/pages/Triggers.vue')
       }
     ]
   }

@@ -25,6 +25,7 @@ import (
 	"github.com/gopaw/gopaw/internal/skill"
 	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/internal/trace"
+	"github.com/gopaw/gopaw/internal/trigger"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"go.uber.org/zap"
 )
@@ -56,6 +57,8 @@ func New(
 	agentMgr *agent.Manager,
 	agentRouter *agent.Router,
 	mcpMgr *mcp.Manager,
+	triggerMgr *trigger.Manager,
+	triggerEngine *trigger.Engine,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 	logger *zap.Logger,
@@ -74,7 +77,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, wp, staticFS)
+	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -101,6 +104,8 @@ func (s *Server) registerRoutes(
 	agentMgr *agent.Manager,
 	agentRouter *agent.Router,
 	mcpMgr *mcp.Manager,
+	triggerMgr *trigger.Manager,
+	triggerEngine *trigger.Engine,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 ) {
@@ -287,6 +292,34 @@ func (s *Server) registerRoutes(
 			mcpG.GET("/servers/:id/tools", mcpH.GetTools)
 			mcpG.GET("/tools", mcpH.GetAllTools)
 		}
+	}
+
+	// /api/triggers — trigger management
+	if triggerMgr != nil && triggerEngine != nil {
+		triggerH := handlers.NewTriggerHandler(triggerMgr, triggerEngine, s.logger)
+		webhookH := handlers.NewWebhookHandler(triggerEngine, s.logger)
+		messageH := handlers.NewMessageHandler(triggerEngine, s.logger)
+
+		triggersG := api.Group("/triggers")
+		{
+			triggersG.GET("", triggerH.ListTriggers)
+			triggersG.POST("", triggerH.CreateTrigger)
+			triggersG.GET("/by-agent/:agent_id", triggerH.ListTriggersByAgent)
+			triggersG.GET("/:id", triggerH.GetTrigger)
+			triggersG.PUT("/:id", triggerH.UpdateTrigger)
+			triggersG.DELETE("/:id", triggerH.DeleteTrigger)
+			triggersG.POST("/:id/enable", triggerH.EnableTrigger)
+			triggersG.POST("/:id/disable", triggerH.DisableTrigger)
+			triggersG.POST("/:id/fire", triggerH.FireTrigger)
+			triggersG.GET("/:id/history", triggerH.GetTriggerHistory)
+			triggersG.POST("/validate-cron", triggerH.ValidateCron)
+		}
+
+		// Webhook endpoint (public, no auth)
+		s.engine.POST("/webhook/:id", webhookH.HandleWebhook)
+
+		// Message endpoint
+		api.POST("/messages", messageH.SendMessage)
 	}
 
 	// Health check at root — public, for load balancers / uptime monitors.

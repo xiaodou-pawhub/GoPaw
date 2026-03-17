@@ -35,6 +35,7 @@ import (
 	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/internal/tool/builtin"
 	"github.com/gopaw/gopaw/internal/trace"
+	"github.com/gopaw/gopaw/internal/trigger"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"github.com/gopaw/gopaw/pkg/plugin"
 	"github.com/gopaw/gopaw/pkg/types"
@@ -495,7 +496,19 @@ func runStart() {
 		}
 	}
 
-	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, wp, web.FS(), logger)
+	// Initialize trigger manager and engine
+	triggerMgr, err := trigger.NewManager(store.DB(), logger)
+	if err != nil {
+		logger.Warn("failed to initialize trigger manager", zap.Error(err))
+		triggerMgr = nil
+	}
+
+	triggerEngine := trigger.NewEngine(triggerMgr, agentRouter, logger)
+	if triggerEngine != nil {
+		triggerEngine.Start()
+	}
+
+	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, wp, web.FS(), logger)
 	go srv.Start()
 
 	quit := make(chan os.Signal, 1)
@@ -504,6 +517,11 @@ func runStart() {
 	cancel()
 	shutdownCtx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	srv.Shutdown(shutdownCtx)
+
+	// Stop trigger engine
+	if triggerEngine != nil {
+		triggerEngine.Stop()
+	}
 
 	// Close agent manager and router
 	if agentRouter != nil {

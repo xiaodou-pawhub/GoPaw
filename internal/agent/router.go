@@ -160,6 +160,38 @@ func (r *Router) GetAgentDefinition(agentID string) (*Definition, error) {
 	return r.manager.Get(agentID)
 }
 
+// GetOrCreateAgent returns or creates an agent instance by ID.
+func (r *Router) GetOrCreateAgent(agentID string) (*ReActAgent, error) {
+	r.mu.RLock()
+	instance, ok := r.instances[agentID]
+	r.mu.RUnlock()
+
+	if ok {
+		return instance, nil
+	}
+
+	// Create new instance
+	def, err := r.manager.Get(agentID)
+	if err != nil {
+		return nil, fmt.Errorf("agent not found: %w", err)
+	}
+
+	instance, err = r.factory.CreateAgent(def)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create agent instance: %w", err)
+	}
+
+	r.mu.Lock()
+	r.instances[agentID] = instance
+	r.mu.Unlock()
+
+	r.logger.Info("agent instance created for trigger",
+		zap.String("agent_id", agentID),
+		zap.String("agent_name", def.Name))
+
+	return instance, nil
+}
+
 // SwitchAgent switches the agent for a session.
 func (r *Router) SwitchAgent(sessionID, agentID string) error {
 	// Verify agent exists
