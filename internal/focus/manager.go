@@ -100,10 +100,10 @@ func (m *Manager) GetActiveTask() *Task {
 }
 
 // UpdateTask updates a task's status by title.
+// Thread-safe: locks only for memory update, saves without lock.
 func (m *Manager) UpdateTask(title string, status Status) error {
+	// Step 1: Update memory with lock
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	found := false
 	for i := range m.tasks {
 		if m.tasks[i].Title == title {
@@ -112,18 +112,21 @@ func (m *Manager) UpdateTask(title string, status Status) error {
 			break
 		}
 	}
+	m.mu.Unlock()
 
 	if !found {
 		return fmt.Errorf("task not found: %s", title)
 	}
 
-	// Auto-save after update
-	m.mu.Unlock()
+	// Step 2: Save to file without lock
 	if err := m.Save(); err != nil {
-		m.mu.Lock()
+		// Log error but don't rollback memory state for simplicity
+		m.logger.Error("failed to save focus after update",
+			zap.String("title", title),
+			zap.Error(err),
+		)
 		return fmt.Errorf("failed to save after update: %w", err)
 	}
-	m.mu.Lock()
 
 	m.logger.Info("task updated",
 		zap.String("title", title),
@@ -134,29 +137,31 @@ func (m *Manager) UpdateTask(title string, status Status) error {
 }
 
 // AddTask adds a new task.
+// Thread-safe: locks only for memory update, saves without lock.
 func (m *Manager) AddTask(title string, status Status) error {
+	// Step 1: Update memory with lock
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	// Check if task already exists
 	for _, task := range m.tasks {
 		if task.Title == title {
+			m.mu.Unlock()
 			return fmt.Errorf("task already exists: %s", title)
 		}
 	}
-
 	m.tasks = append(m.tasks, Task{
 		Title:  title,
 		Status: status,
 	})
-
-	// Auto-save
 	m.mu.Unlock()
+
+	// Step 2: Save to file without lock
 	if err := m.Save(); err != nil {
-		m.mu.Lock()
+		m.logger.Error("failed to save focus after add",
+			zap.String("title", title),
+			zap.Error(err),
+		)
 		return fmt.Errorf("failed to save after add: %w", err)
 	}
-	m.mu.Lock()
 
 	m.logger.Info("task added",
 		zap.String("title", title),
