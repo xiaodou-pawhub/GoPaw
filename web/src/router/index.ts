@@ -22,6 +22,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/Market.vue')
       },
       {
+        path: 'traces',
+        name: 'Traces',
+        component: () => import('@/pages/Traces.vue')
+      },
+      {
         path: 'settings',
         name: 'Settings',
         component: () => import('@/pages/Settings.vue')

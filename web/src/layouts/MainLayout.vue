@@ -19,6 +19,7 @@ const route = useRoute()
 const pageTitle = computed(() => {
   if (route.path.startsWith('/chat')) return 'GoPaw'
   if (route.path.startsWith('/market')) return '技能市场'
+  if (route.path.startsWith('/traces')) return '执行轨迹'
   if (route.path.startsWith('/settings')) return '设置'
   return 'GoPaw'
 })

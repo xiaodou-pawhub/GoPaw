@@ -23,6 +23,7 @@ import (
 	"github.com/gopaw/gopaw/internal/settings"
 	"github.com/gopaw/gopaw/internal/skill"
 	"github.com/gopaw/gopaw/internal/tool"
+	"github.com/gopaw/gopaw/internal/trace"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"go.uber.org/zap"
 )
@@ -50,6 +51,7 @@ func New(
 	cronService *cron.CronService,
 	cfgMgr *config.Manager,
 	settingsStore *settings.Store,
+	traceMgr *trace.Manager,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 	logger *zap.Logger,
@@ -68,7 +70,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, wp, staticFS)
+	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -91,6 +93,7 @@ func (s *Server) registerRoutes(
 	cronService *cron.CronService,
 	cfgMgr *config.Manager,
 	settingsStore *settings.Store,
+	traceMgr *trace.Manager,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 ) {
@@ -235,6 +238,15 @@ func (s *Server) registerRoutes(
 		sysG.GET("/health", sysH.Health)
 		sysG.GET("/version", sysH.Version)
 		sysG.GET("/logs", sysH.ListLogs) // WebAuth already guards the group
+	}
+
+	// /api/traces — execution traces
+	traceH := handlers.NewTraceHandler(traceMgr, s.logger)
+	traceG := api.Group("/traces")
+	{
+		traceG.GET("", traceH.List)
+		traceG.GET("/stats", traceH.Stats)
+		traceG.GET("/:id", traceH.Get)
 	}
 
 	// Health check at root — public, for load balancers / uptime monitors.

@@ -440,7 +440,7 @@ func runStart() {
 		logger.Info("⚡ Admin token", zap.String("token", adminToken))
 	}
 
-	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, wp, web.FS(), logger)
+	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, wp, web.FS(), logger)
 	go srv.Start()
 
 	quit := make(chan os.Signal, 1)
