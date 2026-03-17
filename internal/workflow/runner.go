@@ -12,24 +12,28 @@ import (
 	"time"
 
 	"github.com/gopaw/gopaw/internal/agent/message"
+	"github.com/gopaw/gopaw/internal/queue"
 	"go.uber.org/zap"
 )
 
 // Runner executes a workflow instance.
 type Runner struct {
-	execution *Execution
-	workflow  *Workflow
-	engine    *Engine
-	ctx       context.Context
-	cancel    context.CancelFunc
-	resolver  *Resolver
-	evaluator *Evaluator
+	execution   *Execution
+	workflow    *Workflow
+	engine      *Engine
+	queueMgr    *queue.Manager
+	ctx         context.Context
+	cancel      context.CancelFunc
+	resolver    *Resolver
+	evaluator   *Evaluator
 	stepOutputs map[string]*StepOutput
-	mu        sync.RWMutex
+	stepStatus  map[string]StepStatus
+	stepMu      sync.RWMutex
+	mu          sync.RWMutex
 }
 
 // NewRunner creates a new workflow runner.
-func NewRunner(execution *Execution, workflow *Workflow, engine *Engine, ctx context.Context) *Runner {
+func NewRunner(execution *Execution, workflow *Workflow, engine *Engine, queueMgr *queue.Manager, ctx context.Context) *Runner {
 	ctx, cancel := context.WithCancel(ctx)
 
 	// Initialize resolver and evaluator
@@ -40,11 +44,13 @@ func NewRunner(execution *Execution, workflow *Workflow, engine *Engine, ctx con
 		execution:   execution,
 		workflow:    workflow,
 		engine:      engine,
+		queueMgr:    queueMgr,
 		ctx:         ctx,
 		cancel:      cancel,
 		resolver:    resolver,
 		evaluator:   evaluator,
 		stepOutputs: make(map[string]*StepOutput),
+		stepStatus:  make(map[string]StepStatus),
 	}
 }
 
@@ -89,12 +95,32 @@ func (r *Runner) Cancel() {
 	r.cancel()
 }
 
-// executeSteps executes all workflow steps.
+// executeSteps executes all workflow steps asynchronously via queue.
 func (r *Runner) executeSteps() error {
+	// Check if queue manager is available
+	if r.queueMgr == nil {
+		// Fallback to synchronous execution
+		return r.executeStepsSync()
+	}
+
+	// Publish initial ready steps to queue
+	readySteps := r.workflow.Definition.GetReadySteps(make(map[string]bool))
+	for _, step := range readySteps {
+		if err := r.publishStepMessage(&step); err != nil {
+			return fmt.Errorf("failed to publish step %s: %w", step.ID, err)
+		}
+	}
+
+	// Wait for all steps to complete
+	return r.waitForStepsCompletion()
+}
+
+// executeStepsSync executes all workflow steps synchronously (fallback).
+func (r *Runner) executeStepsSync() error {
 	completedSteps := make(map[string]bool)
 	failedSteps := make(map[string]bool)
 	var stepsMu sync.RWMutex
-	
+
 	// Prevent infinite loops - max iterations
 	maxIterations := len(r.workflow.Definition.Steps) * 10
 	iterations := 0
@@ -104,7 +130,7 @@ func (r *Runner) executeSteps() error {
 		if iterations > maxIterations {
 			return fmt.Errorf("workflow execution exceeded maximum iterations, possible circular dependency")
 		}
-		
+
 		// Check if cancelled
 		if r.ctx.Err() != nil {
 			return fmt.Errorf("execution cancelled")
@@ -114,7 +140,7 @@ func (r *Runner) executeSteps() error {
 		stepsMu.RLock()
 		readySteps := r.workflow.Definition.GetReadySteps(completedSteps)
 		stepsMu.RUnlock()
-		
+
 		if len(readySteps) == 0 {
 			// Check if all steps are completed or failed
 			stepsMu.RLock()
@@ -141,7 +167,7 @@ func (r *Runner) executeSteps() error {
 				}
 			}
 			stepsMu.RUnlock()
-			
+
 			if allDone {
 				break
 			}
@@ -196,6 +222,244 @@ func (r *Runner) executeSteps() error {
 	}
 
 	return nil
+}
+
+// publishStepMessage publishes a step execution message to the queue.
+func (r *Runner) publishStepMessage(step *StepDef) error {
+	// Check condition before publishing
+	if step.Condition != "" {
+		shouldExecute, err := r.evaluator.Evaluate(step.Condition)
+		if err != nil {
+			r.engine.logger.Warn("failed to evaluate condition",
+				zap.String("step_id", step.ID),
+				zap.Error(err))
+		} else if !shouldExecute {
+			// Skip this step
+			r.engine.logger.Info("skipping step due to condition",
+				zap.String("step_id", step.ID))
+			r.recordStepResult(step, StepStatusSkipped, nil, nil)
+			// Mark as completed so dependent steps can proceed
+			r.stepMu.Lock()
+			r.stepStatus[step.ID] = StepStatusSkipped
+			r.stepMu.Unlock()
+			// Note: Skipped steps are detected via database polling
+			return nil
+		}
+	}
+
+	// Resolve input
+	resolvedInput, err := r.resolver.Resolve(step.Input)
+	if err != nil {
+		return fmt.Errorf("failed to resolve input: %w", err)
+	}
+
+	var inputMap map[string]interface{}
+	if resolvedInput == nil {
+		inputMap = make(map[string]interface{})
+	} else if m, ok := resolvedInput.(map[string]interface{}); ok {
+		inputMap = m
+	} else {
+		return fmt.Errorf("resolved input is not a map, got %T", resolvedInput)
+	}
+
+	// Build step outputs for resolver
+	stepOutputs := make(map[string]interface{})
+	r.mu.RLock()
+	for id, output := range r.stepOutputs {
+		stepOutputs[id] = output.Output
+	}
+	r.mu.RUnlock()
+
+	payload := map[string]interface{}{
+		"execution_id": r.execution.ID,
+		"workflow_id":  r.workflow.ID,
+		"step_id":      step.ID,
+		"step_name":    step.Name,
+		"action":       step.Action,
+		"agent":        step.Agent,
+		"input":        inputMap,
+		"variables":    r.execution.Variables,
+		"step_outputs": stepOutputs,
+		"retry":        step.Retry,
+		"retry_delay":  step.RetryDelay,
+		"timeout":      step.Timeout,
+	}
+
+	// Determine priority
+	priority := queue.PriorityNormal
+	if step.Priority == "high" {
+		priority = queue.PriorityHigh
+	} else if step.Priority == "low" {
+		priority = queue.PriorityLow
+	}
+
+	_, err = r.queueMgr.Publish("workflow", "execute_step", payload, &queue.PublishOptions{
+		Priority:   priority,
+		MaxRetries: step.Retry,
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to publish step message: %w", err)
+	}
+
+	// Mark step as queued
+	r.stepMu.Lock()
+	r.stepStatus[step.ID] = StepStatusPending
+	r.stepMu.Unlock()
+
+	r.engine.logger.Info("step published to queue",
+		zap.String("step_id", step.ID),
+		zap.String("step_name", step.Name))
+
+	return nil
+}
+
+// waitForStepsCompletion waits for all steps to complete by polling database.
+func (r *Runner) waitForStepsCompletion() error {
+	completedSteps := make(map[string]bool)
+	failedSteps := make(map[string]bool)
+
+	// Prevent infinite loops - max wait time
+	timeout := time.After(30 * time.Minute)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	// Initial publish of ready steps
+	r.checkAndPublishReadySteps(completedSteps, failedSteps)
+
+	for {
+		select {
+		case <-timeout:
+			return fmt.Errorf("workflow execution timeout")
+
+		case <-r.ctx.Done():
+			return fmt.Errorf("execution cancelled")
+
+		case <-ticker.C:
+			// Poll database for step status updates
+			r.pollStepStatus(completedSteps, failedSteps)
+
+			// Check if all steps are done
+			if r.areAllStepsDone(completedSteps, failedSteps) {
+				return nil
+			}
+
+			// Publish any newly ready steps
+			r.checkAndPublishReadySteps(completedSteps, failedSteps)
+		}
+	}
+}
+
+// pollStepStatus polls the database for step status updates.
+func (r *Runner) pollStepStatus(completedSteps, failedSteps map[string]bool) {
+	rows, err := r.engine.db.Query(`
+		SELECT step_id, status FROM workflow_steps
+		WHERE execution_id = ? AND (status = 'completed' OR status = 'failed' OR status = 'skipped')
+	`, r.execution.ID)
+	if err != nil {
+		r.engine.logger.Warn("failed to poll step status", zap.Error(err))
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var stepID string
+		var status string
+		if err := rows.Scan(&stepID, &status); err != nil {
+			continue
+		}
+
+		if status == "completed" || status == "skipped" {
+			if !completedSteps[stepID] {
+				completedSteps[stepID] = true
+				// Update step outputs
+				r.updateStepOutputFromDB(stepID)
+			}
+		} else if status == "failed" {
+			if !failedSteps[stepID] {
+				failedSteps[stepID] = true
+			}
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		r.engine.logger.Warn("error polling step status", zap.Error(err))
+	}
+}
+
+// updateStepOutputFromDB updates step output from database.
+func (r *Runner) updateStepOutputFromDB(stepID string) {
+	var outputJSON string
+	err := r.engine.db.QueryRow(`
+		SELECT output FROM workflow_steps
+		WHERE execution_id = ? AND step_id = ?
+	`, r.execution.ID, stepID).Scan(&outputJSON)
+	if err != nil {
+		return
+	}
+
+	var output map[string]interface{}
+	if err := json.Unmarshal([]byte(outputJSON), &output); err != nil {
+		return
+	}
+
+	r.mu.Lock()
+	r.stepOutputs[stepID] = &StepOutput{
+		StepID: stepID,
+		Status: StepStatusCompleted,
+		Output: output,
+	}
+	r.resolver = NewResolver(r.execution.Variables, nil, r.stepOutputs)
+	r.evaluator = NewEvaluator(r.resolver)
+	r.mu.Unlock()
+}
+
+// checkAndPublishReadySteps checks for ready steps and publishes them.
+func (r *Runner) checkAndPublishReadySteps(completedSteps, failedSteps map[string]bool) {
+	readySteps := r.workflow.Definition.GetReadySteps(completedSteps)
+
+	for _, step := range readySteps {
+		// Check if already queued or processing
+		r.stepMu.RLock()
+		status, exists := r.stepStatus[step.ID]
+		r.stepMu.RUnlock()
+
+		if exists && (status == StepStatusPending || status == StepStatusRunning) {
+			continue
+		}
+
+		// Check if any dependency failed
+		depFailed := false
+		for _, dep := range step.DependsOn {
+			if failedSteps[dep] {
+				depFailed = true
+				break
+			}
+		}
+
+		if depFailed {
+			failedSteps[step.ID] = true
+			// Note: Failed steps are tracked in memory, not via channel
+			continue
+		}
+
+		// Publish step to queue
+		if err := r.publishStepMessage(&step); err != nil {
+			r.engine.logger.Error("failed to publish ready step",
+				zap.String("step_id", step.ID),
+				zap.Error(err))
+		}
+	}
+}
+
+// areAllStepsDone checks if all steps are completed or failed.
+func (r *Runner) areAllStepsDone(completedSteps, failedSteps map[string]bool) bool {
+	for _, step := range r.workflow.Definition.Steps {
+		if !completedSteps[step.ID] && !failedSteps[step.ID] {
+			return false
+		}
+	}
+	return true
 }
 
 // executeStep executes a single step.

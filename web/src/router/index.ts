@@ -55,6 +55,11 @@ const routes: RouteRecordRaw[] = [
         path: 'workflows',
         name: 'Workflows',
         component: () => import('@/pages/Workflows.vue')
+      },
+      {
+        path: 'queue',
+        name: 'Queue',
+        component: () => import('@/pages/Queue.vue')
       }
     ]
   }

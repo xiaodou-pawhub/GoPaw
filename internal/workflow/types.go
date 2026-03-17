@@ -83,6 +83,7 @@ type StepDef struct {
 	Timeout     int                    `json:"timeout,omitempty"` // seconds
 	Retry       int                    `json:"retry,omitempty"`
 	RetryDelay  int                    `json:"retry_delay,omitempty"` // seconds
+	Priority    string                 `json:"priority,omitempty"` // high, normal, low
 }
 
 // TriggerConfig represents the trigger configuration for a workflow.

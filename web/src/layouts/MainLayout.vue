@@ -25,6 +25,7 @@ const pageTitle = computed(() => {
   if (route.path.startsWith('/triggers')) return 'Triggers'
   if (route.path.startsWith('/agent-messages')) return 'Agent 消息'
   if (route.path.startsWith('/workflows')) return '工作流'
+  if (route.path.startsWith('/queue')) return '消息队列'
   if (route.path.startsWith('/settings')) return '设置'
   return 'GoPaw'
 })

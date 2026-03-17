@@ -36,6 +36,7 @@ import (
 	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/internal/tool/builtin"
 	"github.com/gopaw/gopaw/internal/trace"
+	"github.com/gopaw/gopaw/internal/queue"
 	"github.com/gopaw/gopaw/internal/trigger"
 	"github.com/gopaw/gopaw/internal/workflow"
 	"github.com/gopaw/gopaw/internal/workspace"
@@ -517,14 +518,21 @@ func runStart() {
 		agentMsgMgr = nil
 	}
 
+	// Initialize queue manager first (needed by workflow engine)
+	queueMgr, err := queue.NewManager(store.DB(), logger)
+	if err != nil {
+		logger.Warn("failed to initialize queue manager", zap.Error(err))
+		queueMgr = nil
+	}
+
 	// Initialize workflow engine
-	workflowEngine, err := workflow.NewEngine(store.DB(), agentMsgMgr, agentRouter, logger)
+	workflowEngine, err := workflow.NewEngine(store.DB(), agentMsgMgr, agentRouter, queueMgr, logger)
 	if err != nil {
 		logger.Warn("failed to initialize workflow engine", zap.Error(err))
 		workflowEngine = nil
 	}
 
-	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, wp, web.FS(), logger)
+	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, wp, web.FS(), logger)
 	go srv.Start()
 
 	quit := make(chan os.Signal, 1)
@@ -548,6 +556,20 @@ func runStart() {
 	if agentMgr != nil {
 		if err := agentMgr.Close(); err != nil {
 			logger.Warn("failed to close agent manager", zap.Error(err))
+		}
+	}
+
+	// Close workflow engine
+	if workflowEngine != nil {
+		if err := workflowEngine.Close(); err != nil {
+			logger.Warn("failed to close workflow engine", zap.Error(err))
+		}
+	}
+
+	// Close queue manager
+	if queueMgr != nil {
+		if err := queueMgr.Close(); err != nil {
+			logger.Warn("failed to close queue manager", zap.Error(err))
 		}
 	}
 }

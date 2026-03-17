@@ -16,6 +16,7 @@ import (
 
 	"github.com/gopaw/gopaw/internal/agent"
 	"github.com/gopaw/gopaw/internal/agent/message"
+	"github.com/gopaw/gopaw/internal/queue"
 	"go.uber.org/zap"
 )
 
@@ -24,17 +25,20 @@ type Engine struct {
 	db          *sql.DB
 	msgMgr      *message.Manager
 	agentRouter *agent.Router
+	queueMgr    *queue.Manager
 	logger      *zap.Logger
 	runners     map[string]*Runner
+	worker      *Worker
 	mu          sync.RWMutex
 }
 
 // NewEngine creates a new workflow engine.
-func NewEngine(db *sql.DB, msgMgr *message.Manager, agentRouter *agent.Router, logger *zap.Logger) (*Engine, error) {
+func NewEngine(db *sql.DB, msgMgr *message.Manager, agentRouter *agent.Router, queueMgr *queue.Manager, logger *zap.Logger) (*Engine, error) {
 	e := &Engine{
 		db:          db,
 		msgMgr:      msgMgr,
 		agentRouter: agentRouter,
+		queueMgr:    queueMgr,
 		logger:      logger.Named("workflow_engine"),
 		runners:     make(map[string]*Runner),
 	}
@@ -43,7 +47,21 @@ func NewEngine(db *sql.DB, msgMgr *message.Manager, agentRouter *agent.Router, l
 		return nil, err
 	}
 
+	// Start workflow worker if queue manager is available
+	if queueMgr != nil {
+		e.worker = NewWorker(queueMgr, e, logger)
+		e.worker.Start()
+	}
+
 	return e, nil
+}
+
+// Close closes the workflow engine.
+func (e *Engine) Close() error {
+	if e.worker != nil {
+		e.worker.Stop()
+	}
+	return nil
 }
 
 // initSchema creates the database tables.
@@ -337,7 +355,7 @@ func (e *Engine) runExecution(execution *Execution, workflow *Workflow) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	runner := NewRunner(execution, workflow, e, ctx)
+	runner := NewRunner(execution, workflow, e, e.queueMgr, ctx)
 
 	e.mu.Lock()
 	e.runners[execution.ID] = runner

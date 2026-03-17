@@ -21,6 +21,7 @@ import (
 	"github.com/gopaw/gopaw/internal/cron"
 	"github.com/gopaw/gopaw/internal/mcp"
 	"github.com/gopaw/gopaw/internal/memory"
+	"github.com/gopaw/gopaw/internal/queue"
 	"github.com/gopaw/gopaw/internal/server/handlers"
 	"github.com/gopaw/gopaw/internal/settings"
 	"github.com/gopaw/gopaw/internal/skill"
@@ -63,6 +64,7 @@ func New(
 	triggerEngine *trigger.Engine,
 	agentMsgMgr *message.Manager,
 	workflowEngine *workflow.Engine,
+	queueMgr *queue.Manager,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 	logger *zap.Logger,
@@ -81,7 +83,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, wp, staticFS)
+	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -112,6 +114,7 @@ func (s *Server) registerRoutes(
 	triggerEngine *trigger.Engine,
 	agentMsgMgr *message.Manager,
 	workflowEngine *workflow.Engine,
+	queueMgr *queue.Manager,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 ) {
@@ -369,6 +372,27 @@ func (s *Server) registerRoutes(
 			workflowsG.GET("/:workflow_id/stats", workflowH.GetStats)
 			workflowsG.GET("/executions/:id", workflowH.GetExecution)
 			workflowsG.POST("/executions/:id/cancel", workflowH.CancelExecution)
+		}
+	}
+
+	// /api/queues — message queue management
+	if queueMgr != nil {
+		queueH := handlers.NewQueueHandler(queueMgr, s.logger)
+		queuesG := api.Group("/queues")
+		{
+			queuesG.GET("", queueH.ListQueues)
+			queuesG.GET("/:name/stats", queueH.GetQueueStats)
+			queuesG.GET("/:name/messages", queueH.ListMessages)
+			queuesG.POST("/:name/messages", queueH.PublishMessage)
+			queuesG.POST("/:name/pause", queueH.PauseQueue)
+			queuesG.POST("/:name/resume", queueH.ResumeQueue)
+			queuesG.POST("/:name/cleanup", queueH.CleanupQueue)
+		}
+		messagesG := api.Group("/messages")
+		{
+			messagesG.GET("/:id", queueH.GetMessage)
+			messagesG.POST("/:id/retry", queueH.RetryMessage)
+			messagesG.DELETE("/:id", queueH.DeleteMessage)
 		}
 	}
 
