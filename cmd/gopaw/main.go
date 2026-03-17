@@ -26,6 +26,7 @@ import (
 	"github.com/gopaw/gopaw/internal/cron"
 	"github.com/gopaw/gopaw/internal/focus"
 	"github.com/gopaw/gopaw/internal/llm"
+	"github.com/gopaw/gopaw/internal/mcp"
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/sandbox"
 	"github.com/gopaw/gopaw/internal/server"
@@ -482,7 +483,19 @@ func runStart() {
 		}
 	}
 
-	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, wp, web.FS(), logger)
+	// Initialize MCP manager
+	mcpMgr, err := mcp.NewManager(store.DB(), logger)
+	if err != nil {
+		logger.Warn("failed to initialize mcp manager", zap.Error(err))
+		mcpMgr = nil
+	} else {
+		// Create builtin MCP servers
+		if err := mcpMgr.CreateBuiltinServers(wp.Root); err != nil {
+			logger.Warn("failed to create builtin mcp servers", zap.Error(err))
+		}
+	}
+
+	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, wp, web.FS(), logger)
 	go srv.Start()
 
 	quit := make(chan os.Signal, 1)

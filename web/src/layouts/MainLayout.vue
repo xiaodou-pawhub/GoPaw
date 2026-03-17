@@ -21,6 +21,7 @@ const pageTitle = computed(() => {
   if (route.path.startsWith('/market')) return '技能市场'
   if (route.path.startsWith('/traces')) return '执行轨迹'
   if (route.path.startsWith('/agents')) return 'Agents'
+  if (route.path.startsWith('/mcp')) return 'MCP 服务器'
   if (route.path.startsWith('/settings')) return '设置'
   return 'GoPaw'
 })

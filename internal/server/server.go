@@ -18,6 +18,7 @@ import (
 	"github.com/gopaw/gopaw/internal/channel"
 	"github.com/gopaw/gopaw/internal/config"
 	"github.com/gopaw/gopaw/internal/cron"
+	"github.com/gopaw/gopaw/internal/mcp"
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/server/handlers"
 	"github.com/gopaw/gopaw/internal/settings"
@@ -54,6 +55,7 @@ func New(
 	traceMgr *trace.Manager,
 	agentMgr *agent.Manager,
 	agentRouter *agent.Router,
+	mcpMgr *mcp.Manager,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 	logger *zap.Logger,
@@ -72,7 +74,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, wp, staticFS)
+	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -98,6 +100,7 @@ func (s *Server) registerRoutes(
 	traceMgr *trace.Manager,
 	agentMgr *agent.Manager,
 	agentRouter *agent.Router,
+	mcpMgr *mcp.Manager,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 ) {
@@ -267,6 +270,22 @@ func (s *Server) registerRoutes(
 			agentsG.POST("/:id/default", agentsH.SetDefault)
 			agentsG.GET("/:id/config", agentsH.GetConfig)
 			agentsG.PUT("/:id/config", agentsH.UpdateConfig)
+		}
+	}
+
+	// /api/mcp — MCP server management
+	if mcpMgr != nil {
+		mcpH := handlers.NewMCPHandler(mcpMgr, s.logger)
+		mcpG := api.Group("/mcp")
+		{
+			mcpG.GET("/servers", mcpH.List)
+			mcpG.POST("/servers", mcpH.Create)
+			mcpG.GET("/servers/:id", mcpH.Get)
+			mcpG.PUT("/servers/:id", mcpH.Update)
+			mcpG.DELETE("/servers/:id", mcpH.Delete)
+			mcpG.POST("/servers/:id/active", mcpH.SetActive)
+			mcpG.GET("/servers/:id/tools", mcpH.GetTools)
+			mcpG.GET("/tools", mcpH.GetAllTools)
 		}
 	}
 

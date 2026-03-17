@@ -35,6 +35,11 @@ const routes: RouteRecordRaw[] = [
         path: 'settings',
         name: 'Settings',
         component: () => import('@/pages/Settings.vue')
+      },
+      {
+        path: 'mcp',
+        name: 'MCP',
+        component: () => import('@/pages/MCP.vue')
       }
     ]
   }
