@@ -1,107 +1,89 @@
 <template>
-  <Dialog v-model:open="visible" class="approval-dialog">
-    <DialogContent class="sm:max-w-[500px]">
-      <DialogHeader>
-        <DialogTitle class="flex items-center gap-2">
-          <ShieldAlert class="w-5 h-5 text-amber-500" />
-          需要确认
-        </DialogTitle>
-        <DialogDescription>
-          Agent 请求执行敏感操作，需要您的确认
-        </DialogDescription>
-      </DialogHeader>
+  <div v-if="visible" class="modal-overlay" @click.self="handleReject">
+    <div class="modal-content approval-dialog">
+      <div class="modal-header">
+        <div class="header-title">
+          <ShieldAlertIcon class="icon-warning" />
+          <h3>需要确认</h3>
+        </div>
+        <p class="header-desc">Agent 请求执行敏感操作，需要您的确认</p>
+      </div>
 
-      <div class="space-y-4 py-4">
+      <div class="modal-body">
         <!-- Tool Info -->
-        <div class="bg-muted rounded-lg p-4 space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="text-sm font-medium text-muted-foreground">操作</span>
-            <Badge variant="secondary" class="font-mono">{{ request?.tool_name }}</Badge>
+        <div class="info-box">
+          <div class="info-row">
+            <span class="info-label">操作</span>
+            <span class="info-value badge">{{ request?.tool_name }}</span>
           </div>
-          <div class="flex items-center justify-between">
-            <span class="text-sm font-medium text-muted-foreground">级别</span>
-            <Badge :variant="levelVariant" class="font-mono">{{ request?.level }}</Badge>
+          <div class="info-row">
+            <span class="info-label">级别</span>
+            <span class="info-value badge" :class="levelClass">{{ request?.level }}</span>
           </div>
-          <div v-if="request?.agent_id" class="flex items-center justify-between">
-            <span class="text-sm font-medium text-muted-foreground">Agent</span>
-            <span class="text-sm font-mono">{{ request?.agent_id }}</span>
+          <div v-if="request?.agent_id" class="info-row">
+            <span class="info-label">Agent</span>
+            <span class="info-value">{{ request?.agent_id }}</span>
           </div>
         </div>
 
         <!-- Args Preview -->
-        <div v-if="request?.args" class="space-y-2">
-          <Label class="text-sm font-medium">参数</Label>
-          <div class="bg-muted rounded-lg p-3 max-h-32 overflow-auto">
-            <pre class="text-xs font-mono whitespace-pre-wrap">{{ formattedArgs }}</pre>
+        <div v-if="request?.args" class="args-section">
+          <label class="section-label">参数</label>
+          <div class="args-preview">
+            <pre>{{ formattedArgs }}</pre>
           </div>
         </div>
 
         <!-- Reason Input -->
-        <div class="space-y-2">
-          <Label for="reason" class="text-sm font-medium">
-            拒绝原因（可选）
-          </Label>
-          <Input
-            id="reason"
+        <div class="reason-section">
+          <label class="section-label">拒绝原因（可选）</label>
+          <input
             v-model="reason"
+            type="text"
             placeholder="如果拒绝，请说明原因..."
-            class="h-10"
+            class="reason-input"
           />
         </div>
 
         <!-- Warning -->
-        <Alert variant="warning" class="border-amber-500/50 bg-amber-50">
-          <AlertTriangle class="h-4 w-4 text-amber-600" />
-          <AlertTitle class="text-amber-800">注意</AlertTitle>
-          <AlertDescription class="text-amber-700">
-            此操作可能需要一定时间执行，批准后将立即开始。
-          </AlertDescription>
-        </Alert>
+        <div class="warning-box">
+          <AlertTriangleIcon class="icon-small" />
+          <div>
+            <strong>注意</strong>
+            <p>此操作可能需要一定时间执行，批准后将立即开始。</p>
+          </div>
+        </div>
       </div>
 
-      <DialogFooter class="gap-2">
-        <Button
-          variant="outline"
+      <div class="modal-footer">
+        <button
+          class="btn btn-secondary"
+          :disabled="loading"
           @click="handleReject"
-          :disabled="loading"
-          class="flex-1"
         >
-          <XCircle class="w-4 h-4 mr-2" />
+          <XCircleIcon class="icon-small" />
           拒绝
-        </Button>
-        <Button
-          @click="handleApprove"
+        </button>
+        <button
+          class="btn btn-primary"
           :disabled="loading"
-          class="flex-1"
+          @click="handleApprove"
         >
-          <CheckCircle class="w-4 h-4 mr-2" />
+          <CheckCircleIcon class="icon-small" />
           批准
-        </Button>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
+        </button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import {
-  ShieldAlert,
-  CheckCircle,
-  XCircle,
-  AlertTriangle,
+  ShieldAlert as ShieldAlertIcon,
+  CheckCircle as CheckCircleIcon,
+  XCircle as XCircleIcon,
+  AlertTriangle as AlertTriangleIcon,
 } from 'lucide-vue-next'
 
 interface ApprovalRequest {
@@ -119,21 +101,13 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  approve: [requestId: string]
-  reject: [requestId: string, reason: string]
+  approve: [request: ApprovalRequest, reason?: string]
+  reject: [request: ApprovalRequest, reason?: string]
 }>()
 
-const visible = ref(false)
-const loading = ref(false)
+const visible = computed(() => props.request !== null)
 const reason = ref('')
-
-// Show dialog when request arrives
-watch(() => props.request, (newRequest) => {
-  if (newRequest) {
-    visible.value = true
-    reason.value = ''
-  }
-}, { immediate: true })
+const loading = ref(false)
 
 const formattedArgs = computed(() => {
   if (!props.request?.args) return ''
@@ -145,47 +119,259 @@ const formattedArgs = computed(() => {
   }
 })
 
-const levelVariant = computed(() => {
-  switch (props.request?.level) {
-    case 'L1':
-      return 'default'
-    case 'L2':
-      return 'secondary'
-    case 'L3':
-      return 'destructive'
-    default:
-      return 'secondary'
-  }
+const levelClass = computed(() => {
+  const level = props.request?.level
+  if (level === 'L3') return 'badge-danger'
+  if (level === 'L2') return 'badge-warning'
+  return 'badge-info'
 })
 
-const handleApprove = async () => {
+watch(() => props.request, () => {
+  reason.value = ''
+  loading.value = false
+})
+
+function handleApprove() {
   if (!props.request) return
-  
   loading.value = true
-  try {
-    emit('approve', props.request.id)
-    visible.value = false
-  } finally {
-    loading.value = false
-  }
+  emit('approve', props.request, reason.value)
 }
 
-const handleReject = async () => {
+function handleReject() {
   if (!props.request) return
-  
   loading.value = true
-  try {
-    emit('reject', props.request.id, reason.value)
-    visible.value = false
-  } finally {
-    loading.value = false
-  }
+  emit('reject', props.request, reason.value)
 }
 </script>
 
 <style scoped>
-.approval-dialog :deep(.dialog-content) {
-  max-height: 90vh;
-  overflow-y: auto;
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  width: 90%;
+  max-width: 500px;
+  background: var(--bg-card);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.header-title h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.icon-warning {
+  width: 20px;
+  height: 20px;
+  color: var(--amber);
+}
+
+.header-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.info-box {
+  background: var(--bg-overlay);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.info-row:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+
+.info-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.info-value {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-family: monospace;
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--bg-input);
+}
+
+.badge-danger {
+  background: var(--red-dim);
+  color: var(--red);
+}
+
+.badge-warning {
+  background: var(--amber-dim);
+  color: var(--amber);
+}
+
+.badge-info {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.args-section,
+.reason-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.args-preview {
+  background: var(--bg-overlay);
+  border-radius: 6px;
+  padding: 12px;
+  max-height: 120px;
+  overflow: auto;
+}
+
+.args-preview pre {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.reason-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.reason-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.warning-box {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background: var(--amber-dim);
+  border: 1px solid var(--amber);
+  border-radius: 6px;
+}
+
+.warning-box .icon-small {
+  width: 16px;
+  height: 16px;
+  color: var(--amber);
+  flex-shrink: 0;
+}
+
+.warning-box strong {
+  font-size: 12px;
+  color: var(--amber);
+}
+
+.warning-box p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.modal-footer {
+  display: flex;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-overlay);
+}
+
+.btn-primary {
+  border: none;
+  background: var(--accent);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.icon-small {
+  width: 16px;
+  height: 16px;
 }
 </style>

@@ -85,12 +85,22 @@ const showWelcome = ref(false)
 // Tool approval WebSocket
 const { approvalRequest, approve, reject } = useWebSocket()
 
-const handleApprove = (requestId: string) => {
-  approve(requestId)
+interface ApprovalRequest {
+  id: string
+  tool_name: string
+  args: string
+  level: string
+  requested_at: string
+  session_id: string
+  agent_id?: string
 }
 
-const handleReject = (requestId: string, reason: string) => {
-  reject(requestId, reason)
+const handleApprove = (request: ApprovalRequest, _reason?: string) => {
+  approve(request.id)
+}
+
+const handleReject = (request: ApprovalRequest, reason?: string) => {
+  reject(request.id, reason || '')
 }
 
 onMounted(async () => {

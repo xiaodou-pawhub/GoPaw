@@ -34,7 +34,8 @@ export function useWebSocket() {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   const connect = () => {
-    const wsUrl = `${import.meta.env.VITE_WS_URL || 'ws://localhost:8080'}/ws`
+    const envUrl = (import.meta as any).env?.VITE_WS_URL
+    const wsUrl = `${envUrl || 'ws://localhost:8080'}/ws`
     
     ws.value = new WebSocket(wsUrl)
 
