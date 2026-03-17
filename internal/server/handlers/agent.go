@@ -18,26 +18,47 @@ import (
 // AgentHandler handles /api/agent routes.
 type AgentHandler struct {
 	agent  *agent.ReActAgent
+	router *agent.Router
 	mem    *memory.Manager
 	logger *zap.Logger
 }
 
 // NewAgentHandler creates an AgentHandler.
-func NewAgentHandler(a *agent.ReActAgent, mem *memory.Manager, logger *zap.Logger) *AgentHandler {
-	return &AgentHandler{agent: a, mem: mem, logger: logger}
+func NewAgentHandler(a *agent.ReActAgent, router *agent.Router, mem *memory.Manager, logger *zap.Logger) *AgentHandler {
+	return &AgentHandler{agent: a, router: router, mem: mem, logger: logger}
 }
 
 type chatRequest struct {
 	SessionID string `json:"session_id"`
 	Content   string `json:"content" binding:"required"`
 	MsgType   string `json:"msg_type"`
+	AgentID   string `json:"agent_id,omitempty"` // Optional: specify which agent to use
 }
 
 type chatResponse struct {
 	SessionID string `json:"session_id"`
 	Content   string `json:"content"`
 	MsgType   string `json:"msg_type"`
+	AgentID   string `json:"agent_id,omitempty"`
 	ElapsedMs int64  `json:"elapsed_ms"`
+}
+
+// getAgentForSession returns the agent instance for a session.
+// If agentID is provided, switches to that agent first.
+func (h *AgentHandler) getAgentForSession(sessionID, agentID string) (*agent.ReActAgent, string, error) {
+	// If router is available, use it for multi-agent support
+	if h.router != nil {
+		// If specific agent requested, switch to it
+		if agentID != "" {
+			if err := h.router.SwitchAgent(sessionID, agentID); err != nil {
+				return nil, "", err
+			}
+		}
+		return h.router.GetAgentForSession(sessionID)
+	}
+
+	// Fallback to single agent mode
+	return h.agent, "default", nil
 }
 
 // Chat handles POST /api/agent/chat.
@@ -45,6 +66,14 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 	var req chatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get agent instance (use router if available, support agent switching)
+	agentInstance, agentID, err := h.getAgentForSession(req.SessionID, req.AgentID)
+	if err != nil {
+		h.logger.Error("failed to get agent", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -61,9 +90,9 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 	}
 
 	start := time.Now()
-	resp, err := h.agent.Process(c.Request.Context(), agentReq)
+	resp, err := agentInstance.Process(c.Request.Context(), agentReq)
 	if err != nil {
-		h.logger.Error("agent chat error", zap.Error(err))
+		h.logger.Error("agent chat error", zap.Error(err), zap.String("agent_id", agentID))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -72,6 +101,7 @@ func (h *AgentHandler) Chat(c *gin.Context) {
 		SessionID: req.SessionID,
 		Content:   resp.Content,
 		MsgType:   string(resp.MsgType),
+		AgentID:   agentID,
 		ElapsedMs: time.Since(start).Milliseconds(),
 	})
 }

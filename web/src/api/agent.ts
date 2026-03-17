@@ -70,16 +70,27 @@ export interface StreamOptions {
 
 // 中文：发送流式对话请求（POST，支持大内容如文件附件）
 // English: Send streaming chat request (POST, supports large content like file attachments)
-export async function sendChatStream(sessionId: string, content: string, callbacks: StreamCallbacks, options?: StreamOptions): Promise<void> {
+export async function sendChatStream(
+	sessionId: string,
+	content: string,
+	callbacks: StreamCallbacks,
+	options?: StreamOptions,
+	agentId?: string
+): Promise<void> {
+	const body: Record<string, string> = {
+		session_id: sessionId,
+		content: content,
+	}
+	if (agentId) {
+		body.agent_id = agentId
+	}
+
 	const init: RequestInit = {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
 		},
-		body: JSON.stringify({
-			session_id: sessionId,
-			content: content,
-		}),
+		body: JSON.stringify(body),
 	}
 	
 	if (options?.signal) {

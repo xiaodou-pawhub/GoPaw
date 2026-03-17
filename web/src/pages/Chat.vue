@@ -77,9 +77,15 @@
       <!-- Chat 顶栏 -->
       <div class="chat-header">
         <h3 class="chat-title">{{ currentSessionName || '聊天' }}</h3>
-        <div v-if="sessionStats" class="stats-badge" :title="`消息: ${sessionStats.message_count} | 用户: ${formatTokens(sessionStats.user_tokens)} | 助手: ${formatTokens(sessionStats.assist_tokens)}`">
-          <BarChartIcon :size="12" />
-          <span>{{ formatTokens(sessionStats.total_tokens) }} tokens</span>
+        <div class="header-actions">
+          <AgentSelector
+            v-model="currentAgentId"
+            @change="onAgentChange"
+          />
+          <div v-if="sessionStats" class="stats-badge" :title="`消息: ${sessionStats.message_count} | 用户: ${formatTokens(sessionStats.user_tokens)} | 助手: ${formatTokens(sessionStats.assist_tokens)}`">
+            <BarChartIcon :size="12" />
+            <span>{{ formatTokens(sessionStats.total_tokens) }} tokens</span>
+          </div>
         </div>
       </div>
 
@@ -271,19 +277,29 @@ import {
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAgentStore } from '@/stores/agent'
 import { toast } from 'vue-sonner'
 import { getSessionMessages, getSessionStats, getSessions, deleteSession, updateSessionName, sendChatStream } from '@/api/agent'
 import type { ChatMessage, SessionStats, SessionInfo } from '@/types'
+import type { Agent } from '@/api/agents'
 import { default as markdownIt } from 'markdown-it'
 import highlightjs from 'highlight.js'
 import Skeleton from '@/components/Skeleton.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import AgentSelector from '@/components/AgentSelector.vue'
 import { saveCurrentSession, getCurrentSession } from '@/utils/storage'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const agentStore = useAgentStore()
 const route = useRoute()
 const router = useRouter()
+
+// Agent state
+const currentAgentId = computed({
+  get: () => agentStore.currentAgentId,
+  set: (val: string | null) => agentStore.setCurrentAgent(val || '')
+})
 
 const sessions = ref<SessionInfo[]>([])
 const currentSessionId = ref('')
@@ -530,6 +546,12 @@ function createNewSession() {
   router.push({ name: 'Chat', params: { id: newId } })
 }
 
+function onAgentChange(agent: Agent) {
+  // Show toast notification
+  toast.success(`已切换到 Agent: ${agent.name}`)
+  // Note: Agent ID is passed in the next chat request via sendChatStream
+}
+
 function generateUUID(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -655,7 +677,8 @@ async function handleSend() {
           toast.error(error)
         }
       },
-      { signal: abortController.value.signal }
+      { signal: abortController.value.signal },
+      currentAgentId.value || undefined
     )
   } catch (e: any) {
     if (e.name !== 'AbortError') toast.error(t('common.error'))
@@ -929,6 +952,12 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .stats-badge {

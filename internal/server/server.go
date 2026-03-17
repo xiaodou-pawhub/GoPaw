@@ -52,6 +52,8 @@ func New(
 	cfgMgr *config.Manager,
 	settingsStore *settings.Store,
 	traceMgr *trace.Manager,
+	agentMgr *agent.Manager,
+	agentRouter *agent.Router,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 	logger *zap.Logger,
@@ -66,11 +68,11 @@ func New(
 	s := &Server{
 		cfg:       cfg,
 		engine:    engine,
-		wsHandler: NewWSHandler(agentInstance, logger),
+		wsHandler: NewWSHandler(agentInstance, agentRouter, logger),
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, wp, staticFS)
+	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -94,6 +96,8 @@ func (s *Server) registerRoutes(
 	cfgMgr *config.Manager,
 	settingsStore *settings.Store,
 	traceMgr *trace.Manager,
+	agentMgr *agent.Manager,
+	agentRouter *agent.Router,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 ) {
@@ -118,7 +122,7 @@ func (s *Server) registerRoutes(
 	api := s.engine.Group("/api", WebAuth(adminToken))
 
 	// /api/agent
-	agentH := handlers.NewAgentHandler(agentInstance, memMgr, s.logger)
+	agentH := handlers.NewAgentHandler(agentInstance, agentRouter, memMgr, s.logger)
 	uploadH := handlers.NewUploadHandler(s.logger)
 	agentG := api.Group("/agent")
 	{
@@ -247,6 +251,23 @@ func (s *Server) registerRoutes(
 		traceG.GET("", traceH.List)
 		traceG.GET("/stats", traceH.Stats)
 		traceG.GET("/:id", traceH.Get)
+	}
+
+	// /api/agents — multi-agent management
+	if agentMgr != nil {
+		agentsH := handlers.NewAgentsHandler(agentMgr, s.logger)
+		agentsG := api.Group("/agents")
+		{
+			agentsG.GET("", agentsH.List)
+			agentsG.GET("/default", agentsH.GetDefault)
+			agentsG.POST("", agentsH.Create)
+			agentsG.GET("/:id", agentsH.Get)
+			agentsG.PUT("/:id", agentsH.Update)
+			agentsG.DELETE("/:id", agentsH.Delete)
+			agentsG.POST("/:id/default", agentsH.SetDefault)
+			agentsG.GET("/:id/config", agentsH.GetConfig)
+			agentsG.PUT("/:id/config", agentsH.UpdateConfig)
+		}
 	}
 
 	// Health check at root — public, for load balancers / uptime monitors.

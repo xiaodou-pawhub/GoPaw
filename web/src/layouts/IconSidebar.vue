@@ -36,7 +36,7 @@
 
 <script setup lang="ts">
 import { useRouter, useRoute } from 'vue-router'
-import { MessageSquare, Store, Activity, Settings } from 'lucide-vue-next'
+import { MessageSquare, Store, Activity, Bot, Settings } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 
 const router = useRouter()
@@ -47,6 +47,7 @@ const navItems = [
   { to: '/chat', label: '聊天', icon: MessageSquare },
   { to: '/market', label: '市场', icon: Store },
   { to: '/traces', label: '轨迹', icon: Activity },
+  { to: '/agents', label: 'Agents', icon: Bot },
   { to: '/settings', label: '设置', icon: Settings },
 ]
 
@@ -54,6 +55,7 @@ function isActive(to: string): boolean {
   if (to === '/chat') return route.path.startsWith('/chat')
   if (to === '/market') return route.path.startsWith('/market')
   if (to === '/traces') return route.path.startsWith('/traces')
+  if (to === '/agents') return route.path.startsWith('/agents')
   if (to === '/settings') return route.path.startsWith('/settings')
   return false
 }

@@ -450,7 +450,39 @@ func runStart() {
 		logger.Info("⚡ Admin token", zap.String("token", adminToken))
 	}
 
-	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, wp, web.FS(), logger)
+	// Initialize agent manager for multi-agent support
+	agentsDBPath := filepath.Join(wp.Root, "agents.db")
+	agentsDir := filepath.Join(wp.Root, "agents")
+	agentMgr, err := agent.NewManager(agentsDBPath, agentsDir, logger)
+	if err != nil {
+		logger.Warn("failed to initialize agent manager", zap.Error(err))
+		agentMgr = nil
+	}
+
+	// Initialize agent factory and router for dynamic agent switching
+	var agentRouter *agent.Router
+	if agentMgr != nil {
+		agentFactory := agent.NewFactory(agent.FactoryConfig{
+			LLMClient:      llmClient,
+			ToolRegistry:   toolReg,
+			SkillManager:   skillMgr,
+			MemoryManager:  memMgr,
+			LTMStore:       ltmStore,
+			SandboxManager: sandboxMgr,
+			TraceManager:   traceMgr,
+			WorkspaceRoot:  wp.Root,
+			Logger:         logger,
+		})
+
+		sessionAgentDBPath := filepath.Join(wp.Root, "session_agents.db")
+		agentRouter, err = agent.NewRouter(agentMgr, agentFactory, sessionAgentDBPath, logger)
+		if err != nil {
+			logger.Warn("failed to initialize agent router", zap.Error(err))
+			agentRouter = nil
+		}
+	}
+
+	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, wp, web.FS(), logger)
 	go srv.Start()
 
 	quit := make(chan os.Signal, 1)
@@ -459,6 +491,18 @@ func runStart() {
 	cancel()
 	shutdownCtx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	srv.Shutdown(shutdownCtx)
+
+	// Close agent manager and router
+	if agentRouter != nil {
+		if err := agentRouter.Close(); err != nil {
+			logger.Warn("failed to close agent router", zap.Error(err))
+		}
+	}
+	if agentMgr != nil {
+		if err := agentMgr.Close(); err != nil {
+			logger.Warn("failed to close agent manager", zap.Error(err))
+		}
+	}
 }
 
 // buildLogger constructs a zap.Logger from config.
