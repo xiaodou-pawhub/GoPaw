@@ -179,21 +179,25 @@ func buildToolDefinitions(tools []plugin.Tool) []llm.ToolDefinition {
 
 // checkToolStepLimit checks if the current step has reached warning thresholds.
 // Returns a warning message if applicable, or empty string if no warning needed.
+// step is 0-indexed, but displayed as 1-indexed for user clarity.
 func checkToolStepLimit(step, maxSteps int) string {
 	if maxSteps <= 0 {
 		maxSteps = 20
 	}
 
+	// Display step is 1-indexed
+	displayStep := step + 1
+
 	// 80% threshold warning
 	warnThreshold := int(float64(maxSteps) * toolStepWarnThreshold)
 	if step == warnThreshold {
-		return fmt.Sprintf("⚠️ Tool call limit warning: %d/%d steps used (80%%). Consider wrapping up soon.", step, maxSteps)
+		return fmt.Sprintf("⚠️ Tool call limit warning: %d/%d steps used (80%%). Consider wrapping up soon.", displayStep, maxSteps)
 	}
 
-	// Final warning at maxSteps - 2
+	// Final warning at maxSteps - 2 (ensure we show it even for small maxSteps)
 	finalThreshold := maxSteps - 2
-	if step == finalThreshold && finalThreshold > warnThreshold {
-		return fmt.Sprintf("🚨 Final warning: %d/%d steps used. Only 2 steps remaining! Please provide final answer.", step, maxSteps)
+	if step == finalThreshold && finalThreshold > 0 {
+		return fmt.Sprintf("🚨 Final warning: %d/%d steps used. Only 2 steps remaining! Please provide final answer.", displayStep, maxSteps)
 	}
 
 	return ""
@@ -759,7 +763,14 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 		_ = a.convlog.LogAgentReply(req.SessionID, finalAnswer, nil)
 	}
 
-	if memErr := a.memoryManager.Add(req.SessionID, req.UserID, req.Channel, req.Content, finalAnswer); memErr != nil {
+	// Persist the exchange to memory.
+	// We save the enriched user content (including media manifest) so that media://
+	// references remain visible in conversation history for follow-up turns.
+	userContentForMemory := req.Content
+	if manifest := buildMediaManifest(req.Files); manifest != "" {
+		userContentForMemory += manifest
+	}
+	if memErr := a.memoryManager.Add(req.SessionID, req.UserID, req.Channel, userContentForMemory, finalAnswer); memErr != nil {
 		a.logger.Warn("agent: failed to save memory", zap.Error(memErr))
 	}
 
