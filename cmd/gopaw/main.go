@@ -37,6 +37,7 @@ import (
 	"github.com/gopaw/gopaw/internal/tool/builtin"
 	"github.com/gopaw/gopaw/internal/trace"
 	"github.com/gopaw/gopaw/internal/queue"
+	"github.com/gopaw/gopaw/internal/metrics"
 	"github.com/gopaw/gopaw/internal/trigger"
 	"github.com/gopaw/gopaw/internal/workflow"
 	"github.com/gopaw/gopaw/internal/workspace"
@@ -532,7 +533,34 @@ func runStart() {
 		workflowEngine = nil
 	}
 
-	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, wp, web.FS(), logger)
+	// Initialize metrics service
+	metricsService, err := metrics.NewService(store.DB(), logger)
+	if err != nil {
+		logger.Warn("failed to initialize metrics service", zap.Error(err))
+		metricsService = nil
+	}
+
+	// Start metrics collection (every 5 minutes)
+	if metricsService != nil {
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					if err := metricsService.Collect(); err != nil {
+						logger.Warn("failed to collect metrics", zap.Error(err))
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+		// Initial collection
+		metricsService.Collect()
+	}
+
+	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, wp, web.FS(), logger)
 	go srv.Start()
 
 	quit := make(chan os.Signal, 1)

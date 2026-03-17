@@ -21,6 +21,7 @@ import (
 	"github.com/gopaw/gopaw/internal/cron"
 	"github.com/gopaw/gopaw/internal/mcp"
 	"github.com/gopaw/gopaw/internal/memory"
+	"github.com/gopaw/gopaw/internal/metrics"
 	"github.com/gopaw/gopaw/internal/queue"
 	"github.com/gopaw/gopaw/internal/server/handlers"
 	"github.com/gopaw/gopaw/internal/settings"
@@ -65,6 +66,7 @@ func New(
 	agentMsgMgr *message.Manager,
 	workflowEngine *workflow.Engine,
 	queueMgr *queue.Manager,
+	metricsService *metrics.Service,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 	logger *zap.Logger,
@@ -83,7 +85,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, wp, staticFS)
+	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -115,6 +117,7 @@ func (s *Server) registerRoutes(
 	agentMsgMgr *message.Manager,
 	workflowEngine *workflow.Engine,
 	queueMgr *queue.Manager,
+	metricsService *metrics.Service,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 ) {
@@ -393,6 +396,17 @@ func (s *Server) registerRoutes(
 			messagesG.GET("/:id", queueH.GetMessage)
 			messagesG.POST("/:id/retry", queueH.RetryMessage)
 			messagesG.DELETE("/:id", queueH.DeleteMessage)
+		}
+	}
+
+	// /api/metrics — metrics dashboard
+	if metricsService != nil {
+		metricsH := handlers.NewMetricsHandler(metricsService, s.logger)
+		metricsG := api.Group("/metrics")
+		{
+			metricsG.GET("/dashboard", metricsH.GetDashboard)
+			metricsG.GET("/activity", metricsH.GetRecentActivity)
+			metricsG.POST("/collect", metricsH.Collect)
 		}
 	}
 
