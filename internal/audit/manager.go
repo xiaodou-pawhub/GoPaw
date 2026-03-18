@@ -55,8 +55,8 @@ func (m *Manager) Close() error {
 	return nil
 }
 
-// initSchema creates the database tables.
-func (m *Manager) initSchema() error {
+// InitSchema creates the audit log database tables.
+func InitSchema(db *sql.DB) error {
 	schema := `
 CREATE TABLE IF NOT EXISTS audit_logs (
     id TEXT PRIMARY KEY,
@@ -83,8 +83,13 @@ CREATE INDEX IF NOT EXISTS idx_audit_status ON audit_logs(status);
 CREATE INDEX IF NOT EXISTS idx_audit_request ON audit_logs(request_id);
 CREATE INDEX IF NOT EXISTS idx_audit_time_cat ON audit_logs(timestamp, category);
 `
-	_, err := m.db.Exec(schema)
+	_, err := db.Exec(schema)
 	return err
+}
+
+// initSchema creates the database tables (instance method).
+func (m *Manager) initSchema() error {
+	return InitSchema(m.db)
 }
 
 // asyncWriter writes logs asynchronously.

@@ -132,7 +132,7 @@ func (m *Manager) Publish(queue string, msgType string, payload map[string]inter
 	}
 
 	_, err = m.db.Exec(`
-		INSERT INTO messages (id, queue, type, payload, priority, status, max_retries, delay_until, created_at, updated_at)
+		INSERT INTO queue_messages (id, queue, type, payload, priority, status, max_retries, delay_until, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, msg.ID, msg.Queue, msg.Type, string(payloadJSON), msg.Priority, msg.Status, msg.MaxRetries, msg.DelayUntil, msg.CreatedAt, msg.UpdatedAt)
 
@@ -156,7 +156,7 @@ func (m *Manager) GetMessage(id string) (*Message, error) {
 	err := m.db.QueryRow(`
 		SELECT id, queue, type, payload, priority, status, attempts, max_retries, delay_until, processed_by,
 		       created_at, updated_at, processed_at, completed_at, error
-		FROM messages
+		FROM queue_messages
 		WHERE id = ?
 	`, id).Scan(&msg.ID, &msg.Queue, &msg.Type, &payloadJSON, &msg.Priority, &msg.Status, &msg.Attempts, &msg.MaxRetries,
 		&msg.DelayUntil, &msg.ProcessedBy, &msg.CreatedAt, &msg.UpdatedAt, &msg.ProcessedAt, &msg.CompletedAt, &msg.Error)
@@ -192,7 +192,7 @@ func (m *Manager) Dequeue(queue string, workerID string) (*Message, error) {
 
 	err = tx.QueryRow(`
 		SELECT id, queue, type, payload, priority, status, attempts, max_retries, delay_until
-		FROM messages
+		FROM queue_messages
 		WHERE queue = ? AND status = 'pending' AND (delay_until IS NULL OR delay_until <= ?)
 		ORDER BY priority ASC, created_at ASC
 		LIMIT 1
@@ -208,7 +208,7 @@ func (m *Manager) Dequeue(queue string, workerID string) (*Message, error) {
 	// Update status to processing
 	processedAt := now
 	_, err = tx.Exec(`
-		UPDATE messages
+		UPDATE queue_messages
 		SET status = 'processing', processed_by = ?, processed_at = ?, updated_at = ?, attempts = attempts + 1
 		WHERE id = ?
 	`, workerID, processedAt, now, msg.ID)
@@ -237,7 +237,7 @@ func (m *Manager) Dequeue(queue string, workerID string) (*Message, error) {
 func (m *Manager) Complete(msgID string) error {
 	now := time.Now().UTC()
 	_, err := m.db.Exec(`
-		UPDATE messages
+		UPDATE queue_messages
 		SET status = 'completed', completed_at = ?, updated_at = ?
 		WHERE id = ?
 	`, now, now, msgID)
@@ -248,7 +248,7 @@ func (m *Manager) Complete(msgID string) error {
 func (m *Manager) Fail(msgID string, errMsg string) error {
 	now := time.Now().UTC()
 	_, err := m.db.Exec(`
-		UPDATE messages
+		UPDATE queue_messages
 		SET status = 'failed', error = ?, updated_at = ?
 		WHERE id = ?
 	`, errMsg, now, msgID)
@@ -259,7 +259,7 @@ func (m *Manager) Fail(msgID string, errMsg string) error {
 func (m *Manager) Retry(msgID string) error {
 	now := time.Now().UTC()
 	_, err := m.db.Exec(`
-		UPDATE messages
+		UPDATE queue_messages
 		SET status = 'pending', error = '', updated_at = ?
 		WHERE id = ?
 	`, now, msgID)
@@ -268,7 +268,7 @@ func (m *Manager) Retry(msgID string) error {
 
 // Delete deletes a message.
 func (m *Manager) Delete(msgID string) error {
-	_, err := m.db.Exec(`DELETE FROM messages WHERE id = ?`, msgID)
+	_, err := m.db.Exec(`DELETE FROM queue_messages WHERE id = ?`, msgID)
 	return err
 }
 
@@ -276,7 +276,7 @@ func (m *Manager) Delete(msgID string) error {
 func (m *Manager) ListMessages(queue string, status string, limit int) ([]*Message, error) {
 	query := `SELECT id, queue, type, payload, priority, status, attempts, max_retries, delay_until, processed_by,
 	          created_at, updated_at, processed_at, completed_at, error
-	          FROM messages WHERE queue = ?`
+	          FROM queue_messages WHERE queue = ?`
 	args := []interface{}{queue}
 
 	if status != "" {
@@ -328,7 +328,7 @@ func (m *Manager) GetStats(queue string) (*Stats, error) {
 
 	// Get counts by status
 	rows, err := m.db.Query(`
-		SELECT status, COUNT(*) FROM messages WHERE queue = ? GROUP BY status
+		SELECT status, COUNT(*) FROM queue_messages WHERE queue = ? GROUP BY status
 	`, queue)
 	if err != nil {
 		return nil, err
@@ -366,7 +366,7 @@ func (m *Manager) GetStats(queue string) (*Stats, error) {
 
 // ListQueues returns all queue names.
 func (m *Manager) ListQueues() ([]string, error) {
-	rows, err := m.db.Query(`SELECT DISTINCT queue FROM messages`)
+	rows, err := m.db.Query(`SELECT DISTINCT queue FROM queue_messages`)
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +407,7 @@ func (m *Manager) processDelayedMessages() {
 func (m *Manager) moveDelayedMessages() {
 	now := time.Now().UTC()
 	_, err := m.db.Exec(`
-		UPDATE messages
+		UPDATE queue_messages
 		SET status = 'pending', delay_until = NULL, updated_at = ?
 		WHERE status = 'delayed' AND delay_until <= ?
 	`, now, now)

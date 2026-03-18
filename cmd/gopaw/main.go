@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/gopaw/gopaw/internal/agent"
+	"github.com/gopaw/gopaw/internal/audit"
 	"github.com/gopaw/gopaw/internal/channel"
 	"github.com/gopaw/gopaw/internal/config"
 	"github.com/gopaw/gopaw/internal/convlog"
@@ -537,6 +538,9 @@ func runStart() {
 	}
 
 	// Initialize metrics service
+	if err := audit.InitSchema(store.DB()); err != nil {
+		logger.Warn("failed to initialize audit schema", zap.Error(err))
+	}
 	metricsService, err := metrics.NewService(store.DB(), logger)
 	if err != nil {
 		logger.Warn("failed to initialize metrics service", zap.Error(err))

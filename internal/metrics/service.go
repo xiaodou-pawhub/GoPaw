@@ -243,7 +243,7 @@ func (s *Service) collectWorkflowMetrics() error {
 	// Get average duration
 	var avgDuration float64
 	err = s.db.QueryRow(`
-		SELECT AVG(
+		SELECT COALESCE(AVG(
 			CASE 
 				WHEN completed_at IS NOT NULL AND started_at IS NOT NULL 
 				THEN (julianday(completed_at) - julianday(started_at)) * 86400
