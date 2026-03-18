@@ -21,6 +21,7 @@ import (
 	"github.com/gopaw/gopaw/internal/cron"
 	"github.com/gopaw/gopaw/internal/knowledge"
 	"github.com/gopaw/gopaw/internal/mcp"
+	"github.com/gopaw/gopaw/internal/orchestration"
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/metrics"
 	"github.com/gopaw/gopaw/internal/queue"
@@ -69,6 +70,7 @@ func New(
 	queueMgr *queue.Manager,
 	metricsService *metrics.Service,
 	knowledgeService *knowledge.Service,
+	orchestrationEngine *orchestration.Engine,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 	logger *zap.Logger,
@@ -87,7 +89,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, wp, staticFS)
+	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -121,6 +123,7 @@ func (s *Server) registerRoutes(
 	queueMgr *queue.Manager,
 	metricsService *metrics.Service,
 	knowledgeService *knowledge.Service,
+	orchestrationEngine *orchestration.Engine,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 ) {
@@ -417,6 +420,12 @@ func (s *Server) registerRoutes(
 	if knowledgeService != nil {
 		knowledgeH := handlers.NewKnowledgeHandler(knowledgeService)
 		knowledgeH.RegisterRoutes(api)
+	}
+
+	// /api/orchestrations — orchestration management
+	if orchestrationEngine != nil {
+		orchH := handlers.NewOrchestrationHandler(orchestration.NewService(orchestrationEngine.DB, orchestrationEngine))
+		orchH.RegisterRoutes(api)
 	}
 
 	// DingTalk channel routes (no /api prefix).

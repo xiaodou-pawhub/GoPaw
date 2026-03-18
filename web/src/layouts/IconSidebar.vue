@@ -36,7 +36,7 @@
 
 <script setup lang="ts">
 import { useRouter, useRoute } from 'vue-router'
-import { MessageSquare, Store, Activity, Bot, Server, Settings, Zap, MessageCircle, GitBranch, Layers, BarChart3, BookOpen } from 'lucide-vue-next'
+import { MessageSquare, Store, Activity, Bot, Server, Settings, Zap, MessageCircle, GitBranch, Layers, BarChart3, BookOpen, Network } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 
 const router = useRouter()
@@ -55,6 +55,7 @@ const navItems = [
   { to: '/queue', label: '队列', icon: Layers },
   { to: '/metrics', label: '监控', icon: BarChart3 },
   { to: '/knowledge', label: '知识库', icon: BookOpen },
+  { to: '/orchestrations', label: '编排器', icon: Network },
   { to: '/settings', label: '设置', icon: Settings },
 ]
 
@@ -70,6 +71,7 @@ function isActive(to: string): boolean {
   if (to === '/queue') return route.path.startsWith('/queue')
   if (to === '/metrics') return route.path.startsWith('/metrics')
   if (to === '/knowledge') return route.path.startsWith('/knowledge')
+  if (to === '/orchestrations') return route.path.startsWith('/orchestrations')
   if (to === '/settings') return route.path.startsWith('/settings')
   return false
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/mcp"
 	"github.com/gopaw/gopaw/internal/memory"
+	"github.com/gopaw/gopaw/internal/orchestration"
 	"github.com/gopaw/gopaw/internal/agent/message"
 	"github.com/gopaw/gopaw/internal/sandbox"
 	"github.com/gopaw/gopaw/internal/server"
@@ -564,6 +565,22 @@ func runStart() {
 		}
 	}
 
+	// Initialize orchestration engine
+	var orchestrationEngine *orchestration.Engine
+	if err := orchestration.InitSchema(store.DB()); err != nil {
+		logger.Warn("failed to initialize orchestration schema", zap.Error(err))
+	} else {
+		orchestrationEngine = orchestration.NewEngine(
+			store.DB(),
+			agentMgr,
+			agentRouter,
+			agentMsgMgr,
+			workflowEngine,
+			logger,
+		)
+		logger.Info("orchestration engine initialized")
+	}
+
 	// Start metrics collection (every 5 minutes)
 	if metricsService != nil {
 		go func() {
@@ -584,7 +601,7 @@ func runStart() {
 		metricsService.Collect()
 	}
 
-	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, wp, web.FS(), logger)
+	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, wp, web.FS(), logger)
 	go srv.Start()
 
 	quit := make(chan os.Signal, 1)

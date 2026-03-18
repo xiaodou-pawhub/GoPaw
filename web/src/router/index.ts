@@ -70,6 +70,11 @@ const routes: RouteRecordRaw[] = [
         path: 'knowledge',
         name: 'Knowledge',
         component: () => import('@/pages/Knowledge.vue')
+      },
+      {
+        path: 'orchestrations',
+        name: 'Orchestrations',
+        component: () => import('@/pages/Orchestrations.vue')
       }
     ]
   }
