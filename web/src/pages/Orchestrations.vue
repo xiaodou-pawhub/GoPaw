@@ -62,13 +62,26 @@
             <p class="text-body-2 text-grey">{{ selectedOrch.description }}</p>
             
             <v-tabs v-model="activeTab" class="mt-4">
-              <v-tab value="definition">定义</v-tab>
+              <v-tab value="designer">设计器</v-tab>
+              <v-tab value="json">JSON</v-tab>
               <v-tab value="executions">执行记录</v-tab>
             </v-tabs>
 
             <v-window v-model="activeTab">
-              <!-- 定义 -->
-              <v-window-item value="definition">
+              <!-- 设计器 -->
+              <v-window-item value="designer">
+                <div class="designer-container mt-4">
+                  <OrchestrationDesigner
+                    :definition="selectedOrch.definition"
+                    :agents="availableAgents"
+                    @save="onDesignerSave"
+                    @validate="onDesignerValidate"
+                  />
+                </div>
+              </v-window-item>
+
+              <!-- JSON -->
+              <v-window-item value="json">
                 <v-textarea
                   v-model="definitionText"
                   label="编排定义 (JSON)"
@@ -199,6 +212,7 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive, computed } from 'vue'
 import { orchestrationApi, type Orchestration, type ExecutionContext } from '@/api/orchestration'
+import OrchestrationDesigner from '@/components/orchestration/OrchestrationDesigner.vue'
 
 const orchestrations = ref<Orchestration[]>([])
 const selectedOrch = ref<Orchestration | null>(null)
@@ -233,6 +247,14 @@ const deleteDialog = reactive({
   show: false,
   orch: null as Orchestration | null,
 })
+
+// 可用 Agent 列表（用于设计器）
+const availableAgents = ref([
+  { id: 'default', name: '默认 Agent' },
+  { id: 'product_manager', name: '产品经理' },
+  { id: 'developer', name: '开发工程师' },
+  { id: 'tester', name: '测试工程师' },
+])
 
 const definitionText = computed(() => {
   if (!selectedOrch.value) return ''
@@ -387,6 +409,34 @@ function viewExecution(exec: ExecutionContext) {
   console.log('View execution:', exec)
 }
 
+// 设计器保存
+async function onDesignerSave(definition: any) {
+  if (!selectedOrch.value) return
+  try {
+    await orchestrationApi.update(selectedOrch.value.id, {
+      definition,
+    })
+    // 刷新数据
+    const response = await orchestrationApi.get(selectedOrch.value.id)
+    selectedOrch.value = response.data
+    alert('编排已保存')
+  } catch (error: any) {
+    console.error('Failed to save orchestration:', error)
+    alert('保存失败: ' + (error.response?.data?.error || error.message || '未知错误'))
+  }
+}
+
+// 设计器验证
+async function onDesignerValidate(definition: any) {
+  try {
+    await orchestrationApi.validate(definition)
+    alert('编排定义有效')
+  } catch (error: any) {
+    console.error('Validation failed:', error)
+    alert('验证失败: ' + (error.response?.data?.error || error.message || '未知错误'))
+  }
+}
+
 function getStatusColor(status: string) {
   switch (status) {
     case 'active': return 'success'
@@ -420,5 +470,12 @@ function formatDate(date: string) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.designer-container {
+  height: 600px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
 }
 </style>
