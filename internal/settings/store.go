@@ -100,8 +100,8 @@ func (s *Store) migrateProviderSchema() {
 // ListProvidersByPriority returns all enabled LLM providers ordered by priority.
 func (s *Store) ListProvidersByPriority() ([]ProviderConfig, error) {
 	rows, err := s.db.Query(`
-		SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, 
-		       is_active, tags, priority, enabled, created_at, updated_at
+		SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec,
+		       is_active, tags, created_at, updated_at, priority, enabled
 		FROM providers
 		WHERE enabled = 1
 		ORDER BY priority ASC, created_at ASC
@@ -117,8 +117,7 @@ func (s *Store) ListProvidersByPriority() ([]ProviderConfig, error) {
 		var isActiveInt, enabledInt int
 		var tagsJSON string
 		if err := rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKey, &p.Model,
-			&p.MaxTokens, &p.TimeoutSec, &isActiveInt, &tagsJSON, &p.Priority, &enabledInt,
-			&p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.MaxTokens, &p.TimeoutSec, &isActiveInt, &tagsJSON, &p.CreatedAt, &p.UpdatedAt, &p.Priority, &enabledInt); err != nil {
 			return nil, err
 		}
 		p.IsActive = isActiveInt == 1
@@ -291,7 +290,7 @@ func (s *Store) GetProvider(id string) (*ProviderConfig, error) {
 // ListProviders returns all configured LLM providers. APIKey is masked for safety.
 func (s *Store) ListProviders() ([]ProviderConfig, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, tags, created_at, updated_at
+		`SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, tags, created_at, updated_at, priority, enabled
 		 FROM providers ORDER BY created_at`,
 	)
 	if err != nil {
@@ -302,13 +301,14 @@ func (s *Store) ListProviders() ([]ProviderConfig, error) {
 	var list []ProviderConfig
 	for rows.Next() {
 		p := ProviderConfig{}
-		var isActive int
+		var isActiveInt, enabledInt int
 		var tagsJSON string
 		if err := rows.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKey, &p.Model,
-			&p.MaxTokens, &p.TimeoutSec, &isActive, &tagsJSON, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.MaxTokens, &p.TimeoutSec, &isActiveInt, &tagsJSON, &p.CreatedAt, &p.UpdatedAt, &p.Priority, &enabledInt); err != nil {
 			return nil, fmt.Errorf("settings: scan provider: %w", err)
 		}
-		p.IsActive = isActive == 1
+		p.IsActive = isActiveInt == 1
+		p.Enabled = enabledInt == 1
 		_ = json.Unmarshal([]byte(tagsJSON), &p.Tags)
 		if p.Tags == nil {
 			p.Tags = []string{}
@@ -357,11 +357,21 @@ func (s *Store) SaveProvider(p *ProviderConfig) error {
 	if p.IsActive {
 		isActive = 1
 	}
-	enabledInt := 0
+	
+	// Default to enabled for new providers
+	enabledInt := 1
 	if p.Enabled {
 		enabledInt = 1
+	} else if p.ID != "" {
+		// For existing providers, preserve current enabled state
+		old, err := s.GetProvider(p.ID)
+		if err == nil && old != nil {
+			if !old.Enabled {
+				enabledInt = 0
+			}
+		}
 	}
-	
+
 	// Keep IsActive and Enabled in sync for backward compatibility
 	if p.IsActive && !p.Enabled {
 		enabledInt = 1
@@ -376,16 +386,17 @@ func (s *Store) SaveProvider(p *ProviderConfig) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO providers (id, name, base_url, api_key, model, max_tokens, timeout_sec, 
-		                        is_active, tags, priority, enabled, created_at, updated_at)
+		`INSERT INTO providers (id, name, base_url, api_key, model, max_tokens, timeout_sec,
+		                        is_active, tags, created_at, updated_at, priority, enabled)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   name=excluded.name, base_url=excluded.base_url,
 		   model=excluded.model, max_tokens=excluded.max_tokens, timeout_sec=excluded.timeout_sec,
-		   is_active=excluded.is_active, tags=excluded.tags, 
-		   priority=excluded.priority, enabled=excluded.enabled, updated_at=excluded.updated_at`,
+		   is_active=excluded.is_active, tags=excluded.tags,
+		   created_at=excluded.created_at, updated_at=excluded.updated_at,
+		   priority=excluded.priority, enabled=excluded.enabled`,
 		p.ID, p.Name, p.BaseURL, p.APIKey, p.Model,
-		p.MaxTokens, p.TimeoutSec, isActive, string(tagsData), p.Priority, enabledInt, p.CreatedAt, p.UpdatedAt,
+		p.MaxTokens, p.TimeoutSec, isActive, string(tagsData), p.CreatedAt, p.UpdatedAt, p.Priority, enabledInt,
 	)
 	if err != nil {
 		return fmt.Errorf("settings: save provider: %w", err)
