@@ -179,7 +179,7 @@ func (s *Service) collectQueueMetrics() error {
 	// Get counts by status
 	rows, err := s.db.Query(`
 		SELECT queue, status, COUNT(*) 
-		FROM messages 
+		FROM queue_messages 
 		GROUP BY queue, status
 	`)
 	if err != nil {
@@ -433,7 +433,7 @@ func (s *Service) getQueueMetrics(metrics *QueueMetrics) error {
 	// Get current queue stats
 	rows, err := s.db.Query(`
 		SELECT queue, status, COUNT(*) as count
-		FROM messages
+		FROM queue_messages
 		GROUP BY queue, status
 	`)
 	if err != nil {

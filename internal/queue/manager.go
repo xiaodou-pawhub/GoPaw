@@ -61,7 +61,7 @@ func (m *Manager) Close() error {
 // initSchema creates the database tables.
 func (m *Manager) initSchema() error {
 	schema := `
-CREATE TABLE IF NOT EXISTS messages (
+CREATE TABLE IF NOT EXISTS queue_messages (
     id TEXT PRIMARY KEY,
     queue TEXT NOT NULL,
     type TEXT NOT NULL,
@@ -79,13 +79,13 @@ CREATE TABLE IF NOT EXISTS messages (
     error TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_messages_queue_status ON messages(queue, status);
-CREATE INDEX IF NOT EXISTS idx_messages_priority ON messages(priority);
-CREATE INDEX IF NOT EXISTS idx_messages_delay ON messages(delay_until);
-CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
-CREATE INDEX IF NOT EXISTS idx_messages_type ON messages(type);
+CREATE INDEX IF NOT EXISTS idx_queue_messages_queue_status ON queue_messages(queue, status);
+CREATE INDEX IF NOT EXISTS idx_queue_messages_priority ON queue_messages(priority);
+CREATE INDEX IF NOT EXISTS idx_queue_messages_delay ON queue_messages(delay_until);
+CREATE INDEX IF NOT EXISTS idx_queue_messages_created ON queue_messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_queue_messages_type ON queue_messages(type);
 
-CREATE TABLE IF NOT EXISTS message_stats (
+CREATE TABLE IF NOT EXISTS queue_stats (
     queue TEXT PRIMARY KEY,
     pending_count INTEGER DEFAULT 0,
     processing_count INTEGER DEFAULT 0,
