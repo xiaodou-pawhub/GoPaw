@@ -98,7 +98,7 @@ func (h *WorkflowHandler) ExecuteWorkflow(c *gin.Context) {
 
 // GetExecution returns a workflow execution.
 func (h *WorkflowHandler) GetExecution(c *gin.Context) {
-	id := c.Param("id")
+	id := c.Param("execId")
 	execution, err := h.engine.GetExecution(id)
 	if err != nil {
 		api.NotFound(c, "execution")
@@ -109,7 +109,7 @@ func (h *WorkflowHandler) GetExecution(c *gin.Context) {
 
 // ListExecutions returns executions for a workflow.
 func (h *WorkflowHandler) ListExecutions(c *gin.Context) {
-	workflowID := c.Param("workflow_id")
+	workflowID := c.Param("id")
 	limit := 50
 
 	if l := c.Query("limit"); l != "" {
@@ -130,7 +130,7 @@ func (h *WorkflowHandler) ListExecutions(c *gin.Context) {
 
 // CancelExecution cancels a workflow execution.
 func (h *WorkflowHandler) CancelExecution(c *gin.Context) {
-	id := c.Param("id")
+	id := c.Param("execId")
 	if err := h.engine.Cancel(id); err != nil {
 		h.logger.Error("failed to cancel execution", zap.Error(err))
 		api.InternalErrorWithDetails(c, "failed to cancel execution", err)
@@ -141,7 +141,7 @@ func (h *WorkflowHandler) CancelExecution(c *gin.Context) {
 
 // GetStats returns workflow statistics.
 func (h *WorkflowHandler) GetStats(c *gin.Context) {
-	workflowID := c.Param("workflow_id")
+	workflowID := c.Param("id")
 	stats, err := h.engine.GetStats(workflowID)
 	if err != nil {
 		h.logger.Error("failed to get stats", zap.Error(err))

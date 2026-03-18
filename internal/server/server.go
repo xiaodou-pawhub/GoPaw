@@ -377,10 +377,10 @@ func (s *Server) registerRoutes(
 			workflowsG.PUT("/:id", workflowH.UpdateWorkflow)
 			workflowsG.DELETE("/:id", workflowH.DeleteWorkflow)
 			workflowsG.POST("/:id/execute", workflowH.ExecuteWorkflow)
-			workflowsG.GET("/:workflow_id/executions", workflowH.ListExecutions)
-			workflowsG.GET("/:workflow_id/stats", workflowH.GetStats)
-			workflowsG.GET("/executions/:id", workflowH.GetExecution)
-			workflowsG.POST("/executions/:id/cancel", workflowH.CancelExecution)
+			workflowsG.GET("/:id/executions", workflowH.ListExecutions)
+			workflowsG.GET("/:id/stats", workflowH.GetStats)
+			workflowsG.GET("/executions/:execId", workflowH.GetExecution)
+			workflowsG.POST("/executions/:execId/cancel", workflowH.CancelExecution)
 		}
 	}
 
