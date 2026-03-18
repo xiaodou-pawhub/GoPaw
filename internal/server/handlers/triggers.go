@@ -6,11 +6,11 @@ package handlers
 
 import (
 	"encoding/json"
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/trigger"
+	"github.com/gopaw/gopaw/pkg/api"
 	"go.uber.org/zap"
 )
 
@@ -59,7 +59,7 @@ type UpdateTriggerRequest struct {
 // ListTriggers returns all triggers.
 func (h *TriggerHandler) ListTriggers(c *gin.Context) {
 	triggers := h.manager.List()
-	c.JSON(http.StatusOK, triggers)
+	api.Success(c, triggers)
 }
 
 // GetTrigger returns a specific trigger.
@@ -67,17 +67,17 @@ func (h *TriggerHandler) GetTrigger(c *gin.Context) {
 	id := c.Param("id")
 	trigger, err := h.manager.Get(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		api.NotFound(c, "trigger")
 		return
 	}
-	c.JSON(http.StatusOK, trigger)
+	api.Success(c, trigger)
 }
 
 // CreateTrigger creates a new trigger.
 func (h *TriggerHandler) CreateTrigger(c *gin.Context) {
 	var req CreateTriggerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
@@ -85,7 +85,7 @@ func (h *TriggerHandler) CreateTrigger(c *gin.Context) {
 	configJSON, _ := json.Marshal(req.Config)
 	config, err := trigger.ParseConfig(req.Type, configJSON)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config: " + err.Error()})
+		api.BadRequestWithError(c, "invalid config", err)
 		return
 	}
 
@@ -104,11 +104,11 @@ func (h *TriggerHandler) CreateTrigger(c *gin.Context) {
 
 	if err := h.manager.Create(trigger); err != nil {
 		h.logger.Error("failed to create trigger", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to create trigger", err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, trigger)
+	api.Created(c, trigger)
 }
 
 // UpdateTrigger updates an existing trigger.
@@ -117,13 +117,13 @@ func (h *TriggerHandler) UpdateTrigger(c *gin.Context) {
 
 	existing, err := h.manager.Get(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		api.NotFound(c, "trigger")
 		return
 	}
 
 	var req UpdateTriggerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
@@ -141,7 +141,7 @@ func (h *TriggerHandler) UpdateTrigger(c *gin.Context) {
 		configJSON, _ := json.Marshal(req.Config)
 		config, err := trigger.ParseConfig(req.Type, configJSON)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config: " + err.Error()})
+			api.BadRequestWithError(c, "invalid config", err)
 			return
 		}
 		existing.Config = config
@@ -161,41 +161,41 @@ func (h *TriggerHandler) UpdateTrigger(c *gin.Context) {
 
 	if err := h.manager.Update(id, existing); err != nil {
 		h.logger.Error("failed to update trigger", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to update trigger", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, existing)
+	api.Success(c, existing)
 }
 
 // DeleteTrigger deletes a trigger.
 func (h *TriggerHandler) DeleteTrigger(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.manager.Delete(id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		api.NotFound(c, "trigger")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "trigger deleted"})
+	api.Success(c, gin.H{"message": "trigger deleted"})
 }
 
 // EnableTrigger enables a trigger.
 func (h *TriggerHandler) EnableTrigger(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.manager.SetEnabled(id, true); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		api.NotFound(c, "trigger")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "trigger enabled"})
+	api.Success(c, gin.H{"message": "trigger enabled"})
 }
 
 // DisableTrigger disables a trigger.
 func (h *TriggerHandler) DisableTrigger(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.manager.SetEnabled(id, false); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		api.NotFound(c, "trigger")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "trigger disabled"})
+	api.Success(c, gin.H{"message": "trigger disabled"})
 }
 
 // FireTrigger manually fires a trigger.
@@ -209,11 +209,11 @@ func (h *TriggerHandler) FireTrigger(c *gin.Context) {
 
 	if err := h.engine.FireTrigger(id, payload); err != nil {
 		h.logger.Error("failed to fire trigger", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to fire trigger", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "trigger fired"})
+	api.Success(c, gin.H{"message": "trigger fired"})
 }
 
 // GetTriggerHistory returns trigger fire history.
@@ -224,18 +224,18 @@ func (h *TriggerHandler) GetTriggerHistory(c *gin.Context) {
 	history, err := h.manager.GetHistory(id, limit)
 	if err != nil {
 		h.logger.Error("failed to get trigger history", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to get trigger history", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, history)
+	api.Success(c, history)
 }
 
 // ListTriggersByAgent returns triggers for a specific agent.
 func (h *TriggerHandler) ListTriggersByAgent(c *gin.Context) {
 	agentID := c.Param("agent_id")
 	triggers := h.manager.ListByAgent(agentID)
-	c.JSON(http.StatusOK, triggers)
+	api.Success(c, triggers)
 }
 
 // ValidateCronRequest represents a request to validate a cron expression.
@@ -255,7 +255,7 @@ type ValidateCronResponse struct {
 func (h *TriggerHandler) ValidateCron(c *gin.Context) {
 	var req ValidateCronRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
@@ -281,7 +281,7 @@ func (h *TriggerHandler) ValidateCron(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, resp)
+	api.Success(c, resp)
 }
 
 // WebhookHandler handles webhook triggers.
@@ -310,11 +310,11 @@ func (h *WebhookHandler) HandleWebhook(c *gin.Context) {
 
 	if err := h.engine.FireWebhook(triggerID, secret, payload); err != nil {
 		h.logger.Error("failed to fire webhook", zap.Error(err))
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid webhook request", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "webhook received"})
+	api.Success(c, gin.H{"message": "webhook received"})
 }
 
 // MessageHandler handles message triggers between agents.
@@ -342,15 +342,15 @@ type TriggerMessageRequest struct {
 func (h *MessageHandler) SendMessage(c *gin.Context) {
 	var req TriggerMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
 	if err := h.engine.FireMessage(req.From, req.To, req.Payload); err != nil {
 		h.logger.Error("failed to send message", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to send message", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "message sent"})
+	api.Success(c, gin.H{"message": "message sent"})
 }

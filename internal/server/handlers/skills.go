@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/skill"
+	"github.com/gopaw/gopaw/pkg/api"
 	"go.uber.org/zap"
 )
 
@@ -56,18 +57,18 @@ func (h *SkillsHandler) List(c *gin.Context) {
 			Enabled:     e.Enabled,
 		})
 	}
-	c.JSON(http.StatusOK, gin.H{"skills": out})
+	api.Success(c, gin.H{"skills": out})
 }
 
 // Reload handles POST /api/skills/reload.
 func (h *SkillsHandler) Reload(c *gin.Context) {
 	if err := h.manager.Reload(); err != nil {
 		h.logger.Error("skill reload failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "skill reload failed", err)
 		return
 	}
 	h.logger.Info("skills reloaded")
-	c.JSON(http.StatusOK, gin.H{"ok": true, "count": len(h.manager.Registry().All())})
+	api.Success(c, gin.H{"ok": true, "count": len(h.manager.Registry().All())})
 }
 
 // SetEnabled handles PUT /api/skills/:name/enabled.
@@ -78,18 +79,18 @@ func (h *SkillsHandler) SetEnabled(c *gin.Context) {
 		Enabled bool `json:"enabled"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request body", err)
 		return
 	}
 
 	if err := h.manager.Registry().SetEnabled(name, body.Enabled); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		api.NotFound(c, "skill")
 		return
 	}
 
 	h.logger.Info("skill enabled state changed",
 		zap.String("name", name), zap.Bool("enabled", body.Enabled))
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	api.Success(c, gin.H{"ok": true})
 }
 
 // Install handles POST /api/skills/install.
@@ -116,11 +117,11 @@ func (h *SkillsHandler) Install(c *gin.Context) {
 		PackageURL string `json:"package_url"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		api.BadRequest(c, "invalid request body")
 		return
 	}
 	if req.Name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		api.BadRequest(c, "name is required")
 		return
 	}
 	if req.Version == "" {
@@ -138,7 +139,7 @@ func (h *SkillsHandler) Install(c *gin.Context) {
 		if err != nil {
 			h.logger.Error("skill market lookup failed",
 				zap.String("name", req.Name), zap.Error(err))
-			c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("market lookup failed: %v", err)})
+			api.BadGatewayWithError(c, "market lookup failed", err)
 			return
 		}
 	}
@@ -148,7 +149,7 @@ func (h *SkillsHandler) Install(c *gin.Context) {
 	if err := downloadAndExtract(packageURL, destDir); err != nil {
 		h.logger.Error("skill install failed",
 			zap.String("name", req.Name), zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("install failed: %v", err)})
+		api.InternalErrorWithDetails(c, "skill install failed", err)
 		return
 	}
 
@@ -158,7 +159,7 @@ func (h *SkillsHandler) Install(c *gin.Context) {
 	}
 
 	h.logger.Info("skill installed", zap.String("name", req.Name), zap.String("version", req.Version))
-	c.JSON(http.StatusOK, gin.H{"ok": true, "name": req.Name})
+	api.Success(c, gin.H{"ok": true, "name": req.Name})
 }
 
 // fetchPackageURL calls the skill market API to get the download URL for a skill.

@@ -5,12 +5,12 @@
 package handlers
 
 import (
-	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/queue"
+	"github.com/gopaw/gopaw/pkg/api"
 	"go.uber.org/zap"
 )
 
@@ -33,7 +33,7 @@ func (h *QueueHandler) ListQueues(c *gin.Context) {
 	queues, err := h.mgr.ListQueues()
 	if err != nil {
 		h.logger.Error("failed to list queues", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to list queues", err)
 		return
 	}
 
@@ -55,7 +55,7 @@ func (h *QueueHandler) ListQueues(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, result)
+	api.Success(c, result)
 }
 
 // GetQueueStats returns statistics for a queue.
@@ -64,11 +64,11 @@ func (h *QueueHandler) GetQueueStats(c *gin.Context) {
 	stats, err := h.mgr.GetStats(queueName)
 	if err != nil {
 		h.logger.Error("failed to get queue stats", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to get queue stats", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, stats)
+	api.Success(c, stats)
 }
 
 // ListMessages returns messages in a queue.
@@ -86,11 +86,11 @@ func (h *QueueHandler) ListMessages(c *gin.Context) {
 	messages, err := h.mgr.ListMessages(queueName, status, limit)
 	if err != nil {
 		h.logger.Error("failed to list messages", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to list messages", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, messages)
+	api.Success(c, messages)
 }
 
 // PublishMessageRequest represents a request to publish a message.
@@ -108,7 +108,7 @@ func (h *QueueHandler) PublishMessage(c *gin.Context) {
 
 	var req PublishMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request body", err)
 		return
 	}
 
@@ -124,11 +124,11 @@ func (h *QueueHandler) PublishMessage(c *gin.Context) {
 	msg, err := h.mgr.Publish(queueName, req.Type, req.Payload, opts)
 	if err != nil {
 		h.logger.Error("failed to publish message", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to publish message", err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, msg)
+	api.Created(c, msg)
 }
 
 // GetMessage returns a message by ID.
@@ -136,11 +136,11 @@ func (h *QueueHandler) GetMessage(c *gin.Context) {
 	id := c.Param("id")
 	msg, err := h.mgr.GetMessage(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		api.NotFound(c, "message")
 		return
 	}
 
-	c.JSON(http.StatusOK, msg)
+	api.Success(c, msg)
 }
 
 // RetryMessage retries a failed message.
@@ -150,22 +150,22 @@ func (h *QueueHandler) RetryMessage(c *gin.Context) {
 	// Get message first
 	msg, err := h.mgr.GetMessage(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		api.NotFound(c, "message")
 		return
 	}
 
 	if !msg.IsRetryable() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "message cannot be retried"})
+		api.BadRequest(c, "message cannot be retried")
 		return
 	}
 
 	if err := h.mgr.Retry(id); err != nil {
 		h.logger.Error("failed to retry message", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to retry message", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "message queued for retry"})
+	api.Success(c, gin.H{"message": "message queued for retry"})
 }
 
 // DeleteMessage deletes a message.
@@ -174,23 +174,23 @@ func (h *QueueHandler) DeleteMessage(c *gin.Context) {
 
 	if err := h.mgr.Delete(id); err != nil {
 		h.logger.Error("failed to delete message", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to delete message", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "message deleted"})
+	api.Success(c, gin.H{"message": "message deleted"})
 }
 
 // PauseQueue pauses a queue (not implemented yet).
 func (h *QueueHandler) PauseQueue(c *gin.Context) {
 	// TODO: Implement queue pause/resume
-	c.JSON(http.StatusOK, gin.H{"message": "queue pause not implemented yet"})
+	api.Success(c, gin.H{"message": "queue pause not implemented yet"})
 }
 
 // ResumeQueue resumes a queue (not implemented yet).
 func (h *QueueHandler) ResumeQueue(c *gin.Context) {
 	// TODO: Implement queue pause/resume
-	c.JSON(http.StatusOK, gin.H{"message": "queue resume not implemented yet"})
+	api.Success(c, gin.H{"message": "queue resume not implemented yet"})
 }
 
 // CleanupQueue deletes old messages from a queue.
@@ -199,7 +199,7 @@ func (h *QueueHandler) CleanupQueue(c *gin.Context) {
 	status := c.Query("status")
 
 	if status == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "status parameter required"})
+		api.BadRequest(c, "status parameter required")
 		return
 	}
 
@@ -208,7 +208,7 @@ func (h *QueueHandler) CleanupQueue(c *gin.Context) {
 	messages, err := h.mgr.ListMessages(queueName, status, 10000)
 	if err != nil {
 		h.logger.Error("failed to list messages for cleanup", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to list messages for cleanup", err)
 		return
 	}
 
@@ -219,7 +219,7 @@ func (h *QueueHandler) CleanupQueue(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	api.Success(c, gin.H{
 		"message":         "queue cleaned up",
 		"deleted_count":   deletedCount,
 		"status":          status,

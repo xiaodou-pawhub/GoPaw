@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/gopaw/gopaw/internal/agent"
 	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/skill"
@@ -98,18 +99,18 @@ func (m *MockMemoryManager) MaybeCompress(sessionID string) {}
 
 // MockMemoryStore is a mock implementation of memory.LTMStore.
 type MockMemoryStore struct {
-	Memories []memory.Entry
+	Memories []memory.MemoryEntry
 }
 
-func (m *MockMemoryStore) List(category memory.Category, limit int) ([]memory.Entry, error) {
+func (m *MockMemoryStore) List(category memory.Category, limit int) ([]memory.MemoryEntry, error) {
 	return m.Memories, nil
 }
 
-func (m *MockMemoryStore) Save(entry *memory.Entry) error {
+func (m *MockMemoryStore) Save(entry *memory.MemoryEntry) error {
 	return nil
 }
 
-func (m *MockMemoryStore) Recall(query string, limit int) ([]memory.Entry, error) {
+func (m *MockMemoryStore) Recall(query string, limit int) ([]memory.MemoryEntry, error) {
 	return m.Memories, nil
 }
 
@@ -138,7 +139,7 @@ func CreateTestAgent(
 	skillManager *skill.Manager,
 	memoryManager *memory.Manager,
 	ltmStore *memory.LTMStore,
-) *ReActAgent {
+) *agent.ReActAgent {
 	// This is a helper that will be implemented in agent_test.go
 	// to avoid circular imports
 	return nil

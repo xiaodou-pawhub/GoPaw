@@ -1,13 +1,13 @@
 package handlers
 
 import (
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/memory"
+	"github.com/gopaw/gopaw/pkg/api"
 	"go.uber.org/zap"
 )
 
@@ -66,7 +66,7 @@ func (h *MemoryHandler) List(c *gin.Context) {
 	}
 	if err != nil {
 		h.logger.Error("memory list error", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "memory list error", err)
 		return
 	}
 
@@ -74,7 +74,7 @@ func (h *MemoryHandler) List(c *gin.Context) {
 	for i, e := range entries {
 		out[i] = entryToJSON(e)
 	}
-	c.JSON(http.StatusOK, gin.H{"memories": out, "total": len(out)})
+	api.Success(c, gin.H{"memories": out, "total": len(out)})
 }
 
 // Create handles POST /api/memories
@@ -85,7 +85,7 @@ func (h *MemoryHandler) Create(c *gin.Context) {
 		Category string `json:"category"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 	cat := memory.Category(req.Category)
@@ -94,15 +94,15 @@ func (h *MemoryHandler) Create(c *gin.Context) {
 	}
 	if err := h.ltm.Store(req.Key, req.Content, cat); err != nil {
 		h.logger.Error("memory create error", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "memory create error", err)
 		return
 	}
 	entry, err := h.ltm.Get(req.Key)
 	if err != nil || entry == nil {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
+		api.Success(c, gin.H{"ok": true})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"memory": entryToJSON(*entry)})
+	api.Success(c, gin.H{"memory": entryToJSON(*entry)})
 }
 
 // Update handles PUT /api/memories/:id
@@ -114,7 +114,7 @@ func (h *MemoryHandler) Update(c *gin.Context) {
 		Category string `json:"category"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
@@ -122,11 +122,11 @@ func (h *MemoryHandler) Update(c *gin.Context) {
 	existing, err := h.ltm.Get(key)
 	if err != nil {
 		h.logger.Error("memory get error", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "memory get error", err)
 		return
 	}
 	if existing == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "memory not found"})
+		api.NotFound(c, "memory")
 		return
 	}
 
@@ -136,15 +136,15 @@ func (h *MemoryHandler) Update(c *gin.Context) {
 	}
 	if err := h.ltm.Store(key, req.Content, cat); err != nil {
 		h.logger.Error("memory update error", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "memory update error", err)
 		return
 	}
 	entry, _ := h.ltm.Get(key)
 	if entry == nil {
-		c.JSON(http.StatusOK, gin.H{"ok": true})
+		api.Success(c, gin.H{"ok": true})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"memory": entryToJSON(*entry)})
+	api.Success(c, gin.H{"memory": entryToJSON(*entry)})
 }
 
 // Delete handles DELETE /api/memories/:id (id = key)
@@ -153,14 +153,14 @@ func (h *MemoryHandler) Delete(c *gin.Context) {
 	found, err := h.ltm.Forget(key)
 	if err != nil {
 		h.logger.Error("memory delete error", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "memory delete error", err)
 		return
 	}
 	if !found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "memory not found"})
+		api.NotFound(c, "memory")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"deleted": key})
+	api.Success(c, gin.H{"deleted": key})
 }
 
 // Stats handles GET /api/memories/stats
@@ -182,7 +182,7 @@ func (h *MemoryHandler) Stats(c *gin.Context) {
 			counts["custom"]++
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"stats": counts})
+	api.Success(c, gin.H{"stats": counts})
 }
 
 // ImportMD handles POST /api/memories/import-md
@@ -194,7 +194,7 @@ func (h *MemoryHandler) ImportMD(c *gin.Context) {
 		Strategy string `json:"strategy"` // "db_only" | "file_only" | "both" (default: db_only)
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 	cat := memory.Category(req.Category)
@@ -219,7 +219,7 @@ func (h *MemoryHandler) ImportMD(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	api.Success(c, gin.H{
 		"imported": imported,
 		"failures": failures,
 		"total":    len(sections),

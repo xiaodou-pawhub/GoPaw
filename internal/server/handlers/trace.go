@@ -6,12 +6,12 @@ package handlers
 
 import (
 	"encoding/json"
-	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/trace"
+	"github.com/gopaw/gopaw/pkg/api"
 	"go.uber.org/zap"
 )
 
@@ -61,7 +61,7 @@ type traceDetailJSON struct {
 // Query params: session_id, status, limit (default 50), offset
 func (h *TraceHandler) List(c *gin.Context) {
 	if h.manager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "trace manager not initialized"})
+		api.InternalError(c, "trace manager not initialized")
 		return
 	}
 
@@ -83,7 +83,7 @@ func (h *TraceHandler) List(c *gin.Context) {
 	traces, err := h.manager.QueryTraces(opts)
 	if err != nil {
 		h.logger.Error("failed to query traces", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query traces"})
+		api.InternalError(c, "failed to query traces")
 		return
 	}
 
@@ -92,44 +92,41 @@ func (h *TraceHandler) List(c *gin.Context) {
 		result[i] = traceToJSON(t)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"traces": result,
-		"total":  len(result),
-	})
+	api.List(c, result, len(result))
 }
 
 // Get handles GET /api/traces/:id
 func (h *TraceHandler) Get(c *gin.Context) {
 	if h.manager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "trace manager not initialized"})
+		api.InternalError(c, "trace manager not initialized")
 		return
 	}
 
 	id := c.Param("id")
 	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "trace id is required"})
+		api.BadRequest(c, "trace id is required")
 		return
 	}
 
 	t, err := h.manager.GetTrace(id)
 	if err != nil {
 		h.logger.Error("failed to get trace", zap.String("id", id), zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get trace"})
+		api.InternalError(c, "failed to get trace")
 		return
 	}
 	if t == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "trace not found"})
+		api.NotFound(c, "trace")
 		return
 	}
 
 	result := traceDetailToJSON(t)
-	c.JSON(http.StatusOK, result)
+	api.Success(c, result)
 }
 
 // Stats handles GET /api/traces/stats
 func (h *TraceHandler) Stats(c *gin.Context) {
 	if h.manager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "trace manager not initialized"})
+		api.InternalError(c, "trace manager not initialized")
 		return
 	}
 
@@ -137,7 +134,7 @@ func (h *TraceHandler) Stats(c *gin.Context) {
 	traces, err := h.manager.QueryTraces(trace.QueryOptions{Limit: 1000})
 	if err != nil {
 		h.logger.Error("failed to query traces for stats", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query traces"})
+		api.InternalError(c, "failed to query traces")
 		return
 	}
 
@@ -162,7 +159,7 @@ func (h *TraceHandler) Stats(c *gin.Context) {
 		avgDuration = int64(totalDuration / time.Duration(len(traces)))
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	api.Success(c, gin.H{
 		"total_traces":   len(traces),
 		"completed":      completedCount,
 		"errors":         errorCount,

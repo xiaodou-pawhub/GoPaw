@@ -1,10 +1,9 @@
 package handlers
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/orchestration"
+	"github.com/gopaw/gopaw/pkg/api"
 )
 
 // OrchestrationHandler 编排处理器
@@ -43,28 +42,28 @@ func (h *OrchestrationHandler) RegisterRoutes(router *gin.RouterGroup) {
 func (h *OrchestrationHandler) CreateOrchestration(c *gin.Context) {
 	var req orchestration.CreateOrchestrationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
 	orch, err := h.service.CreateOrchestration(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to create orchestration", err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, orch)
+	api.Created(c, orch)
 }
 
 // ListOrchestrations 列出编排
 func (h *OrchestrationHandler) ListOrchestrations(c *gin.Context) {
 	orchestrations, err := h.service.ListOrchestrations(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to list orchestrations", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, orchestrations)
+	api.Success(c, orchestrations)
 }
 
 // GetOrchestration 获取编排
@@ -73,11 +72,11 @@ func (h *OrchestrationHandler) GetOrchestration(c *gin.Context) {
 
 	orch, err := h.service.GetOrchestration(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "orchestration not found"})
+		api.NotFound(c, "orchestration")
 		return
 	}
 
-	c.JSON(http.StatusOK, orch)
+	api.Success(c, orch)
 }
 
 // UpdateOrchestration 更新编排
@@ -86,16 +85,16 @@ func (h *OrchestrationHandler) UpdateOrchestration(c *gin.Context) {
 
 	var req orchestration.UpdateOrchestrationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
 	if err := h.service.UpdateOrchestration(c.Request.Context(), id, req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to update orchestration", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "updated"})
+	api.SuccessWithMessage(c, "updated", nil)
 }
 
 // DeleteOrchestration 删除编排
@@ -103,11 +102,11 @@ func (h *OrchestrationHandler) DeleteOrchestration(c *gin.Context) {
 	id := c.Param("id")
 
 	if err := h.service.DeleteOrchestration(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to delete orchestration", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+	api.SuccessWithMessage(c, "deleted", nil)
 }
 
 // ExecuteOrchestration 执行编排
@@ -116,17 +115,17 @@ func (h *OrchestrationHandler) ExecuteOrchestration(c *gin.Context) {
 
 	var req orchestration.ExecuteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
 	execCtx, err := h.service.ExecuteOrchestration(c.Request.Context(), id, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to execute orchestration", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, orchestration.ExecuteResponse{
+	api.Success(c, orchestration.ExecuteResponse{
 		ExecutionID: execCtx.ID,
 		Status:      execCtx.Status,
 	})
@@ -136,16 +135,16 @@ func (h *OrchestrationHandler) ExecuteOrchestration(c *gin.Context) {
 func (h *OrchestrationHandler) ValidateOrchestration(c *gin.Context) {
 	var def orchestration.OrchestrationDefinition
 	if err := c.ShouldBindJSON(&def); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
 	if err := h.service.ValidateOrchestration(def); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.ValidationError(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"valid": true})
+	api.Success(c, gin.H{"valid": true})
 }
 
 // ListExecutions 列出执行记录
@@ -154,11 +153,11 @@ func (h *OrchestrationHandler) ListExecutions(c *gin.Context) {
 
 	executions, err := h.service.ListExecutions(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to list executions", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, executions)
+	api.Success(c, executions)
 }
 
 // GetExecution 获取执行记录
@@ -167,11 +166,11 @@ func (h *OrchestrationHandler) GetExecution(c *gin.Context) {
 
 	execCtx, err := h.service.GetExecution(c.Request.Context(), executionID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "execution not found"})
+		api.NotFound(c, "execution")
 		return
 	}
 
-	c.JSON(http.StatusOK, execCtx)
+	api.Success(c, execCtx)
 }
 
 // GetExecutionMessages 获取执行消息
@@ -180,11 +179,11 @@ func (h *OrchestrationHandler) GetExecutionMessages(c *gin.Context) {
 
 	messages, err := h.service.GetExecutionMessages(c.Request.Context(), executionID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to get execution messages", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, messages)
+	api.Success(c, messages)
 }
 
 // SubmitHumanInput 提交人工输入
@@ -195,14 +194,14 @@ func (h *OrchestrationHandler) SubmitHumanInput(c *gin.Context) {
 		Input string `json:"input" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
 	if err := h.service.SubmitHumanInput(c.Request.Context(), executionID, req.Input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequest(c, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "submitted"})
+	api.SuccessWithMessage(c, "submitted", nil)
 }

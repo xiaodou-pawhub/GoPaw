@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -68,7 +69,7 @@ type ApprovalResponsePayload struct {
 func NewWebSocketNotifier(logger *zap.Logger) *WebSocketNotifier {
 	return &WebSocketNotifier{
 		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *gin.Context) bool {
+			CheckOrigin: func(r *http.Request) bool {
 				return true // Allow all origins in development
 			},
 		},
@@ -191,9 +192,9 @@ func (n *WebSocketNotifier) handleApprovalResponse(clientID string, payload json
 	}
 
 	// Forward to pending approvals
-	n.mu.RLock()
-	pendingCh, ok := n.pendingApprovals[resp.RequestID]
-	n.mu.RUnlock()
+	pendingMu.RLock()
+	pendingCh, ok := pendingApprovals[resp.RequestID]
+	pendingMu.RUnlock()
 
 	if ok {
 		approvalResp := &agent.ApprovalResponse{

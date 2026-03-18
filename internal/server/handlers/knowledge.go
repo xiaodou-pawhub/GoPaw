@@ -1,10 +1,9 @@
 package handlers
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/knowledge"
+	"github.com/gopaw/gopaw/pkg/api"
 )
 
 // KnowledgeHandler 知识库处理器
@@ -43,28 +42,28 @@ func (h *KnowledgeHandler) RegisterRoutes(router *gin.RouterGroup) {
 func (h *KnowledgeHandler) CreateKnowledgeBase(c *gin.Context) {
 	var req knowledge.CreateKnowledgeBaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
 	kb, err := h.service.CreateKnowledgeBase(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to create knowledge base", err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, kb)
+	api.Created(c, kb)
 }
 
 // ListKnowledgeBases 列出知识库
 func (h *KnowledgeHandler) ListKnowledgeBases(c *gin.Context) {
 	bases, err := h.service.ListKnowledgeBases(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to list knowledge bases", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, bases)
+	api.Success(c, bases)
 }
 
 // GetKnowledgeBase 获取知识库
@@ -73,11 +72,11 @@ func (h *KnowledgeHandler) GetKnowledgeBase(c *gin.Context) {
 
 	kb, err := h.service.GetKnowledgeBase(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "knowledge base not found"})
+		api.NotFound(c, "knowledge base")
 		return
 	}
 
-	c.JSON(http.StatusOK, kb)
+	api.Success(c, kb)
 }
 
 // UpdateKnowledgeBase 更新知识库
@@ -86,16 +85,16 @@ func (h *KnowledgeHandler) UpdateKnowledgeBase(c *gin.Context) {
 
 	var req knowledge.UpdateKnowledgeBaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
 	if err := h.service.UpdateKnowledgeBase(c.Request.Context(), id, req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to update knowledge base", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "updated"})
+	api.SuccessWithMessage(c, "updated", nil)
 }
 
 // DeleteKnowledgeBase 删除知识库
@@ -103,11 +102,11 @@ func (h *KnowledgeHandler) DeleteKnowledgeBase(c *gin.Context) {
 	id := c.Param("id")
 
 	if err := h.service.DeleteKnowledgeBase(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to delete knowledge base", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+	api.SuccessWithMessage(c, "deleted", nil)
 }
 
 // GetKnowledgeBaseStats 获取知识库统计
@@ -116,11 +115,11 @@ func (h *KnowledgeHandler) GetKnowledgeBaseStats(c *gin.Context) {
 
 	stats, err := h.service.GetStats(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to get stats", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, stats)
+	api.Success(c, stats)
 }
 
 // UploadDocument 上传文档
@@ -130,7 +129,7 @@ func (h *KnowledgeHandler) UploadDocument(c *gin.Context) {
 	// 获取上传的文件
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no file uploaded"})
+		api.BadRequest(c, "no file uploaded")
 		return
 	}
 	defer file.Close()
@@ -139,7 +138,7 @@ func (h *KnowledgeHandler) UploadDocument(c *gin.Context) {
 	content := make([]byte, header.Size)
 	_, err = file.Read(content)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
+		api.InternalErrorWithDetails(c, "failed to read file", err)
 		return
 	}
 
@@ -152,11 +151,11 @@ func (h *KnowledgeHandler) UploadDocument(c *gin.Context) {
 
 	doc, err := h.service.UploadDocument(c.Request.Context(), kbID, header.Filename, fileType, content)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to upload document", err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, doc)
+	api.Created(c, doc)
 }
 
 // ListDocuments 列出文档
@@ -165,11 +164,11 @@ func (h *KnowledgeHandler) ListDocuments(c *gin.Context) {
 
 	docs, err := h.service.ListDocuments(c.Request.Context(), kbID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to list documents", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, docs)
+	api.Success(c, docs)
 }
 
 // DeleteDocument 删除文档
@@ -177,11 +176,11 @@ func (h *KnowledgeHandler) DeleteDocument(c *gin.Context) {
 	docID := c.Param("docId")
 
 	if err := h.service.DeleteDocument(c.Request.Context(), docID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to delete document", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+	api.SuccessWithMessage(c, "deleted", nil)
 }
 
 // RetryDocument 重试处理文档
@@ -189,11 +188,11 @@ func (h *KnowledgeHandler) RetryDocument(c *gin.Context) {
 	docID := c.Param("docId")
 
 	if err := h.service.RetryDocument(c.Request.Context(), docID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to retry document", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "retrying"})
+	api.SuccessWithMessage(c, "retrying", nil)
 }
 
 // Search 搜索知识库
@@ -202,17 +201,17 @@ func (h *KnowledgeHandler) Search(c *gin.Context) {
 
 	var req knowledge.SearchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
 	resp, err := h.service.Search(c.Request.Context(), kbID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to search", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	api.Success(c, resp)
 }
 
 // getFileTypeFromName 从文件名获取文件类型

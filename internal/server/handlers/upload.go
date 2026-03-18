@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gopaw/gopaw/pkg/api"
 	"go.uber.org/zap"
 )
 
@@ -53,16 +54,14 @@ type UploadResponse struct {
 func (h *UploadHandler) Upload(c *gin.Context) {
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no file provided"})
+		api.BadRequest(c, "no file provided")
 		return
 	}
 	defer file.Close()
 
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	if !allowedExts[ext] {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("file type %q not allowed, allowed types: .txt, .md, .csv, .json, .yaml, .yml, .png, .jpg, .jpeg, .gif", ext),
-		})
+		api.BadRequest(c, fmt.Sprintf("file type %q not allowed, allowed types: .txt, .md, .csv, .json, .yaml, .yml, .png, .jpg, .jpeg, .gif", ext))
 		return
 	}
 
@@ -72,11 +71,11 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 	data, err := io.ReadAll(io.LimitReader(file, maxSize+1))
 	if err != nil {
 		h.logger.Error("failed to read file", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "read file failed"})
+		api.InternalErrorWithDetails(c, "read file failed", err)
 		return
 	}
 	if len(data) > maxSize {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "file too large (max 5MB)"})
+		api.BadRequest(c, "file too large (max 5MB)")
 		return
 	}
 
@@ -92,14 +91,12 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 		// 双重校验：扩展名与MIME类型必须一致，防止伪装攻击
 		// Double validation: extension must match MIME type to prevent spoofing attacks
 		if !strings.HasPrefix(mimeType, "image/") {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": fmt.Sprintf("file extension %q indicates image, but detected MIME type is %q (not an image)", ext, mimeType),
-			})
+			api.BadRequest(c, fmt.Sprintf("file extension %q indicates image, but detected MIME type is %q (not an image)", ext, mimeType))
 			return
 		}
 		
 		base64Content := base64.StdEncoding.EncodeToString(data)
-		c.JSON(http.StatusOK, UploadResponse{
+		api.Success(c, UploadResponse{
 			Filename: header.Filename,
 			Type:     "image",
 			Content:  fmt.Sprintf("data:%s;base64,%s", mimeType, base64Content),
@@ -109,7 +106,7 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 
 	// Return text content
 	// 返回文本内容
-	c.JSON(http.StatusOK, UploadResponse{
+	api.Success(c, UploadResponse{
 		Filename: header.Filename,
 		Type:     "text",
 		Content:  string(data),

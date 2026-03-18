@@ -5,44 +5,30 @@
 package handlers
 
 import (
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/workflow"
+	"github.com/gopaw/gopaw/pkg/api"
+	"github.com/gopaw/gopaw/pkg/handler"
 	"go.uber.org/zap"
 )
 
 // WorkflowHandler handles workflow-related HTTP requests.
 type WorkflowHandler struct {
-	engine *workflow.Engine
-	logger *zap.Logger
+	engine      *workflow.Engine
+	logger      *zap.Logger
+	crudHandler *handler.CRUDHandler[workflow.Workflow, workflow.CreateRequest, workflow.UpdateRequest]
 }
 
 // NewWorkflowHandler creates a new workflow handler.
 func NewWorkflowHandler(engine *workflow.Engine, logger *zap.Logger) *WorkflowHandler {
+	adapter := workflow.NewCRUDAdapter(engine)
 	return &WorkflowHandler{
-		engine: engine,
-		logger: logger.Named("workflow_handler"),
+		engine:      engine,
+		logger:      logger.Named("workflow_handler"),
+		crudHandler: handler.NewCRUDHandler(adapter, "workflow"),
 	}
-}
-
-// CreateWorkflowRequest represents a request to create a workflow.
-type CreateWorkflowRequest struct {
-	ID          string                `json:"id" binding:"required"`
-	Name        string                `json:"name" binding:"required"`
-	Description string                `json:"description"`
-	Definition  workflow.WorkflowDef  `json:"definition" binding:"required"`
-	Version     string                `json:"version"`
-}
-
-// UpdateWorkflowRequest represents a request to update a workflow.
-type UpdateWorkflowRequest struct {
-	Name        string                `json:"name"`
-	Description string                `json:"description"`
-	Definition  *workflow.WorkflowDef `json:"definition"`
-	Version     string                `json:"version"`
-	Status      string                `json:"status"`
 }
 
 // ExecuteWorkflowRequest represents a request to execute a workflow.
@@ -54,110 +40,40 @@ type ExecuteWorkflowRequest struct {
 func (h *WorkflowHandler) ListWorkflows(c *gin.Context) {
 	status := c.Query("status")
 
-	var workflows []*workflow.Workflow
-	var err error
-
+	// 如果有过滤条件，使用原有逻辑
 	if status != "" {
-		workflows, err = h.engine.ListByStatus(workflow.WorkflowStatus(status))
-	} else {
-		workflows, err = h.engine.List()
-	}
-
-	if err != nil {
-		h.logger.Error("failed to list workflows", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		workflows, err := h.engine.ListByStatus(workflow.WorkflowStatus(status))
+		if err != nil {
+			h.logger.Error("failed to list workflows", zap.Error(err))
+			api.InternalErrorWithDetails(c, "failed to list workflows", err)
+			return
+		}
+		api.Success(c, workflows)
 		return
 	}
 
-	c.JSON(http.StatusOK, workflows)
+	// 使用通用 CRUD
+	h.crudHandler.List(c)
 }
 
 // GetWorkflow returns a specific workflow.
 func (h *WorkflowHandler) GetWorkflow(c *gin.Context) {
-	id := c.Param("id")
-	wf, err := h.engine.Get(id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, wf)
+	h.crudHandler.Get(c)
 }
 
 // CreateWorkflow creates a new workflow.
 func (h *WorkflowHandler) CreateWorkflow(c *gin.Context) {
-	var req CreateWorkflowRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	wf := &workflow.Workflow{
-		ID:          req.ID,
-		Name:        req.Name,
-		Description: req.Description,
-		Definition:  &req.Definition,
-		Version:     req.Version,
-		Status:      workflow.WorkflowStatusDraft,
-	}
-
-	if err := h.engine.Create(wf); err != nil {
-		h.logger.Error("failed to create workflow", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusCreated, wf)
+	h.crudHandler.Create(c)
 }
 
 // UpdateWorkflow updates an existing workflow.
 func (h *WorkflowHandler) UpdateWorkflow(c *gin.Context) {
-	id := c.Param("id")
-
-	existing, err := h.engine.Get(id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-
-	var req UpdateWorkflowRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	if req.Name != "" {
-		existing.Name = req.Name
-	}
-	if req.Description != "" {
-		existing.Description = req.Description
-	}
-	if req.Definition != nil {
-		existing.Definition = req.Definition
-	}
-	if req.Version != "" {
-		existing.Version = req.Version
-	}
-	if req.Status != "" {
-		existing.Status = workflow.WorkflowStatus(req.Status)
-	}
-
-	if err := h.engine.Update(id, existing); err != nil {
-		h.logger.Error("failed to update workflow", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, existing)
+	h.crudHandler.Update(c)
 }
 
 // DeleteWorkflow deletes a workflow.
 func (h *WorkflowHandler) DeleteWorkflow(c *gin.Context) {
-	id := c.Param("id")
-	if err := h.engine.Delete(id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "workflow deleted"})
+	h.crudHandler.Delete(c)
 }
 
 // ExecuteWorkflow executes a workflow.
@@ -166,18 +82,18 @@ func (h *WorkflowHandler) ExecuteWorkflow(c *gin.Context) {
 
 	var req ExecuteWorkflowRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
 	execution, err := h.engine.Execute(id, req.Input, "user")
 	if err != nil {
 		h.logger.Error("failed to execute workflow", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to execute workflow", err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, execution)
+	api.Created(c, execution)
 }
 
 // GetExecution returns a workflow execution.
@@ -185,10 +101,10 @@ func (h *WorkflowHandler) GetExecution(c *gin.Context) {
 	id := c.Param("id")
 	execution, err := h.engine.GetExecution(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		api.NotFound(c, "execution")
 		return
 	}
-	c.JSON(http.StatusOK, execution)
+	api.Success(c, execution)
 }
 
 // ListExecutions returns executions for a workflow.
@@ -205,11 +121,11 @@ func (h *WorkflowHandler) ListExecutions(c *gin.Context) {
 	executions, err := h.engine.ListExecutions(workflowID, limit)
 	if err != nil {
 		h.logger.Error("failed to list executions", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to list executions", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, executions)
+	api.Success(c, executions)
 }
 
 // CancelExecution cancels a workflow execution.
@@ -217,10 +133,10 @@ func (h *WorkflowHandler) CancelExecution(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.engine.Cancel(id); err != nil {
 		h.logger.Error("failed to cancel execution", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to cancel execution", err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "execution cancelled"})
+	api.SuccessWithMessage(c, "execution cancelled", nil)
 }
 
 // GetStats returns workflow statistics.
@@ -229,10 +145,10 @@ func (h *WorkflowHandler) GetStats(c *gin.Context) {
 	stats, err := h.engine.GetStats(workflowID)
 	if err != nil {
 		h.logger.Error("failed to get stats", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to get stats", err)
 		return
 	}
-	c.JSON(http.StatusOK, stats)
+	api.Success(c, stats)
 }
 
 // ValidateWorkflowRequest represents a request to validate a workflow definition.
@@ -250,7 +166,7 @@ type ValidateWorkflowResponse struct {
 func (h *WorkflowHandler) ValidateWorkflow(c *gin.Context) {
 	var req ValidateWorkflowRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
@@ -287,14 +203,6 @@ func (h *WorkflowHandler) ValidateWorkflow(c *gin.Context) {
 			resp.Valid = false
 			resp.Errors = append(resp.Errors, "step action is required: "+step.ID)
 		}
-
-		// Validate dependencies
-		for _, dep := range step.DependsOn {
-			if !stepIDs[dep] {
-				// Dependency might be defined later
-				// We'll check this after processing all steps
-			}
-		}
 	}
 
 	// Check all dependencies exist
@@ -307,5 +215,5 @@ func (h *WorkflowHandler) ValidateWorkflow(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, resp)
+	api.Success(c, resp)
 }

@@ -5,12 +5,12 @@
 package handlers
 
 import (
-	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/audit"
+	"github.com/gopaw/gopaw/pkg/api"
 	"go.uber.org/zap"
 )
 
@@ -46,7 +46,7 @@ type QueryAuditLogsRequest struct {
 func (h *AuditHandler) ListAuditLogs(c *gin.Context) {
 	var req QueryAuditLogsRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
@@ -80,11 +80,11 @@ func (h *AuditHandler) ListAuditLogs(c *gin.Context) {
 	logs, err := h.mgr.Query(opts)
 	if err != nil {
 		h.logger.Error("failed to query audit logs", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to query audit logs", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, logs)
+	api.Success(c, logs)
 }
 
 // GetAuditStats returns audit log statistics.
@@ -92,11 +92,11 @@ func (h *AuditHandler) GetAuditStats(c *gin.Context) {
 	stats, err := h.mgr.GetStats(audit.QueryOptions{})
 	if err != nil {
 		h.logger.Error("failed to get audit stats", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to get audit stats", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, stats)
+	api.Success(c, stats)
 }
 
 // ExportAuditLogsRequest represents a request to export audit logs.
@@ -112,7 +112,7 @@ type ExportAuditLogsRequest struct {
 func (h *AuditHandler) ExportAuditLogs(c *gin.Context) {
 	var req ExportAuditLogsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
@@ -136,7 +136,7 @@ func (h *AuditHandler) ExportAuditLogs(c *gin.Context) {
 	filepath, err := h.mgr.Export(opts)
 	if err != nil {
 		h.logger.Error("failed to export audit logs", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to export audit logs", err)
 		return
 	}
 
@@ -159,18 +159,18 @@ type CleanupAuditLogsRequest struct {
 func (h *AuditHandler) CleanupAuditLogs(c *gin.Context) {
 	var req CleanupAuditLogsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		api.BadRequestWithError(c, "invalid request", err)
 		return
 	}
 
 	duration := time.Duration(req.OlderThanDays) * 24 * time.Hour
 	if err := h.mgr.Cleanup(duration); err != nil {
 		h.logger.Error("failed to cleanup audit logs", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to cleanup audit logs", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "audit logs cleaned up"})
+	api.SuccessWithMessage(c, "audit logs cleaned up", nil)
 }
 
 // GetAuditLog returns a single audit log by ID.
@@ -182,19 +182,19 @@ func (h *AuditHandler) GetAuditLog(c *gin.Context) {
 	logs, err := h.mgr.Query(opts)
 	if err != nil {
 		h.logger.Error("failed to get audit log", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to get audit log", err)
 		return
 	}
 
 	// Find the log with matching ID
 	for _, log := range logs {
 		if log.ID == id {
-			c.JSON(http.StatusOK, log)
+			api.Success(c, log)
 			return
 		}
 	}
 
-	c.JSON(http.StatusNotFound, gin.H{"error": "audit log not found"})
+	api.NotFound(c, "audit log")
 }
 
 // GetRecentAuditLogs returns recent audit logs.
@@ -213,9 +213,9 @@ func (h *AuditHandler) GetRecentAuditLogs(c *gin.Context) {
 	logs, err := h.mgr.Query(opts)
 	if err != nil {
 		h.logger.Error("failed to get recent audit logs", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		api.InternalErrorWithDetails(c, "failed to get recent audit logs", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, logs)
+	api.Success(c, logs)
 }

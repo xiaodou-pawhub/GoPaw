@@ -2,11 +2,11 @@
 package handlers
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/channel"
+	"github.com/gopaw/gopaw/pkg/api"
 	"go.uber.org/zap"
 )
 
@@ -46,7 +46,7 @@ func (h *ChannelsHandler) Health(c *gin.Context) {
 			Since:   since,
 		})
 	}
-	c.JSON(http.StatusOK, gin.H{"channels": out})
+	api.Success(c, gin.H{"channels": out})
 }
 
 // Test handles POST /api/channels/:name/test.
@@ -54,13 +54,13 @@ func (h *ChannelsHandler) Health(c *gin.Context) {
 func (h *ChannelsHandler) Test(c *gin.Context) {
 	name := c.Param("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "channel name is required"})
+		api.BadRequest(c, "channel name is required")
 		return
 	}
 
 	result, err := h.manager.Test(c.Request.Context(), name)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		api.NotFound(c, "channel")
 		return
 	}
 
@@ -74,7 +74,7 @@ func (h *ChannelsHandler) Test(c *gin.Context) {
 		)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	api.Success(c, gin.H{
 		"success": result.Success,
 		"message": result.Message,
 	})

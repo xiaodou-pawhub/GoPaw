@@ -23,6 +23,7 @@ require (
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.11.1
 	github.com/xuri/excelize/v2 v2.10.1
+	github.com/yuin/goldmark v1.7.16
 	go.uber.org/zap v1.26.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -30,7 +31,6 @@ require (
 )
 
 require (
-	github.com/asg017/sqlite-vec-go-bindings v0.1.6 // indirect
 	github.com/bytedance/sonic v1.9.1 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
@@ -75,7 +75,6 @@ require (
 	github.com/ugorji/go/codec v1.2.11 // indirect
 	github.com/xuri/efp v0.0.1 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
-	github.com/yuin/goldmark v1.7.16 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/arch v0.3.0 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
