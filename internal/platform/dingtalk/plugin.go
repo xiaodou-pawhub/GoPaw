@@ -54,9 +54,14 @@ type Config struct {
 }
 
 func init() {
-	channel.Register(&Plugin{
+	plugin := &Plugin{
 		inbound: make(chan *types.Message, 100),
-	})
+	}
+	// 创建临时 logger，后续会被 SetLogger 覆盖
+	if logger, err := zap.NewDevelopment(); err == nil {
+		plugin.logger = logger.Named("dingtalk")
+	}
+	channel.Register(plugin)
 }
 
 // Name 返回插件名称
