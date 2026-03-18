@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/gopaw/gopaw/internal/convlog"
 	"github.com/gopaw/gopaw/internal/cron"
 	"github.com/gopaw/gopaw/internal/focus"
+	"github.com/gopaw/gopaw/internal/knowledge"
 	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/mcp"
 	"github.com/gopaw/gopaw/internal/memory"
@@ -540,6 +542,28 @@ func runStart() {
 		metricsService = nil
 	}
 
+	// Initialize knowledge base service
+	var knowledgeService *knowledge.Service
+	if err := knowledge.InitSchema(store.DB()); err != nil {
+		logger.Warn("failed to initialize knowledge schema", zap.Error(err))
+	} else {
+		// Create embedder with default config
+		embedderConfig := knowledge.EmbedderConfig{
+			Provider: "ollama",
+			Model:    "nomic-embed-text",
+			BaseURL:  "http://localhost:11434",
+		}
+		embedder, err := knowledge.NewEmbedder(embedderConfig)
+		if err != nil {
+			logger.Warn("failed to create embedder", zap.Error(err))
+		} else {
+			knowledgeService = knowledge.NewService(store.DB(), embedder)
+			// Register knowledge tools
+			registerKnowledgeTools(toolReg, knowledgeService, logger)
+			logger.Info("knowledge service initialized")
+		}
+	}
+
 	// Start metrics collection (every 5 minutes)
 	if metricsService != nil {
 		go func() {
@@ -560,7 +584,7 @@ func runStart() {
 		metricsService.Collect()
 	}
 
-	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, wp, web.FS(), logger)
+	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, wp, web.FS(), logger)
 	go srv.Start()
 
 	quit := make(chan os.Signal, 1)
@@ -723,4 +747,149 @@ func setupHotReload(agentInstance *agent.ReActAgent, skillMgr *skill.Manager, fo
 	)
 
 	return cancels
+}
+
+// registerKnowledgeTools 注册知识库工具
+func registerKnowledgeTools(toolReg *tool.Registry, knowledgeService *knowledge.Service, logger *zap.Logger) {
+	// 注册知识库搜索工具
+	toolReg.Register(&knowledgeSearchTool{service: knowledgeService, logger: logger})
+	
+	// 注册知识库列表工具
+	toolReg.Register(&knowledgeListTool{service: knowledgeService, logger: logger})
+}
+
+// knowledgeSearchTool 知识库搜索工具
+type knowledgeSearchTool struct {
+	service *knowledge.Service
+	logger  *zap.Logger
+}
+
+func (t *knowledgeSearchTool) Name() string {
+	return "knowledge_search"
+}
+
+func (t *knowledgeSearchTool) Description() string {
+	return "从知识库中搜索相关信息，用于回答用户关于特定领域的问题。"
+}
+
+func (t *knowledgeSearchTool) Parameters() plugin.ToolParameters {
+	return plugin.ToolParameters{
+		Type: "object",
+		Properties: map[string]plugin.ToolProperty{
+			"knowledge_base_id": {
+				Type:        "string",
+				Description: "知识库ID，可通过 knowledge_list 获取",
+			},
+			"query": {
+				Type:        "string",
+				Description: "搜索查询，描述你要查找的信息",
+			},
+			"top_k": {
+				Type:        "number",
+				Description: "返回结果数量（默认5）",
+			},
+		},
+		Required: []string{"knowledge_base_id", "query"},
+	}
+}
+
+func (t *knowledgeSearchTool) Execute(ctx context.Context, args map[string]interface{}) *plugin.ToolResult {
+	kbID, _ := args["knowledge_base_id"].(string)
+	query, _ := args["query"].(string)
+	topK := 5
+	if k, ok := args["top_k"].(float64); ok {
+		topK = int(k)
+	}
+
+	if kbID == "" || query == "" {
+		return &plugin.ToolResult{
+			LLMOutput: "参数错误：knowledge_base_id 和 query 不能为空",
+			IsError:   true,
+		}
+	}
+
+	resp, err := t.service.Search(ctx, kbID, knowledge.SearchRequest{
+		Query:      query,
+		TopK:       topK,
+		SearchType: "hybrid",
+	})
+	if err != nil {
+		t.logger.Error("knowledge search failed", zap.Error(err))
+		return &plugin.ToolResult{
+			LLMOutput: fmt.Sprintf("搜索失败: %v", err),
+			IsError:   true,
+		}
+	}
+
+	if len(resp.Results) == 0 {
+		return &plugin.ToolResult{
+			LLMOutput: "未找到相关信息。",
+		}
+	}
+
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("找到 %d 条相关信息：\n\n", len(resp.Results)))
+
+	for i, r := range resp.Results {
+		result.WriteString(fmt.Sprintf("[%d] 来自《%s》：\n", i+1, r.DocumentName))
+		result.WriteString(r.Content)
+		result.WriteString("\n\n")
+	}
+
+	return &plugin.ToolResult{
+		LLMOutput: result.String(),
+	}
+}
+
+// knowledgeListTool 知识库列表工具
+type knowledgeListTool struct {
+	service *knowledge.Service
+	logger  *zap.Logger
+}
+
+func (t *knowledgeListTool) Name() string {
+	return "knowledge_list"
+}
+
+func (t *knowledgeListTool) Description() string {
+	return "列出所有可用的知识库，获取知识库ID用于搜索。"
+}
+
+func (t *knowledgeListTool) Parameters() plugin.ToolParameters {
+	return plugin.ToolParameters{
+		Type:       "object",
+		Properties: map[string]plugin.ToolProperty{},
+	}
+}
+
+func (t *knowledgeListTool) Execute(ctx context.Context, args map[string]interface{}) *plugin.ToolResult {
+	bases, err := t.service.ListKnowledgeBases(ctx)
+	if err != nil {
+		t.logger.Error("failed to list knowledge bases", zap.Error(err))
+		return &plugin.ToolResult{
+			LLMOutput: fmt.Sprintf("获取知识库列表失败: %v", err),
+			IsError:   true,
+		}
+	}
+
+	if len(bases) == 0 {
+		return &plugin.ToolResult{
+			LLMOutput: "当前没有可用的知识库。",
+		}
+	}
+
+	var result strings.Builder
+	result.WriteString("可用知识库列表：\n\n")
+
+	for _, kb := range bases {
+		result.WriteString(fmt.Sprintf("- ID: %s\n", kb.ID))
+		result.WriteString(fmt.Sprintf("  名称: %s\n", kb.Name))
+		result.WriteString(fmt.Sprintf("  描述: %s\n", kb.Description))
+		result.WriteString(fmt.Sprintf("  文档数: %d, 块数: %d\n", kb.DocumentCount, kb.ChunkCount))
+		result.WriteString("\n")
+	}
+
+	return &plugin.ToolResult{
+		LLMOutput: result.String(),
+	}
 }
