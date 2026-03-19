@@ -1,146 +1,305 @@
 <template>
-  <nav class="icon-sidebar">
-    <!-- Logo -->
-    <div class="sidebar-logo" @click="router.push('/chat')">
-      <img src="/assets/logo.png" alt="GoPaw" class="logo-img" />
-    </div>
-
-    <div class="sidebar-divider" />
-
-    <!-- 导航图标 -->
-    <div class="sidebar-nav">
-      <button
-        v-for="item in navItems"
-        :key="item.to"
-        class="nav-item"
-        :class="{ active: isActive(item.to) }"
-        :title="item.label"
-        @click="router.push(item.to)"
-      >
-        <component :is="item.icon" :size="18" />
+  <nav class="sidebar" :class="{ collapsed: isCollapsed }">
+    <!-- Logo & Toggle -->
+    <div class="sidebar-header">
+      <div class="sidebar-logo" @click="router.push('/chat')">
+        <img src="/assets/logo.png" alt="GoPaw" class="logo-img" />
+        <span v-if="!isCollapsed" class="logo-text">GoPaw</span>
+      </div>
+      <button class="toggle-btn" @click="isCollapsed = !isCollapsed">
+        <ChevronLeftIcon v-if="!isCollapsed" :size="16" />
+        <ChevronRightIcon v-else :size="16" />
       </button>
     </div>
 
-    <div class="sidebar-spacer" />
+    <!-- 导航分组 -->
+    <div class="sidebar-content">
+      <!-- 核心功能 -->
+      <div class="nav-group">
+        <div v-if="!isCollapsed" class="nav-group-title">核心</div>
+        <div class="nav-items">
+          <button
+            v-for="item in coreItems"
+            :key="item.to"
+            class="nav-item"
+            :class="{ active: isActive(item.to) }"
+            :title="isCollapsed ? item.label : ''"
+            @click="router.push(item.to)"
+          >
+            <component :is="item.icon" :size="18" />
+            <span v-if="!isCollapsed" class="nav-label">{{ item.label }}</span>
+          </button>
+        </div>
+      </div>
 
-    <!-- LLM 状态点 -->
-    <div class="sidebar-bottom">
+      <!-- 自动化 -->
+      <div class="nav-group">
+        <div v-if="!isCollapsed" class="nav-group-title">自动化</div>
+        <div class="nav-items">
+          <button
+            v-for="item in automationItems"
+            :key="item.to"
+            class="nav-item"
+            :class="{ active: isActive(item.to) }"
+            :title="isCollapsed ? item.label : ''"
+            @click="router.push(item.to)"
+          >
+            <component :is="item.icon" :size="18" />
+            <span v-if="!isCollapsed" class="nav-label">{{ item.label }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 数据与监控 -->
+      <div class="nav-group">
+        <div v-if="!isCollapsed" class="nav-group-title">数据</div>
+        <div class="nav-items">
+          <button
+            v-for="item in dataItems"
+            :key="item.to"
+            class="nav-item"
+            :class="{ active: isActive(item.to) }"
+            :title="isCollapsed ? item.label : ''"
+            @click="router.push(item.to)"
+          >
+            <component :is="item.icon" :size="18" />
+            <span v-if="!isCollapsed" class="nav-label">{{ item.label }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 系统设置 -->
+      <div class="nav-group">
+        <div v-if="!isCollapsed" class="nav-group-title">系统</div>
+        <div class="nav-items">
+          <button
+            v-for="item in systemItems"
+            :key="item.to"
+            class="nav-item"
+            :class="{ active: isActive(item.to) }"
+            :title="isCollapsed ? item.label : ''"
+            @click="router.push(item.to)"
+          >
+            <component :is="item.icon" :size="18" />
+            <span v-if="!isCollapsed" class="nav-label">{{ item.label }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部状态 -->
+    <div class="sidebar-footer">
       <div
-        class="status-dot"
+        class="status-indicator"
         :class="appStore.isLLMConfigured ? 'status-ok' : 'status-warn'"
-        :title="appStore.isLLMConfigured ? 'LLM 已连接' : 'LLM 未配置'"
-      />
+      >
+        <div class="status-dot" />
+        <span v-if="!isCollapsed" class="status-text">
+          {{ appStore.isLLMConfigured ? 'LLM 已连接' : 'LLM 未配置' }}
+        </span>
+      </div>
     </div>
   </nav>
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { MessageSquare, Store, Activity, Bot, Server, Settings, Zap, MessageCircle, GitBranch, Layers, BarChart3, BookOpen, Network } from 'lucide-vue-next'
+import {
+  MessageSquare,
+  Bot,
+  Store,
+  Zap,
+  GitBranch,
+  Network,
+  BookOpen,
+  Layers,
+  BarChart3,
+  Activity,
+  Server,
+  MessageCircle,
+  Settings,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+} from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 
 const router = useRouter()
 const route = useRoute()
 const appStore = useAppStore()
 
-const navItems = [
+// 折叠状态
+const isCollapsed = ref(false)
+
+// 核心功能
+const coreItems = [
   { to: '/chat', label: '聊天', icon: MessageSquare },
-  { to: '/market', label: '市场', icon: Store },
-  { to: '/traces', label: '轨迹', icon: Activity },
   { to: '/agents', label: 'Agents', icon: Bot },
-  { to: '/mcp', label: 'MCP', icon: Server },
-  { to: '/triggers', label: 'Triggers', icon: Zap },
-  { to: '/agent-messages', label: '消息', icon: MessageCircle },
+  { to: '/market', label: '技能市场', icon: Store },
+]
+
+// 自动化
+const automationItems = [
   { to: '/workflows', label: '工作流', icon: GitBranch },
-  { to: '/queue', label: '队列', icon: Layers },
-  { to: '/metrics', label: '监控', icon: BarChart3 },
-  { to: '/knowledge', label: '知识库', icon: BookOpen },
   { to: '/orchestrations', label: '编排器', icon: Network },
+  { to: '/triggers', label: '触发器', icon: Zap },
+  { to: '/agent-messages', label: 'Agent消息', icon: MessageCircle },
+]
+
+// 数据与监控
+const dataItems = [
+  { to: '/knowledge', label: '知识库', icon: BookOpen },
+  { to: '/traces', label: '执行轨迹', icon: Activity },
+  { to: '/queue', label: '消息队列', icon: Layers },
+  { to: '/metrics', label: '监控面板', icon: BarChart3 },
+]
+
+// 系统设置
+const systemItems = [
+  { to: '/mcp', label: 'MCP服务', icon: Server },
   { to: '/settings', label: '设置', icon: Settings },
 ]
 
 function isActive(to: string): boolean {
-  if (to === '/chat') return route.path.startsWith('/chat')
-  if (to === '/market') return route.path.startsWith('/market')
-  if (to === '/traces') return route.path.startsWith('/traces')
-  if (to === '/agents') return route.path.startsWith('/agents')
-  if (to === '/mcp') return route.path.startsWith('/mcp')
-  if (to === '/triggers') return route.path.startsWith('/triggers')
-  if (to === '/agent-messages') return route.path.startsWith('/agent-messages')
-  if (to === '/workflows') return route.path.startsWith('/workflows')
-  if (to === '/queue') return route.path.startsWith('/queue')
-  if (to === '/metrics') return route.path.startsWith('/metrics')
-  if (to === '/knowledge') return route.path.startsWith('/knowledge')
-  if (to === '/orchestrations') return route.path.startsWith('/orchestrations')
-  if (to === '/settings') return route.path.startsWith('/settings')
-  return false
+  return route.path.startsWith(to)
 }
 </script>
 
 <style scoped>
-.icon-sidebar {
-  width: 48px;
+.sidebar {
+  width: 200px;
   height: 100%;
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 8px 0;
   flex-shrink: 0;
+  transition: width 0.2s ease;
+}
+
+.sidebar.collapsed {
+  width: 56px;
+}
+
+/* Header */
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .sidebar-logo {
-  width: 32px;
-  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   cursor: pointer;
   border-radius: 8px;
-  overflow: hidden;
-  transition: opacity 0.15s;
+  padding: 4px;
+  transition: background 0.15s;
 }
 
 .sidebar-logo:hover {
-  opacity: 0.8;
+  background: var(--bg-overlay);
 }
 
 .logo-img {
-  width: 100%;
-  height: 100%;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
   object-fit: cover;
 }
 
-.sidebar-divider {
-  width: 28px;
-  height: 1px;
-  background: var(--border);
-  margin: 10px 0;
+.logo-text {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
-.sidebar-nav {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  flex: 1;
-}
-
-.nav-item {
-  width: 36px;
-  height: 36px;
+.toggle-btn {
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
   border: none;
   background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.toggle-btn:hover {
+  background: var(--bg-overlay);
+  color: var(--text-secondary);
+}
+
+.sidebar.collapsed .sidebar-header {
+  justify-content: center;
+  padding: 8px;
+}
+
+.sidebar.collapsed .toggle-btn {
+  display: none;
+}
+
+/* Content */
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+/* Nav Group */
+.nav-group {
+  margin-bottom: 8px;
+}
+
+.nav-group-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 8px 16px 4px;
+}
+
+.sidebar.collapsed .nav-group-title {
+  display: none;
+}
+
+.nav-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 6px;
+}
+
+.sidebar.collapsed .nav-items {
+  padding: 0 8px;
+}
+
+/* Nav Item */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+  width: 100%;
 }
 
 .nav-item:hover {
   background: var(--bg-overlay);
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 .nav-item.active {
@@ -148,33 +307,83 @@ function isActive(to: string): boolean {
   color: var(--accent);
 }
 
-.sidebar-spacer {
-  flex: 1;
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 10px;
 }
 
-.sidebar-bottom {
-  padding-bottom: 4px;
+.nav-label {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Footer */
+.sidebar-footer {
+  padding: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg-app);
 }
 
 .status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  cursor: default;
+  flex-shrink: 0;
 }
 
-.status-ok {
+.status-ok .status-dot {
   background: var(--green);
   box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
 }
 
-.status-warn {
+.status-warn .status-dot {
   background: var(--yellow);
   animation: pulse-warn 2s infinite;
+}
+
+.status-text {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.sidebar.collapsed .status-indicator {
+  justify-content: center;
+  padding: 8px;
+}
+
+.sidebar.collapsed .status-text {
+  display: none;
 }
 
 @keyframes pulse-warn {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+/* Scrollbar */
+.sidebar-content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-content::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.sidebar-content::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
 }
 </style>
