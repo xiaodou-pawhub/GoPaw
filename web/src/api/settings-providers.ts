@@ -36,7 +36,8 @@ export async function reorderProviders(providerIds: string[]): Promise<{ success
  */
 export async function getCapableProviders(capability: string): Promise<BackendProvider[]> {
   const res = await api.get(`/settings/providers/capable/${capability}`)
-  return parseData<BackendProvider[]>(res)
+  const data = parseData<{ providers: BackendProvider[] }>(res)
+  return data.providers || []
 }
 
 /**

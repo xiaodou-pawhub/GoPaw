@@ -24,19 +24,22 @@ export async function getSetupStatus(): Promise<{ llm_configured: boolean, setup
 // 获取所有 LLM 提供商
 export async function getProviders(): Promise<BackendProvider[]> {
   const res = await api.get('/settings/providers')
-  return parseData<BackendProvider[]>(res)
+  const data = parseData<{ providers: BackendProvider[] }>(res)
+  return data.providers || []
 }
 
 // 获取内置预置厂商库
 export async function getBuiltinProviders(): Promise<BuiltinProvider[]> {
   const res = await api.get('/settings/builtin-providers')
-  return parseData<BuiltinProvider[]>(res)
+  const data = parseData<{ providers: BuiltinProvider[] }>(res)
+  return data.providers || []
 }
 
 // 获取所有提供商的实时健康状态
 export async function getProvidersHealth(): Promise<any[]> {
   const res = await api.get('/settings/providers/health')
-  return parseData<any[]>(res)
+  const data = parseData<{ health: any[] }>(res)
+  return data.health || []
 }
 
 // 保存/更新提供商
@@ -108,7 +111,8 @@ export async function saveAgentMemory(content: string): Promise<{ saved: boolean
 // 获取所有频道健康状态
 export async function getChannelsHealth(): Promise<ChannelStatus[]> {
   const res = await api.get('/channels/health')
-  return parseData<ChannelStatus[]>(res)
+  const data = parseData<{ channels: ChannelStatus[] }>(res)
+  return data.channels || []
 }
 
 // 测试频道连通性
@@ -132,7 +136,8 @@ export interface Skill {
 // 获取所有技能列表
 export async function getSkills(): Promise<Skill[]> {
   const res = await api.get('/skills')
-  return parseData<Skill[]>(res)
+  const data = parseData<{ skills: Skill[] }>(res)
+  return data.skills || []
 }
 
 // 设置技能启用状态

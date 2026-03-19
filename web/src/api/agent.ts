@@ -15,7 +15,8 @@ function parseData<T>(res: any): T {
 // English: Get all sessions
 export async function getSessions(): Promise<SessionInfo[]> {
 	const res: any = await api.get('/agent/sessions')
-	return parseData<SessionInfo[]>(res)
+	const data = parseData<{ sessions: SessionInfo[] }>(res)
+	return data.sessions || []
 }
 
 // 中文：获取指定会话的历史消息

@@ -14,7 +14,8 @@ function parseData<T>(res: any): T {
 // 获取所有定时任务
 export async function getCronJobs(): Promise<CronJob[]> {
 	const res = await api.get('/cron')
-	return parseData<CronJob[]>(res)
+	const data = parseData<{ jobs: CronJob[] }>(res)
+	return data.jobs || []
 }
 
 // 创建定时任务
@@ -46,5 +47,6 @@ export async function getCronRunHistory(id: string, limit: number = 20): Promise
 	const res = await api.get(`/cron/${id}/runs`, {
 		params: { limit }
 	})
-	return parseData<CronRun[]>(res)
+	const data = parseData<{ runs: CronRun[] }>(res)
+	return data.runs || []
 }

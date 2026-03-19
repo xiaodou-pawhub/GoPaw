@@ -240,21 +240,22 @@ func (s *Store) GetFirstVisionCapableProvider() (*ProviderConfig, error) {
 // GetActiveProvider returns the currently active LLM provider, or nil if none is set.
 func (s *Store) GetActiveProvider() (*ProviderConfig, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, tags, created_at, updated_at
+		`SELECT id, name, base_url, api_key, model, max_tokens, timeout_sec, is_active, tags, created_at, updated_at, priority, enabled
 		 FROM providers WHERE is_active = 1 LIMIT 1`,
 	)
 	p := &ProviderConfig{}
-	var isActive int
+	var isActiveInt, enabledInt int
 	var tagsJSON string
 	err := row.Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKey, &p.Model,
-		&p.MaxTokens, &p.TimeoutSec, &isActive, &tagsJSON, &p.CreatedAt, &p.UpdatedAt)
+		&p.MaxTokens, &p.TimeoutSec, &isActiveInt, &tagsJSON, &p.CreatedAt, &p.UpdatedAt, &p.Priority, &enabledInt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("settings: get active provider: %w", err)
 	}
-	p.IsActive = isActive == 1
+	p.IsActive = isActiveInt == 1
+	p.Enabled = enabledInt == 1
 	_ = json.Unmarshal([]byte(tagsJSON), &p.Tags)
 	if p.Tags == nil {
 		p.Tags = []string{}
@@ -532,8 +533,15 @@ func WriteAgentMD(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
-// IsSetupRequired returns true if no active LLM provider has been configured yet.
+// IsSetupRequired returns true if no enabled LLM provider is configured.
 func (s *Store) IsSetupRequired() bool {
-	p, err := s.GetActiveProvider()
-	return err != nil || p == nil
+	// Check if there's any enabled provider
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM providers WHERE enabled = 1`,
+	).Scan(&count)
+	if err != nil {
+		return true
+	}
+	return count == 0
 }
