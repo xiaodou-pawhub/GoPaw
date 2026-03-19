@@ -71,11 +71,13 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Toaster } from 'vue-sonner'
 import { checkAuthStatus, login } from '@/api/auth'
-import { getSetupStatus } from '@/api/settings'
+import { getSetupStatus, getProviders } from '@/api/settings'
 import ApprovalDialog from '@/components/ApprovalDialog.vue'
 import { useWebSocket } from '@/composables/useWebSocket'
+import { useAppStore } from '@/stores/app'
 
 const router = useRouter()
+const appStore = useAppStore()
 const authenticated = ref(false)
 const tokenInput = ref('')
 const loginError = ref('')
@@ -134,7 +136,16 @@ async function handleLogin() {
 
 async function checkSetupStatus() {
   try {
-    const status = await getSetupStatus()
+    // 并行获取状态和 providers
+    const [status, providers] = await Promise.all([
+      getSetupStatus(),
+      getProviders()
+    ])
+
+    // 更新 appStore
+    appStore.setProviders(providers)
+
+    // 如果后端说未配置，显示欢迎弹窗
     if (!status.llm_configured) {
       showWelcome.value = true
     }

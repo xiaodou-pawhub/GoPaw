@@ -27,8 +27,9 @@ export const useAppStore = defineStore('app', () => {
   // English: Update provider list
   function setProviders(list: BackendProvider[]) {
     providers.value = list
-    // 修复 P1: 使用正确的字段名 is_active
-    isLLMConfigured.value = list.some(p => p.is_active)
+    // 使用 enabled 字段判断（与后端 IsSetupRequired 一致）
+    // 同时兼容 is_active 字段（旧版本）
+    isLLMConfigured.value = list.some(p => p.enabled || p.is_active)
   }
 
   return {

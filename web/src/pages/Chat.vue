@@ -95,13 +95,43 @@
           <Skeleton v-for="i in 3" :key="i" width="100%" height="60px" shape="round" style="margin-bottom: 12px;" />
         </div>
         <div v-else-if="messages.length === 0" class="empty-chat">
-          <EmptyState
-            :icon="BotIcon"
-            :title="t('chat.welcome')"
-            description="有什么可以帮你的吗？"
-            :icon-size="48"
-            centered
-          />
+          <!-- 欢迎界面 -->
+          <div class="welcome-container">
+            <div class="welcome-header">
+              <img src="/assets/logo.png" alt="GoPaw" class="welcome-logo" />
+              <h2 class="welcome-title">有什么可以帮你的？</h2>
+            </div>
+
+            <!-- 快捷建议 -->
+            <div class="suggestions-grid">
+              <button
+                v-for="suggestion in suggestions"
+                :key="suggestion.text"
+                class="suggestion-card"
+                @click="handleSuggestionClick(suggestion.text)"
+              >
+                <component :is="suggestion.icon" :size="18" class="suggestion-icon" />
+                <span class="suggestion-text">{{ suggestion.text }}</span>
+                <ArrowRightIcon :size="14" class="suggestion-arrow" />
+              </button>
+            </div>
+
+            <!-- 功能提示 -->
+            <div class="feature-hints">
+              <div class="hint-item">
+                <SparklesIcon :size="14" />
+                <span>支持多模型切换</span>
+              </div>
+              <div class="hint-item">
+                <WrenchIcon :size="14" />
+                <span>内置工具调用</span>
+              </div>
+              <div class="hint-item">
+                <BrainIcon :size="14" />
+                <span>智能记忆系统</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div
@@ -273,7 +303,9 @@ import { useRouter, useRoute } from 'vue-router'
 import {
   PlusIcon, SearchIcon, MessageSquareIcon, PencilIcon, TrashIcon,
   BarChartIcon, CopyIcon, PaperclipIcon, StopCircleIcon, ArrowUpIcon,
-  LoaderIcon, ChevronDownIcon, FileTextIcon, XIcon, BotIcon
+  LoaderIcon, ChevronDownIcon, FileTextIcon, XIcon,
+  ArrowRightIcon, SparklesIcon, WrenchIcon, BrainIcon,
+  CodeIcon, FileCodeIcon, LightbulbIcon, HelpCircleIcon
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -330,6 +362,19 @@ interface ToolCallProgress {
 }
 const toolProgress = ref<ToolCallProgress[]>([])
 const streamingContent = ref('')
+
+// 欢迎界面建议
+const suggestions = [
+  { text: '帮我写一个 Python 脚本', icon: CodeIcon },
+  { text: '解释这段代码的作用', icon: FileCodeIcon },
+  { text: '给我一些项目建议', icon: LightbulbIcon },
+  { text: '帮我调试一个问题', icon: HelpCircleIcon },
+]
+
+function handleSuggestionClick(text: string) {
+  inputMessage.value = text
+  handleSend()
+}
 
 // 打字机
 let typewriterQueue = ''
@@ -993,20 +1038,123 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  padding: 40px 20px;
+  overflow-y: auto;
+}
+
+/* ===== 欢迎界面 ===== */
+.welcome-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 600px;
+  width: 100%;
+}
+
+.welcome-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 32px;
+}
+
+.welcome-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.welcome-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+/* 快捷建议网格 */
+.suggestions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
-  padding: 60px 20px;
+  width: 100%;
+  margin-bottom: 32px;
 }
 
-.empty-chat-icon {
-  opacity: 0.7;
+.suggestion-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
 }
 
-.empty-chat-text {
-  color: var(--text-secondary);
+.suggestion-card:hover {
+  background: var(--bg-overlay);
+  border-color: var(--border);
+  transform: translateY(-1px);
+}
+
+.suggestion-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.suggestion-text {
+  flex: 1;
   font-size: 13px;
-  text-align: center;
-  max-width: 360px;
-  line-height: 1.6;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.suggestion-arrow {
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.suggestion-card:hover .suggestion-arrow {
+  opacity: 1;
+}
+
+/* 功能提示 */
+.feature-hints {
+  display: flex;
+  gap: 24px;
+  padding: 16px 24px;
+  background: var(--bg-panel);
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+}
+
+.hint-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.hint-item svg {
+  color: var(--accent);
+}
+
+/* 响应式 */
+@media (max-width: 600px) {
+  .suggestions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .feature-hints {
+    flex-direction: column;
+    gap: 12px;
+  }
 }
 
 /* ===== 消息行 ===== */
