@@ -1,101 +1,120 @@
 import api from './index'
 import type { BackendProvider, BuiltinProvider, ChannelStatus } from '@/types'
 
+/**
+ * 解析标准响应格式
+ * 后端返回：{ code, message, data }
+ * 拦截器已返回 response.data，所以直接访问 data 字段
+ */
+function parseData<T>(res: any): T {
+  // 标准格式：{ code, message, data }
+  if (res && res.data !== undefined) {
+    return res.data as T
+  }
+  // 向后兼容：直接返回数据
+  return res as T
+}
+
 // 获取初始化引导状态
 export async function getSetupStatus(): Promise<{ llm_configured: boolean, setup_required: boolean, hint: string }> {
-  return await api.get('/settings/setup-status')
+  const res = await api.get('/settings/setup-status')
+  return parseData(res)
 }
 
 // 获取所有 LLM 提供商
 export async function getProviders(): Promise<BackendProvider[]> {
-  const res = await api.get<{ providers: BackendProvider[] }>('/settings/providers')
-  // @ts-ignore - 响应拦截器返回response.data
-  return res.providers || []
+  const res = await api.get('/settings/providers')
+  return parseData<BackendProvider[]>(res)
 }
 
 // 获取内置预置厂商库
 export async function getBuiltinProviders(): Promise<BuiltinProvider[]> {
-  const res = await api.get<{ providers: BuiltinProvider[] }>('/settings/builtin-providers')
-  // @ts-ignore - 响应拦截器返回response.data
-  return res.providers || []
+  const res = await api.get('/settings/builtin-providers')
+  return parseData<BuiltinProvider[]>(res)
 }
 
 // 获取所有提供商的实时健康状态
 export async function getProvidersHealth(): Promise<any[]> {
-  const res = await api.get<{ health: any[] }>('/settings/providers/health')
-  // @ts-ignore
-  return res.health || []
+  const res = await api.get('/settings/providers/health')
+  return parseData<any[]>(res)
 }
 
 // 保存/更新提供商
 export async function saveProvider(data: Partial<BackendProvider>): Promise<{ id: string }> {
-  return await api.post('/settings/providers', data)
+  const res = await api.post('/settings/providers', data)
+  return parseData(res)
 }
 
 // 删除提供商
 export async function deleteProvider(id: string): Promise<{ deleted: string }> {
-  return await api.delete(`/settings/providers/${id}`)
+  const res = await api.delete(`/settings/providers/${id}`)
+  return parseData(res)
 }
 
 // 设置活跃提供商
 export async function setActiveProvider(id: string): Promise<{ active: string }> {
-  return await api.put(`/settings/providers/${id}/active`)
+  const res = await api.put(`/settings/providers/${id}/active`)
+  return parseData(res)
 }
 
 // 获取 Agent 设定 (System Prompt)
 export async function getAgentConfig(): Promise<{ content: string }> {
-  return await api.get('/settings/agent')
+  const res = await api.get('/settings/agent')
+  return parseData(res)
 }
 
 // 保存 Agent 设定
 export async function saveAgentConfig(content: string): Promise<{ saved: boolean }> {
-  return await api.put('/settings/agent', { content })
+  const res = await api.put('/settings/agent', { content })
+  return parseData(res)
 }
 
 // 获取指定频道的配置
 export async function getChannelConfig<T = Record<string, string>>(name: string): Promise<T> {
-  const res = await api.get<{ channel: string, config: T }>(`/settings/channels/${name}`)
-  // @ts-ignore - 响应拦截器返回response.data
-  return res.config || ({} as T)
+  const res = await api.get(`/settings/channels/${name}`)
+  return parseData<T>(res)
 }
 
 // 保存频道配置
 export async function saveChannelConfig(name: string, config: Record<string, string>): Promise<{ ok: boolean }> {
-  return await api.put(`/settings/channels/${name}`, {
-    config: JSON.stringify(config)
-  })
+  const res = await api.put(`/settings/channels/${name}`, { config: JSON.stringify(config) })
+  return parseData(res)
 }
 
 // 获取工作区背景描述（CONTEXT.md）
 export async function getWorkspaceContext(): Promise<{ content: string }> {
-  return await api.get('/workspace/context')
+  const res = await api.get('/workspace/context')
+  return parseData(res)
 }
 
 // 保存工作区背景描述
 export async function saveWorkspaceContext(content: string): Promise<{ saved: boolean }> {
-  return await api.put('/workspace/context', { content })
+  const res = await api.put('/workspace/context', { content })
+  return parseData(res)
 }
 
 // 获取 Agent 记忆文件（MEMORY.md）
 export async function getAgentMemory(): Promise<{ content: string }> {
-  return await api.get('/workspace/memory')
+  const res = await api.get('/workspace/memory')
+  return parseData(res)
 }
 
 // 覆盖 Agent 记忆文件（用于用户手动校正）
 export async function saveAgentMemory(content: string): Promise<{ saved: boolean }> {
-  return await api.put('/workspace/memory', { content })
+  const res = await api.put('/workspace/memory', { content })
+  return parseData(res)
 }
 
 // 获取所有频道健康状态
 export async function getChannelsHealth(): Promise<ChannelStatus[]> {
-  const res = await api.get<{ channels: ChannelStatus[] }>('/channels/health')
-  // @ts-ignore - 响应拦截器返回response.data
-  return res.channels || []
+  const res = await api.get('/channels/health')
+  return parseData<ChannelStatus[]>(res)
 }
 
 // 测试频道连通性
 export async function testChannel(name: string): Promise<{ success: boolean, message: string }> {
-  return await api.post(`/channels/${name}/test`)
+  const res = await api.post(`/channels/${name}/test`)
+  return parseData(res)
 }
 
 // --- Skill 相关接口 ---
@@ -111,19 +130,19 @@ export interface Skill {
 }
 
 // 获取所有技能列表
-// 修正 P1: 后端路径为 /skills
 export async function getSkills(): Promise<Skill[]> {
-  const res = await api.get<{ skills: Skill[] }>('/skills')
-  // @ts-ignore - 响应拦截器返回response.data
-  return res.skills || []
+  const res = await api.get('/skills')
+  return parseData<Skill[]>(res)
 }
 
 // 设置技能启用状态
 export async function setSkillEnabled(name: string, enabled: boolean): Promise<{ ok: boolean }> {
-  return await api.put(`/skills/${name}/enabled`, { enabled })
+  const res = await api.put(`/skills/${name}/enabled`, { enabled })
+  return parseData(res)
 }
 
 // 重新扫描技能目录，加载新增技能（无需重启）
 export async function reloadSkills(): Promise<{ ok: boolean; count: number }> {
-  return await api.post('/skills/reload')
+  const res = await api.post('/skills/reload')
+  return parseData(res)
 }

@@ -1,11 +1,21 @@
 import api from './index'
 import type { SessionInfo, ChatMessage, SessionStats } from '@/types'
 
+/**
+ * 解析标准响应格式 { code, message, data }
+ */
+function parseData<T>(res: any): T {
+  if (res && res.data !== undefined) {
+    return res.data as T
+  }
+  return res as T
+}
+
 // 中文：获取所有会话列表
 // English: Get all sessions
 export async function getSessions(): Promise<SessionInfo[]> {
 	const res: any = await api.get('/agent/sessions')
-	return res.sessions || []
+	return parseData<SessionInfo[]>(res)
 }
 
 // 中文：获取指定会话的历史消息
@@ -14,7 +24,7 @@ export async function getSessionMessages(sessionId: string, limit: number = 100)
 	const res: any = await api.get(`/agent/sessions/${sessionId}/messages`, {
 		params: { limit }
 	})
-	const backendMsgs = res.messages || []
+	const backendMsgs = parseData<{ messages: ChatMessage[] }>(res).messages || []
 	// 中文：将后端结构转换为前端 ChatMessage 结构
 	// English: Map backend structure to frontend ChatMessage structure
 	return backendMsgs.map((m: any, index: number) => ({

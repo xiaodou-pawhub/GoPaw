@@ -4,10 +4,21 @@ import api from './index'
 import type { BackendProvider } from '@/types'
 
 /**
+ * 解析标准响应格式 { code, message, data }
+ */
+function parseData<T>(res: any): T {
+  if (res && res.data !== undefined) {
+    return res.data as T
+  }
+  return res as T
+}
+
+/**
  * 快速启用/禁用模型提供商
  */
 export async function toggleProvider(id: string, enabled: boolean): Promise<{ id: string, enabled: boolean }> {
-  return await api.post(`/settings/providers/${id}/toggle`, { enabled })
+  const res = await api.post(`/settings/providers/${id}/toggle`, { enabled })
+  return parseData(res)
 }
 
 /**
@@ -15,7 +26,8 @@ export async function toggleProvider(id: string, enabled: boolean): Promise<{ id
  * @param providerIds 按新优先级排序的提供商 ID 列表
  */
 export async function reorderProviders(providerIds: string[]): Promise<{ success: boolean }> {
-  return await api.post('/settings/providers/reorder', { provider_ids: providerIds })
+  const res = await api.post('/settings/providers/reorder', { provider_ids: providerIds })
+  return parseData(res)
 }
 
 /**
@@ -23,9 +35,8 @@ export async function reorderProviders(providerIds: string[]): Promise<{ success
  * @param capability 能力标签，如 "vision", "multimodal", "function_call"
  */
 export async function getCapableProviders(capability: string): Promise<BackendProvider[]> {
-  const res = await api.get<{ providers: BackendProvider[] }>(`/settings/providers/capable/${capability}`)
-  // @ts-ignore - 响应拦截器返回 response.data
-  return res.providers || []
+  const res = await api.get(`/settings/providers/capable/${capability}`)
+  return parseData<BackendProvider[]>(res)
 }
 
 /**
