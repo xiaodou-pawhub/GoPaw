@@ -268,7 +268,7 @@ onMounted(() => {
 async function loadOrchestrations() {
   try {
     const response = await orchestrationApi.list()
-    orchestrations.value = response.data
+    orchestrations.value = response
   } catch (error: any) {
     console.error('Failed to load orchestrations:', error)
     alert('加载编排列表失败: ' + (error.response?.data?.error || error.message || '未知错误'))
@@ -283,7 +283,7 @@ async function selectOrch(orch: Orchestration) {
 async function loadExecutions(orchId: string) {
   try {
     const response = await orchestrationApi.listExecutions(orchId)
-    executions.value = response.data
+    executions.value = response
   } catch (error: any) {
     console.error('Failed to load executions:', error)
     alert('加载执行记录失败: ' + (error.response?.data?.error || error.message || '未知错误'))
@@ -396,7 +396,7 @@ async function executeOrchestration() {
       input: executeDialog.input,
     })
     executeDialog.show = false
-    alert(`执行已开始，执行ID: ${response.data.execution_id}`)
+    alert(`执行已开始，执行ID: ${response.execution_id}`)
     loadExecutions(selectedOrch.value.id)
   } catch (error: any) {
     console.error('Failed to execute orchestration:', error)
@@ -418,7 +418,7 @@ async function onDesignerSave(definition: any) {
     })
     // 刷新数据
     const response = await orchestrationApi.get(selectedOrch.value.id)
-    selectedOrch.value = response.data
+    selectedOrch.value = response
     alert('编排已保存')
   } catch (error: any) {
     console.error('Failed to save orchestration:', error)

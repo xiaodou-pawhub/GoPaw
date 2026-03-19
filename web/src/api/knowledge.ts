@@ -52,60 +52,96 @@ export interface SearchResponse {
 }
 
 export const knowledgeApi = {
+  // 解析标准响应格式
+  parseData<T>(res: any): T {
+    if (res && res.data !== undefined) {
+      return res.data as T
+    }
+    return res as T
+  },
+
   // 知识库管理
-  listBases: () => api.get<KnowledgeBase[]>('/knowledge/bases'),
-  
-  getBase: (id: string) => api.get<KnowledgeBase>(`/knowledge/bases/${id}`),
-  
-  createBase: (data: {
+  listBases: async () => {
+    const res = await api.get('/knowledge/bases')
+    return knowledgeApi.parseData<KnowledgeBase[]>(res)
+  },
+
+  getBase: async (id: string) => {
+    const res = await api.get(`/knowledge/bases/${id}`)
+    return knowledgeApi.parseData<KnowledgeBase>(res)
+  },
+
+  createBase: async (data: {
     id: string
     name: string
     description?: string
     embedding_model?: string
     chunk_size?: number
     chunk_overlap?: number
-  }) => api.post<KnowledgeBase>('/knowledge/bases', data),
-  
-  updateBase: (id: string, data: {
+  }) => {
+    const res = await api.post('/knowledge/bases', data)
+    return knowledgeApi.parseData<KnowledgeBase>(res)
+  },
+
+  updateBase: async (id: string, data: {
     name?: string
     description?: string
     status?: string
-  }) => api.put(`/knowledge/bases/${id}`, data),
-  
-  deleteBase: (id: string) => api.delete(`/knowledge/bases/${id}`),
-  
-  getStats: (id: string) => api.get<{
-    document_count: number
-    chunk_count: number
-    total_tokens: number
-    pending_count: number
-    completed_count: number
-    failed_count: number
-  }>(`/knowledge/bases/${id}/stats`),
-  
+  }) => {
+    const res = await api.put(`/knowledge/bases/${id}`, data)
+    return knowledgeApi.parseData<any>(res)
+  },
+
+  deleteBase: async (id: string) => {
+    const res = await api.delete(`/knowledge/bases/${id}`)
+    return knowledgeApi.parseData<any>(res)
+  },
+
+  getStats: async (id: string) => {
+    const res = await api.get(`/knowledge/bases/${id}/stats`)
+    return knowledgeApi.parseData<{
+      document_count: number
+      chunk_count: number
+      total_tokens: number
+      pending_count: number
+      completed_count: number
+      failed_count: number
+    }>(res)
+  },
+
   // 文档管理
-  listDocuments: (kbId: string) => api.get<Document[]>(`/knowledge/bases/${kbId}/documents`),
-  
-  uploadDocument: (kbId: string, file: File, fileType?: string) => {
+  listDocuments: async (kbId: string) => {
+    const res = await api.get(`/knowledge/bases/${kbId}/documents`)
+    return knowledgeApi.parseData<Document[]>(res)
+  },
+
+  uploadDocument: async (kbId: string, file: File, fileType?: string) => {
     const formData = new FormData()
     formData.append('file', file)
     if (fileType) {
       formData.append('file_type', fileType)
     }
-    return api.post<Document>(`/knowledge/bases/${kbId}/documents`, formData, {
+    const res = await api.post(`/knowledge/bases/${kbId}/documents`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       }
     })
+    return knowledgeApi.parseData<Document>(res)
   },
-  
-  deleteDocument: (kbId: string, docId: string) => 
-    api.delete(`/knowledge/bases/${kbId}/documents/${docId}`),
-  
-  retryDocument: (kbId: string, docId: string) => 
-    api.post(`/knowledge/bases/${kbId}/documents/${docId}/retry`),
-  
+
+  deleteDocument: async (kbId: string, docId: string) => {
+    const res = await api.delete(`/knowledge/bases/${kbId}/documents/${docId}`)
+    return knowledgeApi.parseData<any>(res)
+  },
+
+  retryDocument: async (kbId: string, docId: string) => {
+    const res = await api.post(`/knowledge/bases/${kbId}/documents/${docId}/retry`)
+    return knowledgeApi.parseData<any>(res)
+  },
+
   // 搜索
-  search: (kbId: string, req: SearchRequest) => 
-    api.post<SearchResponse>(`/knowledge/bases/${kbId}/search`, req),
+  search: async (kbId: string, req: SearchRequest) => {
+    const res = await api.post(`/knowledge/bases/${kbId}/search`, req)
+    return knowledgeApi.parseData<SearchResponse>(res)
+  },
 }

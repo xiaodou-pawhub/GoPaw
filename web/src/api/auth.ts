@@ -150,64 +150,68 @@ export const authApi = {
 
 // Team API
 export const teamApi = {
+  // 解析标准响应格式
+  parseData<T>(res: any): T {
+    if (res && res.data !== undefined) {
+      return res.data as T
+    }
+    return res as T
+  },
+
   // Create a new team
-  async create(data: { name: string; slug?: string; description?: string; avatar?: string }): Promise<{ code: number; message: string; data: Team }> {
+  async create(data: { name: string; slug?: string; description?: string; avatar?: string }): Promise<Team> {
     const response = await axios.post(`${API_BASE}/teams`, data)
-    return response.data
+    return teamApi.parseData<Team>(response.data)
   },
 
   // List user's teams
-  async list(): Promise<{ code: number; message: string; data: Team[] }> {
+  async list(): Promise<Team[]> {
     const response = await axios.get(`${API_BASE}/teams`)
-    return response.data
+    return teamApi.parseData<Team[]>(response.data)
   },
 
   // Get team by ID
-  async get(teamId: string): Promise<{ code: number; message: string; data: Team }> {
+  async get(teamId: string): Promise<Team> {
     const response = await axios.get(`${API_BASE}/teams/${teamId}`)
-    return response.data
+    return teamApi.parseData<Team>(response.data)
   },
 
   // Update team
-  async update(teamId: string, data: { name?: string; description?: string; avatar?: string; settings?: string }): Promise<{ code: number; message: string; data: Team }> {
+  async update(teamId: string, data: { name?: string; description?: string; avatar?: string; settings?: string }): Promise<Team> {
     const response = await axios.put(`${API_BASE}/teams/${teamId}`, data)
-    return response.data
+    return teamApi.parseData<Team>(response.data)
   },
 
   // Delete team
-  async delete(teamId: string): Promise<{ code: number; message: string }> {
-    const response = await axios.delete(`${API_BASE}/teams/${teamId}`)
-    return response.data
+  async delete(teamId: string): Promise<void> {
+    await axios.delete(`${API_BASE}/teams/${teamId}`)
   },
 
   // Get team members
-  async getMembers(teamId: string): Promise<{ code: number; message: string; data: TeamMember[] }> {
+  async getMembers(teamId: string): Promise<TeamMember[]> {
     const response = await axios.get(`${API_BASE}/teams/${teamId}/members`)
-    return response.data
+    return teamApi.parseData<TeamMember[]>(response.data)
   },
 
   // Add member
-  async addMember(teamId: string, data: { user_id: string; role: string }): Promise<{ code: number; message: string }> {
-    const response = await axios.post(`${API_BASE}/teams/${teamId}/members`, data)
-    return response.data
+  async addMember(teamId: string, data: { user_id: string; role: string }): Promise<void> {
+    await axios.post(`${API_BASE}/teams/${teamId}/members`, data)
   },
 
   // Remove member
-  async removeMember(teamId: string, userId: string): Promise<{ code: number; message: string }> {
-    const response = await axios.delete(`${API_BASE}/teams/${teamId}/members/${userId}`)
-    return response.data
+  async removeMember(teamId: string, userId: string): Promise<void> {
+    await axios.delete(`${API_BASE}/teams/${teamId}/members/${userId}`)
   },
 
   // Invite member
-  async inviteMember(teamId: string, data: { email: string; role: string; expires_in?: number }): Promise<{ code: number; message: string; data: { invitation_id: string; token: string; expires_at?: string } }> {
+  async inviteMember(teamId: string, data: { email: string; role: string; expires_in?: number }): Promise<{ invitation_id: string; token: string; expires_at?: string }> {
     const response = await axios.post(`${API_BASE}/teams/${teamId}/invite`, data)
-    return response.data
+    return teamApi.parseData<{ invitation_id: string; token: string; expires_at?: string }>(response.data)
   },
 
   // Accept invitation
-  async acceptInvitation(token: string): Promise<{ code: number; message: string }> {
-    const response = await axios.post(`${API_BASE}/teams/accept-invitation?token=${token}`)
-    return response.data
+  async acceptInvitation(token: string): Promise<void> {
+    await axios.post(`${API_BASE}/teams/accept-invitation?token=${token}`)
   },
 }
 

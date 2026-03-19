@@ -46,36 +46,55 @@ export interface UpdateMCPServerRequest {
 
 // ---- API Functions ----
 
+// 解析标准响应格式
+function parseData<T>(res: any): T {
+  if (res && res.data !== undefined) {
+    return res.data as T
+  }
+  return res as T
+}
+
 export async function listMCPServers(): Promise<{ servers: MCPServer[] }> {
-  return await api.get('/mcp/servers')
+  const res = await api.get('/mcp/servers')
+  const servers = parseData<MCPServer[]>(res)
+  return { servers }
 }
 
 export async function getMCPServer(id: string): Promise<MCPServer> {
-  return await api.get(`/mcp/servers/${encodeURIComponent(id)}`)
+  const res = await api.get(`/mcp/servers/${encodeURIComponent(id)}`)
+  return parseData<MCPServer>(res)
 }
 
 export async function createMCPServer(data: CreateMCPServerRequest): Promise<MCPServer> {
-  return await api.post('/mcp/servers', data)
+  const res = await api.post('/mcp/servers', data)
+  return parseData<MCPServer>(res)
 }
 
 export async function updateMCPServer(id: string, data: UpdateMCPServerRequest): Promise<MCPServer> {
-  return await api.put(`/mcp/servers/${encodeURIComponent(id)}`, data)
+  const res = await api.put(`/mcp/servers/${encodeURIComponent(id)}`, data)
+  return parseData<MCPServer>(res)
 }
 
 export async function deleteMCPServer(id: string): Promise<{ deleted: string }> {
-  return await api.delete(`/mcp/servers/${encodeURIComponent(id)}`)
+  const res = await api.delete(`/mcp/servers/${encodeURIComponent(id)}`)
+  return parseData<{ deleted: string }>(res)
 }
 
 export async function setMCPServerActive(id: string, active: boolean): Promise<{ id: string; active: boolean }> {
-  return await api.post(`/mcp/servers/${encodeURIComponent(id)}/active`, { active })
+  const res = await api.post(`/mcp/servers/${encodeURIComponent(id)}/active`, { active })
+  return parseData<{ id: string; active: boolean }>(res)
 }
 
 export async function getMCPServerTools(id: string): Promise<{ tools: MCPTool[] }> {
-  return await api.get(`/mcp/servers/${encodeURIComponent(id)}/tools`)
+  const res = await api.get(`/mcp/servers/${encodeURIComponent(id)}/tools`)
+  const tools = parseData<MCPTool[]>(res)
+  return { tools }
 }
 
 export async function getAllMCPTools(): Promise<{ tools: MCPTool[] }> {
-  return await api.get('/mcp/tools')
+  const res = await api.get('/mcp/tools')
+  const tools = parseData<MCPTool[]>(res)
+  return { tools }
 }
 
 // ---- Helpers ----

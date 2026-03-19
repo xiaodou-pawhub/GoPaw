@@ -306,9 +306,7 @@ async function loadTeams() {
   loading.value = true
   try {
     const response = await teamApi.list()
-    if (response.code === 200) {
-      teams.value = response.data
-    }
+    teams.value = response
   } catch (error) {
     console.error('Failed to load teams:', error)
   } finally {
@@ -320,10 +318,8 @@ async function loadMembers(teamId: string) {
   membersLoading.value = true
   try {
     const response = await teamApi.getMembers(teamId)
-    if (response.code === 200) {
-      members.value = response.data
-      memberCounts.value[teamId] = response.data.length
-    }
+    members.value = response
+    memberCounts.value[teamId] = response.length
   } catch (error) {
     console.error('Failed to load members:', error)
   } finally {

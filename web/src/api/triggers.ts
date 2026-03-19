@@ -71,40 +71,83 @@ export interface ValidateCronResponse {
 }
 
 export const triggersApi = {
+  // 解析标准响应格式
+  parseData<T>(res: any): T {
+    if (res && res.data !== undefined) {
+      return res.data as T
+    }
+    return res as T
+  },
+
   // List all triggers
-  list: () => api.get<Trigger[]>('/triggers'),
+  list: async () => {
+    const res = await api.get('/triggers')
+    return triggersApi.parseData<Trigger[]>(res)
+  },
 
   // Get a specific trigger
-  get: (id: string) => api.get<Trigger>(`/triggers/${id}`),
+  get: async (id: string) => {
+    const res = await api.get(`/triggers/${id}`)
+    return triggersApi.parseData<Trigger>(res)
+  },
 
   // Create a new trigger
-  create: (data: CreateTriggerRequest) => api.post<Trigger>('/triggers', data),
+  create: async (data: CreateTriggerRequest) => {
+    const res = await api.post('/triggers', data)
+    return triggersApi.parseData<Trigger>(res)
+  },
 
   // Update a trigger
-  update: (id: string, data: UpdateTriggerRequest) => api.put<Trigger>(`/triggers/${id}`, data),
+  update: async (id: string, data: UpdateTriggerRequest) => {
+    const res = await api.put(`/triggers/${id}`, data)
+    return triggersApi.parseData<Trigger>(res)
+  },
 
   // Delete a trigger
-  delete: (id: string) => api.delete(`/triggers/${id}`),
+  delete: async (id: string) => {
+    const res = await api.delete(`/triggers/${id}`)
+    return triggersApi.parseData<any>(res)
+  },
 
   // Enable a trigger
-  enable: (id: string) => api.post(`/triggers/${id}/enable`, {}),
+  enable: async (id: string) => {
+    const res = await api.post(`/triggers/${id}/enable`, {})
+    return triggersApi.parseData<any>(res)
+  },
 
   // Disable a trigger
-  disable: (id: string) => api.post(`/triggers/${id}/disable`, {}),
+  disable: async (id: string) => {
+    const res = await api.post(`/triggers/${id}/disable`, {})
+    return triggersApi.parseData<any>(res)
+  },
 
   // Manually fire a trigger
-  fire: (id: string, payload?: Record<string, any>) => api.post(`/triggers/${id}/fire`, payload || {}),
+  fire: async (id: string, payload?: Record<string, any>) => {
+    const res = await api.post(`/triggers/${id}/fire`, payload || {})
+    return triggersApi.parseData<any>(res)
+  },
 
   // Get trigger history
-  getHistory: (id: string) => api.get<TriggerHistory[]>(`/triggers/${id}/history`),
+  getHistory: async (id: string) => {
+    const res = await api.get(`/triggers/${id}/history`)
+    return triggersApi.parseData<TriggerHistory[]>(res)
+  },
 
   // List triggers by agent
-  listByAgent: (agentId: string) => api.get<Trigger[]>(`/triggers/by-agent/${agentId}`),
+  listByAgent: async (agentId: string) => {
+    const res = await api.get(`/triggers/by-agent/${agentId}`)
+    return triggersApi.parseData<Trigger[]>(res)
+  },
 
   // Validate cron expression
-  validateCron: (expression: string) => api.post<ValidateCronResponse>('/triggers/validate-cron', { expression }),
+  validateCron: async (expression: string) => {
+    const res = await api.post('/triggers/validate-cron', { expression })
+    return triggersApi.parseData<ValidateCronResponse>(res)
+  },
 
   // Send message to trigger another agent
-  sendMessage: (from: string, to: string, payload?: Record<string, any>) =>
-    api.post('/messages', { from, to, payload }),
+  sendMessage: async (from: string, to: string, payload?: Record<string, any>) => {
+    const res = await api.post('/messages', { from, to, payload })
+    return triggersApi.parseData<any>(res)
+  },
 }

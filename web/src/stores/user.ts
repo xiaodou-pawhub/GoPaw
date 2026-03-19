@@ -50,16 +50,14 @@ export const useUserStore = defineStore('user', () => {
 
   async function fetchTeams() {
     try {
-      const response = await teamApi.list()
-      if (response.code === 200) {
-        teams.value = response.data
-        
-        // Set current team if not set
-        if (!currentTeam.value && teams.value.length > 0) {
-          const savedTeamId = localStorage.getItem('currentTeam')
-          const savedTeam = teams.value.find(t => t.id === savedTeamId)
-          setCurrentTeam(savedTeam || teams.value[0])
-        }
+      const teamsData = await teamApi.list()
+      teams.value = teamsData
+
+      // Set current team if not set
+      if (!currentTeam.value && teams.value.length > 0) {
+        const savedTeamId = localStorage.getItem('currentTeam')
+        const savedTeam = teams.value.find(t => t.id === savedTeamId)
+        setCurrentTeam(savedTeam || teams.value[0])
       }
     } catch (error) {
       console.error('Failed to fetch teams:', error)
@@ -77,15 +75,12 @@ export const useUserStore = defineStore('user', () => {
 
   async function createTeam(data: { name: string; description?: string }) {
     try {
-      const response = await teamApi.create(data)
-      if (response.code === 201) {
-        teams.value.push(response.data)
-        if (teams.value.length === 1) {
-          setCurrentTeam(response.data)
-        }
-        return response.data
+      const teamData = await teamApi.create(data)
+      teams.value.push(teamData)
+      if (teams.value.length === 1) {
+        setCurrentTeam(teamData)
       }
-      throw new Error(response.message)
+      return teamData
     } catch (error: any) {
       throw error
     }

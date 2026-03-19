@@ -50,36 +50,71 @@ export interface PublishMessageRequest {
 }
 
 export const queueApi = {
+  // 解析标准响应格式
+  parseData<T>(res: any): T {
+    if (res && res.data !== undefined) {
+      return res.data as T
+    }
+    return res as T
+  },
+
   // List all queues with stats
-  listQueues: () => api.get<QueueInfo[]>('/queues'),
+  listQueues: async () => {
+    const res = await api.get('/queues')
+    return queueApi.parseData<QueueInfo[]>(res)
+  },
 
   // Get queue statistics
-  getStats: (queueName: string) => api.get<QueueStats>(`/queues/${queueName}/stats`),
+  getStats: async (queueName: string) => {
+    const res = await api.get(`/queues/${queueName}/stats`)
+    return queueApi.parseData<QueueStats>(res)
+  },
 
   // List messages in a queue
-  listMessages: (queueName: string, status?: MessageStatus, limit?: number) =>
-    api.get<Message[]>(`/queues/${queueName}/messages`, { params: { status, limit } }),
+  listMessages: async (queueName: string, status?: MessageStatus, limit?: number) => {
+    const res = await api.get(`/queues/${queueName}/messages`, { params: { status, limit } })
+    return queueApi.parseData<Message[]>(res)
+  },
 
   // Publish a message
-  publishMessage: (queueName: string, data: PublishMessageRequest) =>
-    api.post<Message>(`/queues/${queueName}/messages`, data),
+  publishMessage: async (queueName: string, data: PublishMessageRequest) => {
+    const res = await api.post(`/queues/${queueName}/messages`, data)
+    return queueApi.parseData<Message>(res)
+  },
 
   // Get a message by ID
-  getMessage: (id: string) => api.get<Message>(`/messages/${id}`),
+  getMessage: async (id: string) => {
+    const res = await api.get(`/messages/${id}`)
+    return queueApi.parseData<Message>(res)
+  },
 
   // Retry a failed message
-  retryMessage: (id: string) => api.post(`/messages/${id}/retry`, {}),
+  retryMessage: async (id: string) => {
+    const res = await api.post(`/messages/${id}/retry`, {})
+    return queueApi.parseData<any>(res)
+  },
 
   // Delete a message
-  deleteMessage: (id: string) => api.delete(`/messages/${id}`),
+  deleteMessage: async (id: string) => {
+    const res = await api.delete(`/messages/${id}`)
+    return queueApi.parseData<any>(res)
+  },
 
   // Pause a queue
-  pauseQueue: (queueName: string) => api.post(`/queues/${queueName}/pause`, {}),
+  pauseQueue: async (queueName: string) => {
+    const res = await api.post(`/queues/${queueName}/pause`, {})
+    return queueApi.parseData<any>(res)
+  },
 
   // Resume a queue
-  resumeQueue: (queueName: string) => api.post(`/queues/${queueName}/resume`, {}),
+  resumeQueue: async (queueName: string) => {
+    const res = await api.post(`/queues/${queueName}/resume`, {})
+    return queueApi.parseData<any>(res)
+  },
 
   // Cleanup a queue
-  cleanupQueue: (queueName: string, status: MessageStatus) =>
-    api.post(`/queues/${queueName}/cleanup`, {}, { params: { status } }),
+  cleanupQueue: async (queueName: string, status: MessageStatus) => {
+    const res = await api.post(`/queues/${queueName}/cleanup`, {}, { params: { status } })
+    return queueApi.parseData<any>(res)
+  },
 }

@@ -369,10 +369,10 @@ async function loadMessages() {
 
     if (messageFilter.value === 'sent') {
       const response = await agentMessagesApi.listSent(currentAgent)
-      messages.value = response.data
+      messages.value = response
     } else {
       const response = await agentMessagesApi.list(currentAgent)
-      messages.value = response.data
+      messages.value = response
     }
   } catch (error) {
     showSnackbar('加载消息失败', 'error')
@@ -387,7 +387,7 @@ async function loadConversations() {
     if (!currentAgent) return
 
     const response = await agentMessagesApi.listConversations(currentAgent)
-    conversations.value = response.data
+    conversations.value = response
   } catch (error) {
     showSnackbar('加载会话失败', 'error')
   }
@@ -399,7 +399,7 @@ async function loadStats() {
     if (!currentAgent) return
 
     const response = await agentMessagesApi.getStats(currentAgent)
-    stats.value = response.data
+    stats.value = response
   } catch (error) {
     showSnackbar('加载统计失败', 'error')
   }
@@ -485,7 +485,7 @@ function selectConversation(conv: Conversation) {
   selectedConversation.value = conv.id
   // Load conversation messages
   agentMessagesApi.listConversation(conv.id).then(response => {
-    messages.value = response.data
+    messages.value = response
   })
 }
 

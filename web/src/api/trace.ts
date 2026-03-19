@@ -39,6 +39,14 @@ export interface TraceStats {
 
 // ---- API Functions ----
 
+// 解析标准响应格式
+function parseData<T>(res: any): T {
+  if (res && res.data !== undefined) {
+    return res.data as T
+  }
+  return res as T
+}
+
 export async function listTraces(params?: {
   session_id?: string
   status?: string
@@ -48,15 +56,18 @@ export async function listTraces(params?: {
   if (params?.session_id) p.session_id = params.session_id
   if (params?.status) p.status = params.status
   if (params?.limit) p.limit = String(params.limit)
-  return await api.get('/traces', { params: p })
+  const res = await api.get('/traces', { params: p })
+  return parseData<{ traces: Trace[]; total: number }>(res)
 }
 
 export async function getTrace(id: string): Promise<TraceDetail> {
-  return await api.get(`/traces/${encodeURIComponent(id)}`)
+  const res = await api.get(`/traces/${encodeURIComponent(id)}`)
+  return parseData<TraceDetail>(res)
 }
 
 export async function getTraceStats(): Promise<TraceStats> {
-  return await api.get('/traces/stats')
+  const res = await api.get('/traces/stats')
+  return parseData<TraceStats>(res)
 }
 
 // ---- Helpers ----

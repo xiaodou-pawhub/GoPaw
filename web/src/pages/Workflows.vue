@@ -469,7 +469,7 @@ function formatDate(date: string) {
 async function loadWorkflows() {
   try {
     const response = await workflowsApi.list()
-    workflows.value = response.data
+    workflows.value = response
   } catch (error) {
     showSnackbar('加载工作流失败', 'error')
   }
@@ -485,7 +485,7 @@ async function loadExecutions(workflowId: string) {
   loadingExecutions.value = true
   try {
     const response = await workflowsApi.listExecutions(workflowId, 10)
-    executions.value = response.data
+    executions.value = response
   } catch (error) {
     showSnackbar('加载执行历史失败', 'error')
   } finally {
@@ -496,7 +496,7 @@ async function loadExecutions(workflowId: string) {
 async function loadStats(workflowId: string) {
   try {
     const response = await workflowsApi.getStats(workflowId)
-    stats.value = response.data
+    stats.value = response
   } catch (error) {
     showSnackbar('加载统计失败', 'error')
   }
@@ -632,7 +632,7 @@ async function confirmExecute() {
 async function viewExecution(exec: Execution) {
   try {
     const response = await workflowsApi.getExecution(exec.id)
-    executionDialog.execution = response.data
+    executionDialog.execution = response
     executionDialog.show = true
   } catch (error) {
     showSnackbar('加载执行详情失败', 'error')

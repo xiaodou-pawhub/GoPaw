@@ -342,7 +342,7 @@ async function loadTriggers() {
   loading.value = true
   try {
     const response = await triggersApi.list()
-    triggers.value = response.data
+    triggers.value = response
   } catch (error) {
     showSnackbar('加载 Triggers 失败', 'error')
   } finally {
@@ -400,12 +400,12 @@ async function validateCron() {
   validating.value = true
   try {
     const response = await triggersApi.validateCron(dialog.data.config.expression)
-    cronValidation.valid = response.data.valid
-    cronValidation.description = response.data.description || ''
-    cronValidation.next_run = response.data.next_run || ''
-    cronValidation.error = response.data.error || ''
-    if (!response.data.valid) {
-      showSnackbar(response.data.error || '表达式无效', 'error')
+    cronValidation.valid = response.valid
+    cronValidation.description = response.description || ''
+    cronValidation.next_run = response.next_run || ''
+    cronValidation.error = response.error || ''
+    if (!response.valid) {
+      showSnackbar(response.error || '表达式无效', 'error')
     }
   } catch (error) {
     showSnackbar('验证失败', 'error')
@@ -480,7 +480,7 @@ async function showHistory(trigger: Trigger) {
   historyDialog.loading = true
   try {
     const response = await triggersApi.getHistory(trigger.id)
-    historyDialog.history = response.data
+    historyDialog.history = response
   } catch (error) {
     showSnackbar('加载历史失败', 'error')
   } finally {

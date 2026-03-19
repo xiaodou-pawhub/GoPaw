@@ -68,40 +68,58 @@ export interface UpdateAgentRequest {
 
 // ---- API Functions ----
 
+// 解析标准响应格式
+function parseData<T>(res: any): T {
+  if (res && res.data !== undefined) {
+    return res.data as T
+  }
+  return res as T
+}
+
 export async function listAgents(): Promise<{ agents: Agent[] }> {
-  return await api.get('/agents')
+  const res = await api.get('/agents')
+  const agents = parseData<Agent[]>(res)
+  return { agents }
 }
 
 export async function getAgent(id: string): Promise<Agent> {
-  return await api.get(`/agents/${encodeURIComponent(id)}`)
+  const res = await api.get(`/agents/${encodeURIComponent(id)}`)
+  return parseData<Agent>(res)
 }
 
 export async function getDefaultAgent(): Promise<Agent> {
-  return await api.get('/agents/default')
+  const res = await api.get('/agents/default')
+  return parseData<Agent>(res)
 }
 
 export async function createAgent(data: CreateAgentRequest): Promise<Agent> {
-  return await api.post('/agents', data)
+  const res = await api.post('/agents', data)
+  return parseData<Agent>(res)
 }
 
 export async function updateAgent(id: string, data: UpdateAgentRequest): Promise<Agent> {
-  return await api.put(`/agents/${encodeURIComponent(id)}`, data)
+  const res = await api.put(`/agents/${encodeURIComponent(id)}`, data)
+  return parseData<Agent>(res)
 }
 
 export async function deleteAgent(id: string): Promise<{ deleted: string }> {
-  return await api.delete(`/agents/${encodeURIComponent(id)}`)
+  const res = await api.delete(`/agents/${encodeURIComponent(id)}`)
+  return parseData<{ deleted: string }>(res)
 }
 
 export async function setDefaultAgent(id: string): Promise<{ default: string }> {
-  return await api.post(`/agents/${encodeURIComponent(id)}/default`)
+  const res = await api.post(`/agents/${encodeURIComponent(id)}/default`)
+  return parseData<{ default: string }>(res)
 }
 
 export async function getAgentConfig(id: string): Promise<AgentConfig> {
-  return await api.get(`/agents/${encodeURIComponent(id)}/config`)
+  const res = await api.get(`/agents/${encodeURIComponent(id)}/config`)
+  return parseData<AgentConfig>(res)
 }
 
 export async function updateAgentConfig(id: string, config: AgentConfig): Promise<AgentConfig> {
-  return await api.put(`/agents/${encodeURIComponent(id)}/config`, config)
+  const res = await api.put(`/agents/${encodeURIComponent(id)}/config`, config)
+  return parseData<AgentConfig>(res)
 }
 
 // ---- Helpers ----

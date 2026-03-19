@@ -366,7 +366,7 @@ onMounted(() => {
 async function loadKnowledgeBases() {
   try {
     const response = await knowledgeApi.listBases()
-    knowledgeBases.value = response.data
+    knowledgeBases.value = response
   } catch (error) {
     console.error('Failed to load knowledge bases:', error)
     alert('加载知识库列表失败')
@@ -383,7 +383,7 @@ async function loadDocuments(kbId: string) {
   loadingDocs.value = true
   try {
     const response = await knowledgeApi.listDocuments(kbId)
-    documents.value = response.data
+    documents.value = response
   } catch (error) {
     console.error('Failed to load documents:', error)
   } finally {
@@ -394,7 +394,7 @@ async function loadDocuments(kbId: string) {
 async function loadStats(kbId: string) {
   try {
     const response = await knowledgeApi.getStats(kbId)
-    stats.value = response.data
+    stats.value = response
   } catch (error) {
     console.error('Failed to load stats:', error)
   }
@@ -513,7 +513,7 @@ async function performSearch() {
       top_k: 5,
       search_type: searchType.value as any,
     })
-    searchResults.value = response.data.results
+    searchResults.value = response.results
     hasSearched.value = true
   } catch (error) {
     console.error('Failed to search:', error)

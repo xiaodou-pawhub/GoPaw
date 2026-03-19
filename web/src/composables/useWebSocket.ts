@@ -35,7 +35,8 @@ export function useWebSocket() {
 
   const connect = () => {
     const envUrl = (import.meta as any).env?.VITE_WS_URL
-    const wsUrl = `${envUrl || 'ws://localhost:8080'}/ws`
+    // 默认使用 8088 端口（与后端一致）
+    const wsUrl = `${envUrl || 'ws://localhost:8088'}/ws`
     
     ws.value = new WebSocket(wsUrl)
 

@@ -395,7 +395,7 @@ async function loadLogs() {
     if (filters.end_time) params.end_time = new Date(filters.end_time).toISOString()
 
     const response = await auditApi.list(params)
-    logs.value = response.data
+    logs.value = response
   } catch (error) {
     showSnackbar('加载审计日志失败', 'error')
   } finally {
@@ -406,7 +406,7 @@ async function loadLogs() {
 async function loadStats() {
   try {
     const response = await auditApi.getStats()
-    stats.value = response.data
+    stats.value = response
   } catch (error) {
     showSnackbar('加载统计信息失败', 'error')
   }

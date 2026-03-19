@@ -77,49 +77,89 @@ export interface SendQueryRequest {
 }
 
 export const agentMessagesApi = {
+  // 解析标准响应格式
+  parseData<T>(res: any): T {
+    if (res && res.data !== undefined) {
+      return res.data as T
+    }
+    return res as T
+  },
+
   // Send a generic message
-  send: (data: SendMessageRequest) => api.post<AgentMessage>('/agent-messages', data),
+  send: async (data: SendMessageRequest) => {
+    const res = await api.post('/agent-messages', data)
+    return agentMessagesApi.parseData<AgentMessage>(res)
+  },
 
   // Send a task message
-  sendTask: (data: SendTaskRequest) => api.post<AgentMessage>('/agent-messages/task', data),
+  sendTask: async (data: SendTaskRequest) => {
+    const res = await api.post('/agent-messages/task', data)
+    return agentMessagesApi.parseData<AgentMessage>(res)
+  },
 
   // Send a response message
-  sendResponse: (data: SendResponseRequest) => api.post<AgentMessage>('/agent-messages/response', data),
+  sendResponse: async (data: SendResponseRequest) => {
+    const res = await api.post('/agent-messages/response', data)
+    return agentMessagesApi.parseData<AgentMessage>(res)
+  },
 
   // Send a notification message
-  sendNotify: (data: SendNotifyRequest) => api.post<AgentMessage>('/agent-messages/notify', data),
+  sendNotify: async (data: SendNotifyRequest) => {
+    const res = await api.post('/agent-messages/notify', data)
+    return agentMessagesApi.parseData<AgentMessage>(res)
+  },
 
   // Send a query message
-  sendQuery: (data: SendQueryRequest) => api.post<AgentMessage>('/agent-messages/query', data),
+  sendQuery: async (data: SendQueryRequest) => {
+    const res = await api.post('/agent-messages/query', data)
+    return agentMessagesApi.parseData<AgentMessage>(res)
+  },
 
   // Get a specific message
-  get: (id: string) => api.get<AgentMessage>(`/agent-messages/${id}`),
+  get: async (id: string) => {
+    const res = await api.get(`/agent-messages/${id}`)
+    return agentMessagesApi.parseData<AgentMessage>(res)
+  },
 
   // List messages for an agent (received)
-  list: (agentId: string, status?: MessageStatus) =>
-    api.get<AgentMessage[]>(`/agent-messages/agent/${agentId}`, { params: { status } }),
+  list: async (agentId: string, status?: MessageStatus) => {
+    const res = await api.get(`/agent-messages/agent/${agentId}`, { params: { status } })
+    return agentMessagesApi.parseData<AgentMessage[]>(res)
+  },
 
   // List messages sent by an agent
-  listSent: (agentId: string) =>
-    api.get<AgentMessage[]>(`/agent-messages/agent/${agentId}/sent`),
+  listSent: async (agentId: string) => {
+    const res = await api.get(`/agent-messages/agent/${agentId}/sent`)
+    return agentMessagesApi.parseData<AgentMessage[]>(res)
+  },
 
   // List messages in a conversation
-  listConversation: (parentId: string) =>
-    api.get<AgentMessage[]>(`/agent-messages/conversation/${parentId}`),
+  listConversation: async (parentId: string) => {
+    const res = await api.get(`/agent-messages/conversation/${parentId}`)
+    return agentMessagesApi.parseData<AgentMessage[]>(res)
+  },
 
   // Update message status
-  updateStatus: (id: string, status: MessageStatus, error?: string) =>
-    api.put(`/agent-messages/${id}/status`, { status, error }),
+  updateStatus: async (id: string, status: MessageStatus, error?: string) => {
+    const res = await api.put(`/agent-messages/${id}/status`, { status, error })
+    return agentMessagesApi.parseData<any>(res)
+  },
 
   // Get pending messages for an agent
-  getPending: (agentId: string) =>
-    api.get<AgentMessage[]>(`/agent-messages/agent/${agentId}/pending`),
+  getPending: async (agentId: string) => {
+    const res = await api.get(`/agent-messages/agent/${agentId}/pending`)
+    return agentMessagesApi.parseData<AgentMessage[]>(res)
+  },
 
   // Get message statistics for an agent
-  getStats: (agentId: string) =>
-    api.get<MessageStats>(`/agent-messages/agent/${agentId}/stats`),
+  getStats: async (agentId: string) => {
+    const res = await api.get(`/agent-messages/agent/${agentId}/stats`)
+    return agentMessagesApi.parseData<MessageStats>(res)
+  },
 
   // List conversations for an agent
-  listConversations: (agentId: string) =>
-    api.get<Conversation[]>(`/agent-messages/agent/${agentId}/conversations`),
+  listConversations: async (agentId: string) => {
+    const res = await api.get(`/agent-messages/agent/${agentId}/conversations`)
+    return agentMessagesApi.parseData<Conversation[]>(res)
+  },
 }

@@ -262,8 +262,8 @@ async function loadData() {
       metricsApi.getDashboard(),
       metricsApi.getRecentActivity(10),
     ])
-    dashboard.value = dashboardRes.data
-    recentActivity.value = activityRes.data
+    dashboard.value = dashboardRes
+    recentActivity.value = activityRes
   } catch (error) {
     console.error('Failed to load metrics:', error)
   } finally {

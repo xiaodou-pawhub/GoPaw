@@ -70,13 +70,29 @@ export interface RecentActivity {
 }
 
 export const metricsApi = {
+  // 解析标准响应格式
+  parseData<T>(res: any): T {
+    if (res && res.data !== undefined) {
+      return res.data as T
+    }
+    return res as T
+  },
+
   // Get dashboard data
-  getDashboard: () => api.get<DashboardData>('/metrics/dashboard'),
+  getDashboard: async () => {
+    const res = await api.get('/metrics/dashboard')
+    return metricsApi.parseData<DashboardData>(res)
+  },
 
   // Get recent activity
-  getRecentActivity: (limit?: number) =>
-    api.get<RecentActivity[]>('/metrics/activity', { params: { limit } }),
+  getRecentActivity: async (limit?: number) => {
+    const res = await api.get('/metrics/activity', { params: { limit } })
+    return metricsApi.parseData<RecentActivity[]>(res)
+  },
 
   // Trigger metrics collection (admin only)
-  collect: () => api.post('/metrics/collect', {}),
+  collect: async () => {
+    const res = await api.post('/metrics/collect', {})
+    return metricsApi.parseData<any>(res)
+  },
 }

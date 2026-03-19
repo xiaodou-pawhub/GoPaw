@@ -39,19 +39,22 @@ export async function getSessionMessages(sessionId: string, limit: number = 100)
 // 中文：获取会话统计信息
 // English: Get session statistics
 export async function getSessionStats(sessionId: string): Promise<SessionStats> {
-	return await api.get(`/agent/sessions/${sessionId}/stats`)
+	const res = await api.get(`/agent/sessions/${sessionId}/stats`)
+	return parseData<SessionStats>(res)
 }
 
 // 中文：删除会话
 // English: Delete session
-export async function deleteSession(sessionId: string) {
-	return await api.delete(`/agent/sessions/${sessionId}`)
+export async function deleteSession(sessionId: string): Promise<{ deleted: string }> {
+	const res = await api.delete(`/agent/sessions/${sessionId}`)
+	return parseData<{ deleted: string }>(res)
 }
 
 // 中文：更新会话名称
 // English: Update session name
-export async function updateSessionName(sessionId: string, name: string) {
-	return await api.put(`/agent/sessions/${sessionId}/name`, { name })
+export async function updateSessionName(sessionId: string, name: string): Promise<{ updated: string }> {
+	const res = await api.put(`/agent/sessions/${sessionId}/name`, { name })
+	return parseData<{ updated: string }>(res)
 }
 
 // 中文：获取流式对话的 SSE URL（已废弃，仅用于短消息）

@@ -125,40 +125,77 @@ export interface ValidateWorkflowResponse {
 }
 
 export const workflowsApi = {
+  // 解析标准响应格式
+  parseData<T>(res: any): T {
+    if (res && res.data !== undefined) {
+      return res.data as T
+    }
+    return res as T
+  },
+
   // List all workflows
-  list: (status?: WorkflowStatus) =>
-    api.get<Workflow[]>('/workflows', { params: { status } }),
+  list: async (status?: WorkflowStatus) => {
+    const res = await api.get('/workflows', { params: { status } })
+    return workflowsApi.parseData<Workflow[]>(res)
+  },
 
   // Get a specific workflow
-  get: (id: string) => api.get<Workflow>(`/workflows/${id}`),
+  get: async (id: string) => {
+    const res = await api.get(`/workflows/${id}`)
+    return workflowsApi.parseData<Workflow>(res)
+  },
 
   // Create a new workflow
-  create: (data: CreateWorkflowRequest) => api.post<Workflow>('/workflows', data),
+  create: async (data: CreateWorkflowRequest) => {
+    const res = await api.post('/workflows', data)
+    return workflowsApi.parseData<Workflow>(res)
+  },
 
   // Update a workflow
-  update: (id: string, data: UpdateWorkflowRequest) => api.put<Workflow>(`/workflows/${id}`, data),
+  update: async (id: string, data: UpdateWorkflowRequest) => {
+    const res = await api.put(`/workflows/${id}`, data)
+    return workflowsApi.parseData<Workflow>(res)
+  },
 
   // Delete a workflow
-  delete: (id: string) => api.delete(`/workflows/${id}`),
+  delete: async (id: string) => {
+    const res = await api.delete(`/workflows/${id}`)
+    return workflowsApi.parseData<any>(res)
+  },
 
   // Execute a workflow
-  execute: (id: string, data?: ExecuteWorkflowRequest) =>
-    api.post<Execution>(`/workflows/${id}/execute`, data || {}),
+  execute: async (id: string, data?: ExecuteWorkflowRequest) => {
+    const res = await api.post(`/workflows/${id}/execute`, data || {})
+    return workflowsApi.parseData<Execution>(res)
+  },
 
   // Get an execution
-  getExecution: (id: string) => api.get<Execution>(`/workflows/executions/${id}`),
+  getExecution: async (id: string) => {
+    const res = await api.get(`/workflows/executions/${id}`)
+    return workflowsApi.parseData<Execution>(res)
+  },
 
   // List executions for a workflow
-  listExecutions: (workflowId: string, limit?: number) =>
-    api.get<Execution[]>(`/workflows/${workflowId}/executions`, { params: { limit } }),
+  listExecutions: async (workflowId: string, limit?: number) => {
+    const res = await api.get(`/workflows/${workflowId}/executions`, { params: { limit } })
+    return workflowsApi.parseData<Execution[]>(res)
+  },
 
   // Cancel an execution
-  cancelExecution: (id: string) => api.post(`/workflows/executions/${id}/cancel`, {}),
+  cancelExecution: async (id: string) => {
+    const res = await api.post(`/workflows/executions/${id}/cancel`, {})
+    return workflowsApi.parseData<any>(res)
+  },
 
   // Get execution statistics
-  getStats: (workflowId: string) => api.get<ExecutionStats>(`/workflows/${workflowId}/stats`),
+  getStats: async (workflowId: string) => {
+    const res = await api.get(`/workflows/${workflowId}/stats`)
+    return workflowsApi.parseData<ExecutionStats>(res)
+  },
 
   // Validate workflow definition
-  validate: (definition: WorkflowDef) =>
-    api.post<ValidateWorkflowResponse>('/workflows/validate', { definition }),
+  validate: async (definition: WorkflowDef) => {
+    const res = await api.post('/workflows/validate', { definition })
+    return workflowsApi.parseData<ValidateWorkflowResponse>(res)
+  },
 }

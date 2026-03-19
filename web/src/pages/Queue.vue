@@ -222,7 +222,7 @@ function formatDate(date: string) {
 async function loadQueues() {
   try {
     const response = await queueApi.listQueues()
-    queues.value = response.data
+    queues.value = response
   } catch (error) {
     showSnackbar('加载队列失败', 'error')
   }
@@ -237,7 +237,7 @@ async function loadMessages() {
       statusFilter.value || undefined,
       100
     )
-    messages.value = response.data
+    messages.value = response
   } catch (error) {
     showSnackbar('加载消息失败', 'error')
   } finally {

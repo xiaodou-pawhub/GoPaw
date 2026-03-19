@@ -64,25 +64,47 @@ export interface CleanupAuditLogsRequest {
 }
 
 export const auditApi = {
+  // 解析标准响应格式
+  parseData<T>(res: any): T {
+    if (res && res.data !== undefined) {
+      return res.data as T
+    }
+    return res as T
+  },
+
   // List audit logs with filtering
-  list: (params?: QueryAuditLogsParams) =>
-    api.get<AuditLog[]>('/audit-logs', { params }),
+  list: async (params?: QueryAuditLogsParams) => {
+    const res = await api.get('/audit-logs', { params })
+    return auditApi.parseData<AuditLog[]>(res)
+  },
 
   // Get recent audit logs
-  recent: (limit?: number) =>
-    api.get<AuditLog[]>('/audit-logs/recent', { params: { limit } }),
+  recent: async (limit?: number) => {
+    const res = await api.get('/audit-logs/recent', { params: { limit } })
+    return auditApi.parseData<AuditLog[]>(res)
+  },
 
   // Get a single audit log
-  get: (id: string) => api.get<AuditLog>(`/audit-logs/${id}`),
+  get: async (id: string) => {
+    const res = await api.get(`/audit-logs/${id}`)
+    return auditApi.parseData<AuditLog>(res)
+  },
 
   // Get audit statistics
-  getStats: () => api.get<AuditStats>('/audit-logs/stats'),
+  getStats: async () => {
+    const res = await api.get('/audit-logs/stats')
+    return auditApi.parseData<AuditStats>(res)
+  },
 
   // Export audit logs
-  export: (data: ExportAuditLogsRequest) =>
-    api.post('/audit-logs/export', data, { responseType: 'blob' }),
+  export: async (data: ExportAuditLogsRequest) => {
+    const res = await api.post('/audit-logs/export', data, { responseType: 'blob' })
+    return res
+  },
 
   // Cleanup old audit logs
-  cleanup: (data: CleanupAuditLogsRequest) =>
-    api.post('/audit-logs/cleanup', data),
+  cleanup: async (data: CleanupAuditLogsRequest) => {
+    const res = await api.post('/audit-logs/cleanup', data)
+    return auditApi.parseData<any>(res)
+  },
 }
