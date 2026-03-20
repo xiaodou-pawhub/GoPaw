@@ -192,11 +192,13 @@ func (s *Store) AddMessage(msg StoredMessage) error {
 }
 
 // GetRecentMessages returns messages in chronological order (oldest first).
+// Returns the most recent messages up to limit, ordered from oldest to newest.
 func (s *Store) GetRecentMessages(sessionID string, limit int) ([]StoredMessage, error) {
+	// First get the most recent messages (DESC), then reverse to ASC order
 	rows, err := s.db.Query(
 		`SELECT id, session_id, role, content, token_count, embedding, created_at
          FROM messages WHERE session_id = ?
-         ORDER BY created_at ASC LIMIT ?`,
+         ORDER BY created_at DESC LIMIT ?`,
 		sessionID, limit,
 	)
 	if err != nil {
@@ -212,8 +214,15 @@ func (s *Store) GetRecentMessages(sessionID string, limit int) ([]StoredMessage,
 			return nil, err
 		}
 		m.Embedding = decodeEmbedding(embedBlob)
-		msgs = append(msgs, m)
+		msgs = append([]StoredMessage{m}, msgs...) // Prepend to reverse order
 	}
+	
+	// Debug: verify order (first should have smallest created_at)
+	if len(msgs) > 1 {
+		fmt.Printf("[DEBUG] GetRecentMessages: session=%s, count=%d, first_created_at=%d, last_created_at=%d\n",
+			sessionID, len(msgs), msgs[0].CreatedAt, msgs[len(msgs)-1].CreatedAt)
+	}
+	
 	return msgs, nil
 }
 

@@ -28,7 +28,7 @@ dev:
 	@echo "  Press Ctrl+C to stop both processes"
 	@echo "===================================================="
 	@trap 'kill 0' INT TERM EXIT; \
-	 (cd web && pnpm dev) & \
+	 (cd web && bun run dev) & \
 	 $(GO) run -tags dev $(LDFLAGS) ./cmd/gopaw start; \
 	 wait
 
@@ -38,15 +38,15 @@ run: build
 
 ## web-install: 安装前端依赖
 web-install:
-	cd web && pnpm install
+	cd web && bun install
 
 ## web-dev: 单独启动 Vite dev server（需另起终端运行 Go 后端）
 web-dev:
-	cd web && pnpm run dev
+	cd web && bun run dev
 
 ## web-build: 构建前端（生产压缩）
 web-build:
-	cd web && pnpm run build
+	cd web && bun run build
 
 ## test: run all tests with race detector
 test:

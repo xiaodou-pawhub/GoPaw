@@ -283,6 +283,20 @@ func (h *AgentHandler) GetSessionMessages(c *gin.Context) {
 		return
 	}
 
+	// Debug: log message order
+	h.logger.Debug("GetSessionMessages",
+		zap.String("session_id", sessionID),
+		zap.Int("count", len(msgs)),
+	)
+	for i, m := range msgs {
+		h.logger.Debug("message",
+			zap.Int("index", i),
+			zap.String("role", m.Role),
+			zap.Int64("created_at", m.CreatedAt.UnixMilli()),
+			zap.String("content_preview", truncate(m.Content, 30)),
+		)
+	}
+
 	type messageItem struct {
 		Role      string `json:"role"`
 		Content   string `json:"content"`
@@ -297,4 +311,11 @@ func (h *AgentHandler) GetSessionMessages(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"session_id": sessionID, "messages": out, "total": len(out)})
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
