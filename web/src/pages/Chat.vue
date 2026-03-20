@@ -583,10 +583,8 @@ function createNewSession() {
   const newId = generateUUID()
   isCreatingNew.value = true
   currentSessionId.value = newId
-  messages.value = [{
-    id: 'welcome-' + Date.now(), role: 'assistant',
-    content: t('chat.welcome'), time: new Date().toLocaleTimeString()
-  }]
+  messages.value = [] // 清空消息，让欢迎界面显示
+  messagesLoading.value = false // 关闭加载状态
   sessionStats.value = null
   router.push({ name: 'Chat', params: { id: newId } })
 }
