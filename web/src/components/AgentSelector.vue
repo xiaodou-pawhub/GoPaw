@@ -200,9 +200,11 @@ const vClickOutside = {
 .dropdown-menu {
   position: absolute;
   top: 100%;
-  left: 0;
+  right: 0;
+  left: auto;
   margin-top: 4px;
   min-width: 240px;
+  max-width: 320px;
   max-height: 320px;
   background: var(--bg-card);
   border: 1px solid var(--border);
