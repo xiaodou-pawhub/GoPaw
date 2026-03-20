@@ -87,7 +87,7 @@ func TestStore_GetRecentMessages(t *testing.T) {
 	assert.Len(t, messages, 3)
 }
 
-// TestStore_GetRecentMessages_Order tests message order (DESC).
+// TestStore_GetRecentMessages_Order tests message order (ASC).
 func TestStore_GetRecentMessages_Order(t *testing.T) {
 	store := setupTestStore(t)
 	_ = store.EnsureSession("session1", "user1", "test")
@@ -110,9 +110,9 @@ func TestStore_GetRecentMessages_Order(t *testing.T) {
 	messages, err := store.GetRecentMessages("session1", 10)
 	require.NoError(t, err)
 	assert.Len(t, messages, 2)
-	// DESC order, so Second comes first
-	assert.Equal(t, "Second", messages[0].Content)
-	assert.Equal(t, "First", messages[1].Content)
+	// ASC order, so First comes first
+	assert.Equal(t, "First", messages[0].Content)
+	assert.Equal(t, "Second", messages[1].Content)
 }
 
 // TestStore_DeleteSession tests deleting a session.

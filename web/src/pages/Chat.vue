@@ -372,8 +372,10 @@ const suggestions = [
 ]
 
 function handleSuggestionClick(text: string) {
+  // 将建议填入输入框，而不是直接发送
   inputMessage.value = text
-  handleSend()
+  // 聚焦输入框
+  textareaRef.value?.focus()
 }
 
 // 打字机
@@ -586,6 +588,18 @@ function createNewSession() {
   messages.value = [] // 清空消息，让欢迎界面显示
   messagesLoading.value = false // 关闭加载状态
   sessionStats.value = null
+  
+  // 添加到会话列表前端（新会话在最上面）
+  const newSession: SessionInfo = {
+    id: newId,
+    name: '新对话',
+    user_id: '',
+    channel: '',
+    created_at: Date.now(),
+    updated_at: Date.now(),
+  }
+  sessions.value.unshift(newSession)
+  
   router.push({ name: 'Chat', params: { id: newId } })
 }
 

@@ -191,12 +191,12 @@ func (s *Store) AddMessage(msg StoredMessage) error {
 	return tx.Commit()
 }
 
-// GetRecentMessages returns messages.
+// GetRecentMessages returns messages in chronological order (oldest first).
 func (s *Store) GetRecentMessages(sessionID string, limit int) ([]StoredMessage, error) {
 	rows, err := s.db.Query(
 		`SELECT id, session_id, role, content, token_count, embedding, created_at
          FROM messages WHERE session_id = ?
-         ORDER BY created_at DESC LIMIT ?`,
+         ORDER BY created_at ASC LIMIT ?`,
 		sessionID, limit,
 	)
 	if err != nil {
