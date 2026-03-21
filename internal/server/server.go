@@ -193,8 +193,8 @@ func (s *Server) registerRoutes(
 	cfgH := handlers.NewConfigHandler(cfgMgr, s.logger)
 	api.GET("/config", cfgH.Get)
 
-	// /api/settings — runtime settings (LLM providers, channel secrets, agent persona)
-	settingsH := handlers.NewSettingsHandler(settingsStore, wp.AgentMDFile, channelMgr, s.logger)
+	// /api/settings — runtime settings (LLM providers, channel secrets)
+	settingsH := handlers.NewSettingsHandler(settingsStore, channelMgr, s.logger)
 	settingsG := api.Group("/settings")
 	{
 		settingsG.GET("/setup-status", settingsH.SetupStatus)
@@ -212,16 +212,12 @@ func (s *Server) registerRoutes(
 		
 		settingsG.GET("/channels/:name", settingsH.GetChannelConfig)
 		settingsG.PUT("/channels/:name", settingsH.SetChannelConfig)
-		settingsG.GET("/agent", settingsH.GetAgentMD)
-		settingsG.PUT("/agent", settingsH.SetAgentMD)
 	}
 
-	// /api/workspace — agent files (AGENT.md, PERSONA.md, CONTEXT.md, MEMORY.md)
+	// /api/workspace — agent files (PERSONA.md, CONTEXT.md, MEMORY.md)
 	workspaceH := handlers.NewWorkspaceHandler(wp, s.logger)
 	workspaceG := api.Group("/workspace")
 	{
-		workspaceG.GET("/agent", workspaceH.GetAgent)
-		workspaceG.PUT("/agent", workspaceH.PutAgent)
 		workspaceG.GET("/persona", workspaceH.GetPersona)
 		workspaceG.PUT("/persona", workspaceH.PutPersona)
 		workspaceG.GET("/context", workspaceH.GetContext)

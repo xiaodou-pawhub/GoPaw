@@ -1,5 +1,5 @@
 // Package settings manages runtime settings stored in SQLite:
-// LLM provider configurations, channel plugin secrets, and agent persona (AGENT.md).
+// LLM provider configurations and channel plugin secrets.
 // These are configured via the Web UI after startup, separate from the static config.yaml.
 package settings
 
@@ -7,8 +7,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -499,38 +497,6 @@ func (s *Store) SetChannelConfig(channelName, jsonCfg string) error {
 		return fmt.Errorf("settings: set channel config: %w", err)
 	}
 	return nil
-}
-
-// ── AGENT.md ───────────────────────────────────────────────────────────────
-
-// DefaultAgentPrompt is used when data/AGENT.md does not exist yet.
-const DefaultAgentPrompt = `# GoPaw Agent 设定
-
-你是一个智能助理，名字叫 GoPaw。
-你会帮助用户完成各种任务，回答问题，处理文件。
-请用中文回复，语气友好自然。
-当你需要调用工具时，严格按照指定格式输出。`
-
-// ReadAgentMD reads the agent system prompt from the given file path.
-// Returns DefaultAgentPrompt if the file does not exist yet.
-func ReadAgentMD(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return DefaultAgentPrompt, nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("settings: read AGENT.md: %w", err)
-	}
-	return string(data), nil
-}
-
-// WriteAgentMD writes the agent system prompt to the given file path,
-// creating parent directories as needed.
-func WriteAgentMD(path, content string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("settings: create AGENT.md dir: %w", err)
-	}
-	return os.WriteFile(path, []byte(content), 0o644)
 }
 
 // IsSetupRequired returns true if no enabled LLM provider is configured.

@@ -60,18 +60,6 @@ export async function setActiveProvider(id: string): Promise<{ active: string }>
   return parseData(res)
 }
 
-// 获取 Agent 设定 (System Prompt)
-export async function getAgentConfig(): Promise<{ content: string }> {
-  const res = await api.get('/settings/agent')
-  return parseData(res)
-}
-
-// 保存 Agent 设定
-export async function saveAgentConfig(content: string): Promise<{ saved: boolean }> {
-  const res = await api.put('/settings/agent', { content })
-  return parseData(res)
-}
-
 // 获取指定频道的配置
 export async function getChannelConfig<T = Record<string, string>>(name: string): Promise<T> {
   const res = await api.get(`/settings/channels/${name}`)

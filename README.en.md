@@ -92,7 +92,6 @@ Level 3: Code Skill (Full Code)
 ### 🔧 Hot Configuration Reload
 
 - **config.yaml** - Auto-reload on modification
-- **AGENT.md** - System prompt takes effect immediately
 - **Skill management** - Web UI dynamic enable/disable
 
 ---

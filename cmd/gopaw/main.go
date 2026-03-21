@@ -197,10 +197,9 @@ func runStart() {
 		return entries, nil
 	}, logger)
 
-	basePrompt, _ := settings.ReadAgentMD(wp.AgentMDFile)
-	if basePrompt == "" {
-		basePrompt = settings.DefaultAgentPrompt
-	}
+	// In multi-agent mode, each agent has its own system prompt.
+	// The default prompt here is only used as a fallback for legacy single-agent mode.
+	basePrompt := "You are a helpful AI assistant."
 
 	memMgr := memory.NewManager(store, llmClient, cfg.Agent.Memory.ContextLimit, cfg.Agent.Memory.HistoryLimit, logger)
 	memMgr.SetArchiveDir(wp.MemoryArchDir)

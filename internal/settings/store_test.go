@@ -206,35 +206,3 @@ func TestIsSetupRequired(t *testing.T) {
 		t.Fatal("expected setup not required after adding provider")
 	}
 }
-
-// TestAgentMD_File tests reading and writing AGENT.md.
-func TestAgentMD_File(t *testing.T) {
-	// Create a temporary file
-	tmpFile := t.TempDir() + "/AGENT.md"
-	defer os.Remove(tmpFile)
-
-	// Test ReadAgentMD (non-existent) - should return default
-	content, err := ReadAgentMD(tmpFile)
-	if err != nil {
-		t.Fatalf("ReadAgentMD failed: %v", err)
-	}
-	if content != DefaultAgentPrompt {
-		t.Fatalf("expected default prompt, got %s", content)
-	}
-
-	// Test WriteAgentMD
-	customPrompt := "# Custom Agent\n\nI am a custom agent."
-	err = WriteAgentMD(tmpFile, customPrompt)
-	if err != nil {
-		t.Fatalf("WriteAgentMD failed: %v", err)
-	}
-
-	// Test ReadAgentMD (existing)
-	content, err = ReadAgentMD(tmpFile)
-	if err != nil {
-		t.Fatalf("ReadAgentMD failed: %v", err)
-	}
-	if content != customPrompt {
-		t.Fatalf("expected custom prompt, got %s", content)
-	}
-}

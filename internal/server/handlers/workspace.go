@@ -51,32 +51,6 @@ type fileRequest struct {
 	Content string `json:"content"`
 }
 
-// GetAgent handles GET /api/workspace/agent — reads AGENT.md.
-func (h *WorkspaceHandler) GetAgent(c *gin.Context) {
-	content, err := h.readFile(h.paths.AgentMDFile)
-	if err != nil {
-		h.logger.Error("failed to read AGENT.md", zap.Error(err))
-		api.InternalErrorWithDetails(c, "failed to read AGENT.md", err)
-		return
-	}
-	api.Success(c, fileResponse{Content: content})
-}
-
-// PutAgent handles PUT /api/workspace/agent — writes AGENT.md.
-func (h *WorkspaceHandler) PutAgent(c *gin.Context) {
-	var req fileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		api.BadRequestWithError(c, "invalid request", err)
-		return
-	}
-	if err := h.writeFile(h.paths.AgentMDFile, req.Content); err != nil {
-		h.logger.Error("failed to write AGENT.md", zap.Error(err))
-		api.InternalErrorWithDetails(c, "failed to write AGENT.md", err)
-		return
-	}
-	api.Success(c, gin.H{"message": "ok"})
-}
-
 // GetPersona handles GET /api/workspace/persona — reads PERSONA.md.
 func (h *WorkspaceHandler) GetPersona(c *gin.Context) {
 	content, err := h.readFile(h.paths.PersonaMDFile)

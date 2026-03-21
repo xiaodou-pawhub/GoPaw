@@ -92,7 +92,6 @@ Level 3: Code Skill（完整代码）
 ### 🔧 配置热加载
 
 - **config.yaml** - 修改后自动重载
-- **AGENT.md** - 系统提示即时生效
 - **技能管理** - Web UI 动态启用/禁用
 
 ---

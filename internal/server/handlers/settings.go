@@ -11,17 +11,16 @@ import (
 )
 
 // SettingsHandler handles /api/settings routes for runtime configuration
-// (LLM providers, channel secrets, agent persona).
+// (LLM providers and channel secrets).
 type SettingsHandler struct {
-	store       *settings.Store
-	agentMDPath string
-	logger      *zap.Logger
-	channelMgr  *channel.Manager
+	store      *settings.Store
+	logger     *zap.Logger
+	channelMgr *channel.Manager
 }
 
 // NewSettingsHandler creates a SettingsHandler.
-func NewSettingsHandler(store *settings.Store, agentMDPath string, channelMgr *channel.Manager, logger *zap.Logger) *SettingsHandler {
-	return &SettingsHandler{store: store, agentMDPath: agentMDPath, channelMgr: channelMgr, logger: logger}
+func NewSettingsHandler(store *settings.Store, channelMgr *channel.Manager, logger *zap.Logger) *SettingsHandler {
+	return &SettingsHandler{store: store, channelMgr: channelMgr, logger: logger}
 }
 
 // ── LLM Providers ──────────────────────────────────────────────────────────
@@ -221,36 +220,6 @@ func (h *SettingsHandler) SetChannelConfig(c *gin.Context) {
 	api.Success(c, gin.H{"channel": name})
 }
 
-// ── AGENT.md ───────────────────────────────────────────────────────────────
-
-// GetAgentMD handles GET /api/settings/agent
-func (h *SettingsHandler) GetAgentMD(c *gin.Context) {
-	content, err := settings.ReadAgentMD(h.agentMDPath)
-	if err != nil {
-		h.logger.Error("settings: read AGENT.md", zap.Error(err))
-		api.InternalErrorWithDetails(c, "failed to read AGENT.md", err)
-		return
-	}
-	api.Success(c, gin.H{"content": content})
-}
-
-// SetAgentMD handles PUT /api/settings/agent
-func (h *SettingsHandler) SetAgentMD(c *gin.Context) {
-	var body struct {
-		Content string `json:"content"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		api.BadRequestWithError(c, "invalid request body", err)
-		return
-	}
-	if err := settings.WriteAgentMD(h.agentMDPath, body.Content); err != nil {
-		h.logger.Error("settings: write AGENT.md", zap.Error(err))
-		api.InternalErrorWithDetails(c, "failed to write AGENT.md", err)
-		return
-	}
-	api.Success(c, gin.H{"saved": true})
-}
-
 // SetupStatus handles GET /api/settings/setup-status
 // Returns whether initial setup (LLM configuration) is still required.
 func (h *SettingsHandler) SetupStatus(c *gin.Context) {
@@ -258,6 +227,6 @@ func (h *SettingsHandler) SetupStatus(c *gin.Context) {
 	api.Success(c, gin.H{
 		"llm_configured": llmConfigured,
 		"setup_required": !llmConfigured,
-		"hint":           map[bool]string{true: "", false: "请在 Web UI → 设置 → LLM 提供商 中配置 LLM 才能开始对话"}[llmConfigured],
+		"hint":           map[bool]string{true: "", false: "请在 Web UI → 模型 中配置 LLM 才能开始对话"}[llmConfigured],
 	})
 }
