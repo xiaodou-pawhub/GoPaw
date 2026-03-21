@@ -98,10 +98,12 @@
         <div class="modal-body">
           <div class="form-field">
             <label>模型厂商 (可选)</label>
-            <select v-model="selectedVendorId" @change="handleVendorChange(selectedVendorId)" class="form-select">
-              <option value="">选择厂商以快速填充</option>
-              <option v-for="v in builtinProviders" :key="v.id" :value="v.id">{{ v.name }}</option>
-            </select>
+            <VendorCombobox
+              v-model="selectedVendorId"
+              :builtin-providers="builtinProviders"
+              placeholder="选择厂商以快速填充"
+              @change="handleVendorChange"
+            />
           </div>
           <div class="form-field">
             <label>名称</label>
@@ -176,6 +178,7 @@ import { toggleProvider, reorderProviders } from '@/api/settings-providers'
 import type { BackendProvider, BuiltinProvider } from '@/types'
 import { MODEL_CAPABILITIES, autoDetectCapabilities } from '@/types'
 import ModelCombobox from './ModelCombobox.vue'
+import VendorCombobox from './VendorCombobox.vue'
 
 const appStore = useAppStore()
 

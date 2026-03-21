@@ -127,6 +127,7 @@ import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   MessageSquare,
+  Cpu,
   Bot,
   Store,
   Zap,
@@ -156,6 +157,7 @@ const isCollapsed = ref(false)
 // 核心功能
 const coreItems = [
   { to: '/chat', label: '聊天', icon: MessageSquare },
+  { to: '/models', label: '模型', icon: Cpu },
   { to: '/agents', label: 'Agents', icon: Bot },
   { to: '/market', label: '技能市场', icon: Store },
 ]

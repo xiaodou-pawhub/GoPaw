@@ -18,7 +18,7 @@
       <div class="welcome-steps">
         <div class="step">
           <span class="step-num">1</span>
-          <span>进入 <strong>设置 → 模型配置</strong></span>
+          <span>进入 <strong>模型</strong> 页面</span>
         </div>
         <div class="step">
           <span class="step-num">2</span>
@@ -30,7 +30,7 @@
         </div>
       </div>
       <div class="welcome-actions">
-        <button class="btn-primary" @click="goToSettings">去配置</button>
+        <button class="btn-primary" @click="goToModels">去配置</button>
         <button class="btn-ghost" @click="showWelcome = false">稍后再说</button>
       </div>
     </div>
@@ -112,9 +112,9 @@ async function checkSetupStatus() {
   }
 }
 
-function goToSettings() {
+function goToModels() {
   showWelcome.value = false
-  router.push('/settings')
+  router.push('/models')
 }
 
 function handleGlobalKey(e: KeyboardEvent) {
@@ -124,8 +124,9 @@ function handleGlobalKey(e: KeyboardEvent) {
 
   if (e.metaKey || e.ctrlKey) {
     if (e.key === '1') { e.preventDefault(); router.push('/chat'); return }
-    if (e.key === '2') { e.preventDefault(); router.push('/market'); return }
-    if (e.key === '3' || e.key === ',') { e.preventDefault(); router.push('/settings'); return }
+    if (e.key === '2') { e.preventDefault(); router.push('/models'); return }
+    if (e.key === '3') { e.preventDefault(); router.push('/market'); return }
+    if (e.key === '4' || e.key === ',') { e.preventDefault(); router.push('/settings'); return }
   }
 
   if (e.key === 'Escape' && showWelcome.value) {

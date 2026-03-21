@@ -3,7 +3,6 @@
     <!-- 左侧 Tab 导航 -->
     <aside class="settings-nav">
       <div class="nav-section">
-        <div class="nav-section-title">模型</div>
         <button
           v-for="tab in tabs"
           :key="tab.key"
@@ -34,13 +33,12 @@
 <script setup lang="ts">
 import { ref, computed, defineAsyncComponent } from 'vue'
 import {
-  CpuIcon, BotIcon, ZapIcon, BrainIcon, BookOpenIcon,
+  BotIcon, ZapIcon, BrainIcon, BookOpenIcon,
   FileTextIcon, ClockIcon, ScrollTextIcon
 } from 'lucide-vue-next'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 
 const tabs = [
-  { key: 'providers', label: '模型配置', icon: CpuIcon },
   { key: 'agent', label: 'Agent 人设', icon: BotIcon },
   { key: 'context', label: '工作区背景', icon: BookOpenIcon },
   { key: 'memory', label: '记忆管理', icon: FileTextIcon },
@@ -50,11 +48,10 @@ const tabs = [
   { key: 'logs', label: '系统日志', icon: ScrollTextIcon },
 ]
 
-const activeTab = ref('providers')
+const activeTab = ref('agent')
 
 // 懒加载 Tab 组件（代码分割）
 const tabComponents: Record<string, any> = {
-  providers: defineAsyncComponent(() => import('@/components/settings/ProvidersTab.vue')),
   agent: defineAsyncComponent(() => import('@/components/settings/AgentTab.vue')),
   channels: defineAsyncComponent(() => import('@/components/settings/ChannelsTab.vue')),
   skills: defineAsyncComponent(() => import('@/components/settings/SkillsTab.vue')),
