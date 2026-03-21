@@ -22,7 +22,7 @@
           <div class="kb-name">{{ kb.name }}</div>
           <div class="kb-meta">{{ kb.document_count }} 文档 · {{ kb.chunk_count }} 块</div>
         </div>
-        <div v-if="knowledgeBases.length === 0" class="empty-state">暂无知识库</div>
+        <div v-if="!knowledgeBases || knowledgeBases.length === 0" class="empty-state">暂无知识库</div>
       </div>
 
       <!-- 右侧：详情 -->
@@ -81,7 +81,7 @@
               <span>文件名</span><span>类型</span><span>大小</span><span>状态</span><span>块数</span><span>上传时间</span><span>操作</span>
             </div>
             <div v-if="loadingDocs" class="empty-state">加载中...</div>
-            <div v-else-if="documents.length === 0" class="empty-state">暂无文档，请上传</div>
+            <div v-else-if="!documents || documents.length === 0" class="empty-state">暂无文档，请上传</div>
             <div v-for="doc in documents" :key="doc.id" class="data-row">
               <span class="doc-name">{{ doc.filename }}</span>
               <span class="text-sm">{{ doc.file_type }}</span>
@@ -132,7 +132,7 @@
             </button>
           </div>
 
-          <div v-if="searchResults.length > 0" class="search-results">
+          <div v-if="searchResults && searchResults.length > 0" class="search-results">
             <div v-for="(result, index) in searchResults" :key="result.chunk_id" class="result-item">
               <div class="result-rank">{{ index + 1 }}</div>
               <div class="result-content">

@@ -61,9 +61,10 @@ export const knowledgeApi = {
   },
 
   // 知识库管理
-  listBases: async () => {
+  listBases: async (): Promise<KnowledgeBase[]> => {
     const res = await api.get('/knowledge/bases')
-    return knowledgeApi.parseData<KnowledgeBase[]>(res)
+    const data = knowledgeApi.parseData<KnowledgeBase[]>(res)
+    return data || []
   },
 
   getBase: async (id: string) => {
@@ -110,9 +111,10 @@ export const knowledgeApi = {
   },
 
   // 文档管理
-  listDocuments: async (kbId: string) => {
+  listDocuments: async (kbId: string): Promise<Document[]> => {
     const res = await api.get(`/knowledge/bases/${kbId}/documents`)
-    return knowledgeApi.parseData<Document[]>(res)
+    const data = knowledgeApi.parseData<Document[]>(res)
+    return data || []
   },
 
   uploadDocument: async (kbId: string, file: File, fileType?: string) => {
