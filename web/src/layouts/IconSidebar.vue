@@ -73,6 +73,26 @@
         <div v-if="!isCollapsed" class="nav-group-title">系统</div>
         <div class="nav-items">
           <button
+            v-if="appStore.isMultiUser"
+            class="nav-item"
+            :class="{ active: isActive('/users') }"
+            :title="isCollapsed ? '用户管理' : ''"
+            @click="router.push('/users')"
+          >
+            <UsersIcon :size="18" />
+            <span v-if="!isCollapsed" class="nav-label">用户管理</span>
+          </button>
+          <button
+            v-if="appStore.isMultiUser"
+            class="nav-item"
+            :class="{ active: isActive('/audit-logs') }"
+            :title="isCollapsed ? '审计日志' : ''"
+            @click="router.push('/audit-logs')"
+          >
+            <ShieldCheckIcon :size="18" />
+            <span v-if="!isCollapsed" class="nav-label">审计日志</span>
+          </button>
+          <button
             v-for="item in systemItems"
             :key="item.to"
             class="nav-item"
@@ -119,8 +139,10 @@ import {
   Server,
   MessageCircle,
   Settings,
+  Users as UsersIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ShieldCheckIcon,
 } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 

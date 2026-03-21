@@ -92,6 +92,16 @@ func (svc *Service) List() ([]*User, error) {
 	return svc.store.List()
 }
 
+// SetRole updates the user's role.
+func (svc *Service) SetRole(userID string, role Role) error {
+	u, err := svc.store.GetByID(userID)
+	if err != nil {
+		return err
+	}
+	u.Role = role
+	return svc.store.Update(u)
+}
+
 // SetPassword updates the user's password.
 func (svc *Service) SetPassword(userID, newPassword string) error {
 	u, err := svc.store.GetByID(userID)

@@ -107,3 +107,49 @@ func (h *UsersHandler) SetActive(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
+
+type setRoleRequest struct {
+	Role user.Role `json:"role" binding:"required"`
+}
+
+// SetRole handles PUT /api/users/:id/role — admin only.
+func (h *UsersHandler) SetRole(c *gin.Context) {
+	var req setRoleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Role != user.RoleAdmin && req.Role != user.RoleMember {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效角色"})
+		return
+	}
+	if err := h.svc.SetRole(c.Param("id"), req.Role); errors.Is(err, user.ErrNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+		return
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+type resetPasswordRequest struct {
+	Password string `json:"password" binding:"required,min=8"`
+}
+
+// ResetPassword handles PUT /api/users/:id/password — admin only.
+func (h *UsersHandler) ResetPassword(c *gin.Context) {
+	var req resetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.SetPassword(c.Param("id"), req.Password); errors.Is(err, user.ErrNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+		return
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "重置密码失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}

@@ -45,13 +45,14 @@ func (h *QueueHandler) ListQueues(c *gin.Context) {
 			continue
 		}
 		result[i] = gin.H{
-			"name":               q,
-			"pending_count":      stats.PendingCount,
-			"processing_count":   stats.ProcessingCount,
-			"completed_count":    stats.CompletedCount,
-			"failed_count":       stats.FailedCount,
-			"delayed_count":      stats.DelayedCount,
-			"total_count":        stats.TotalCount,
+			"name":             q,
+			"paused":           h.mgr.IsPaused(q),
+			"pending_count":    stats.PendingCount,
+			"processing_count": stats.ProcessingCount,
+			"completed_count":  stats.CompletedCount,
+			"failed_count":     stats.FailedCount,
+			"delayed_count":    stats.DelayedCount,
+			"total_count":      stats.TotalCount,
 		}
 	}
 
@@ -181,16 +182,26 @@ func (h *QueueHandler) DeleteMessage(c *gin.Context) {
 	api.Success(c, gin.H{"message": "message deleted"})
 }
 
-// PauseQueue pauses a queue (not implemented yet).
+// PauseQueue pauses message consumption for a queue.
 func (h *QueueHandler) PauseQueue(c *gin.Context) {
-	// TODO: Implement queue pause/resume
-	api.Success(c, gin.H{"message": "queue pause not implemented yet"})
+	queueName := c.Param("name")
+	if err := h.mgr.Pause(queueName); err != nil {
+		h.logger.Error("failed to pause queue", zap.Error(err))
+		api.InternalErrorWithDetails(c, "failed to pause queue", err)
+		return
+	}
+	api.Success(c, gin.H{"paused": true, "queue": queueName})
 }
 
-// ResumeQueue resumes a queue (not implemented yet).
+// ResumeQueue resumes message consumption for a queue.
 func (h *QueueHandler) ResumeQueue(c *gin.Context) {
-	// TODO: Implement queue pause/resume
-	api.Success(c, gin.H{"message": "queue resume not implemented yet"})
+	queueName := c.Param("name")
+	if err := h.mgr.Resume(queueName); err != nil {
+		h.logger.Error("failed to resume queue", zap.Error(err))
+		api.InternalErrorWithDetails(c, "failed to resume queue", err)
+		return
+	}
+	api.Success(c, gin.H{"paused": false, "queue": queueName})
 }
 
 // CleanupQueue deletes old messages from a queue.

@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/agent"
 	"github.com/gopaw/gopaw/internal/agent/message"
+	"github.com/gopaw/gopaw/internal/audit"
 	"github.com/gopaw/gopaw/internal/auth"
 	"github.com/gopaw/gopaw/internal/channel"
 	"github.com/gopaw/gopaw/internal/config"
@@ -52,7 +53,7 @@ type Server struct {
 // New creates and configures the HTTP server without starting it.
 // adminToken is the resolved access token (from config or auto-generated).
 // m is the deployment mode controlling authentication behaviour.
-// authSvc and userSvc are only used in team/cloud mode (pass nil for solo).
+// authSvc and userSvc are only used in team mode (pass nil for solo).
 // staticFS is the embedded Vue frontend filesystem (pass nil to disable static serving).
 func New(
 	cfg *config.Config,
@@ -80,6 +81,7 @@ func New(
 	metricsService *metrics.Service,
 	knowledgeService *knowledge.Service,
 	orchestrationEngine *orchestration.Engine,
+	auditMgr *audit.Manager,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 	logger *zap.Logger,
@@ -99,7 +101,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, wp, staticFS)
+	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, auditMgr, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -137,6 +139,7 @@ func (s *Server) registerRoutes(
 	metricsService *metrics.Service,
 	knowledgeService *knowledge.Service,
 	orchestrationEngine *orchestration.Engine,
+	auditMgr *audit.Manager,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 ) {
@@ -451,7 +454,7 @@ func (s *Server) registerRoutes(
 		orchH.RegisterRoutes(api)
 	}
 
-	// /api/users — user management (team/cloud mode only, admin access)
+	// /api/users — user management (team mode only, admin access)
 	if userSvc != nil && m.IsMultiUser() {
 		usersH := handlers.NewUsersHandler(userSvc)
 		usersG := api.Group("/users")
@@ -460,6 +463,22 @@ func (s *Server) registerRoutes(
 			usersG.POST("", usersH.Create)
 			usersG.DELETE("/:id", usersH.Delete)
 			usersG.PUT("/:id/active", usersH.SetActive)
+			usersG.PUT("/:id/role", usersH.SetRole)
+			usersG.PUT("/:id/password", usersH.ResetPassword)
+		}
+	}
+
+	// /api/audit — audit log management (team mode only)
+	if auditMgr != nil && m.IsMultiUser() {
+		auditH := handlers.NewAuditHandler(auditMgr, s.logger)
+		auditG := api.Group("/audit")
+		{
+			auditG.GET("/logs", auditH.ListAuditLogs)
+			auditG.GET("/logs/recent", auditH.GetRecentAuditLogs)
+			auditG.GET("/logs/:id", auditH.GetAuditLog)
+			auditG.GET("/stats", auditH.GetAuditStats)
+			auditG.POST("/export", auditH.ExportAuditLogs)
+			auditG.POST("/cleanup", auditH.CleanupAuditLogs)
 		}
 	}
 

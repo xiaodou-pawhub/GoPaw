@@ -582,10 +582,17 @@ func runStart() {
 		workflowEngine = nil
 	}
 
-	// Initialize metrics service
+	// Initialize audit manager
 	if err := audit.InitSchema(store.DB()); err != nil {
 		logger.Warn("failed to initialize audit schema", zap.Error(err))
 	}
+	auditMgr, err := audit.NewManager(store.DB(), logger)
+	if err != nil {
+		logger.Warn("failed to initialize audit manager", zap.Error(err))
+		auditMgr = nil
+	}
+
+	// Initialize metrics service
 	metricsService, err := metrics.NewService(store.DB(), logger)
 	if err != nil {
 		logger.Warn("failed to initialize metrics service", zap.Error(err))
@@ -650,7 +657,7 @@ func runStart() {
 		metricsService.Collect()
 	}
 
-	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, wp, web.FS(), logger)
+	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, auditMgr, wp, web.FS(), logger)
 	go srv.Start()
 
 	// Auto-open browser in solo mode unless --no-browser is set.

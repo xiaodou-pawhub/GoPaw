@@ -22,6 +22,7 @@ type Manager struct {
 	logger  *zap.Logger
 	workers map[string]*Worker
 	mu      sync.RWMutex
+	paused  map[string]bool // queues that are paused
 	stop    chan struct{}
 }
 
@@ -31,6 +32,7 @@ func NewManager(db *sql.DB, logger *zap.Logger) (*Manager, error) {
 		db:      db,
 		logger:  logger.Named("queue"),
 		workers: make(map[string]*Worker),
+		paused:  make(map[string]bool),
 		stop:    make(chan struct{}),
 	}
 
@@ -176,7 +178,37 @@ func (m *Manager) GetMessage(id string) (*Message, error) {
 }
 
 // Dequeue retrieves the next available message from a queue.
+// Pause marks a queue as paused; workers will not dequeue new messages.
+func (m *Manager) Pause(queueName string) error {
+	m.mu.Lock()
+	m.paused[queueName] = true
+	m.mu.Unlock()
+	m.logger.Info("queue paused", zap.String("queue", queueName))
+	return nil
+}
+
+// Resume un-pauses a queue so workers resume processing.
+func (m *Manager) Resume(queueName string) error {
+	m.mu.Lock()
+	delete(m.paused, queueName)
+	m.mu.Unlock()
+	m.logger.Info("queue resumed", zap.String("queue", queueName))
+	return nil
+}
+
+// IsPaused returns whether the queue is currently paused.
+func (m *Manager) IsPaused(queueName string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.paused[queueName]
+}
+
 func (m *Manager) Dequeue(queue string, workerID string) (*Message, error) {
+	// Do not dequeue from paused queues.
+	if m.IsPaused(queue) {
+		return nil, nil
+	}
+
 	now := time.Now().UTC()
 
 	// Start transaction

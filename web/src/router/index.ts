@@ -1,8 +1,16 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import MainLayout from '@/layouts/MainLayout.vue'
+import { useAppStore } from '@/stores/app'
+import { getMode } from '@/api/auth'
 
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/pages/Login.vue'),
+    meta: { public: true }
+  },
   {
     path: '/',
     component: MainLayout,
@@ -75,6 +83,16 @@ const routes: RouteRecordRaw[] = [
         path: 'orchestrations',
         name: 'Orchestrations',
         component: () => import('@/pages/Orchestrations.vue')
+      },
+      {
+        path: 'users',
+        name: 'Users',
+        component: () => import('@/pages/Users.vue')
+      },
+      {
+        path: 'audit-logs',
+        name: 'AuditLogs',
+        component: () => import('@/pages/AuditLogs.vue')
       }
     ]
   }
@@ -83,6 +101,27 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+router.beforeEach(async (to) => {
+  if (to.meta.public) return true
+
+  const appStore = useAppStore()
+  if (!appStore.modeInfo) {
+    try {
+      const info = await getMode()
+      appStore.setModeInfo(info)
+    } catch {
+      return true
+    }
+  }
+
+  if (appStore.isSoloMode) return true
+
+  const token = localStorage.getItem('access_token')
+  if (!token) return '/login'
+
+  return true
 })
 
 export default router
