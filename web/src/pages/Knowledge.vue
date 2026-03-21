@@ -452,21 +452,25 @@ function formatDate(date: string) {
 
 <style scoped>
 .knowledge-page {
-  padding: 24px 32px;
-  height: 100%;
-  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-app);
 }
 
 .page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 24px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
 }
 
 .page-title {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 600;
   color: var(--text-primary);
   margin: 0;
 }
@@ -533,10 +537,12 @@ function formatDate(date: string) {
 .btn-danger:hover { background: #dc2626; }
 
 .kb-layout {
+  flex: 1;
   display: grid;
   grid-template-columns: 220px 1fr;
   gap: 16px;
-  min-height: 500px;
+  padding: 24px;
+  overflow: hidden;
 }
 
 .kb-sidebar {
@@ -544,6 +550,8 @@ function formatDate(date: string) {
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar-title {
@@ -587,6 +595,8 @@ function formatDate(date: string) {
   border-radius: 8px;
   padding: 20px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .kb-empty {
@@ -599,6 +609,7 @@ function formatDate(date: string) {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 8px;
+  padding: 48px;
 }
 
 .kb-empty p { font-size: 14px; margin: 0; }
@@ -680,7 +691,10 @@ function formatDate(date: string) {
 .tab-btn:hover { color: var(--text-primary); }
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-.tab-content { }
+.tab-content {
+  flex: 1;
+  overflow-y: auto;
+}
 
 .tab-toolbar {
   display: flex;
@@ -689,7 +703,10 @@ function formatDate(date: string) {
 }
 
 /* Data table */
-.data-table { overflow-x: auto; }
+.data-table {
+  overflow-x: auto;
+  flex: 1;
+}
 
 .data-thead,
 .data-row {
@@ -699,6 +716,7 @@ function formatDate(date: string) {
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid var(--border-subtle);
+  min-width: 600px;
 }
 
 .data-thead {
@@ -833,29 +851,30 @@ function formatDate(date: string) {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0,0,0,0.65);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 1000;
 }
 
 .modal-card {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 24px;
   width: 500px;
   max-width: 95vw;
   max-height: 90vh;
   overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 .modal-sm { width: 380px; }
 
 .modal-title {
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-primary);
   margin: 0 0 20px;
 }
@@ -874,7 +893,7 @@ function formatDate(date: string) {
 .form-group label {
   display: block;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-secondary);
   margin-bottom: 6px;
 }
@@ -883,13 +902,21 @@ function formatDate(date: string) {
 .form-group select,
 .form-group textarea {
   width: 100%;
-  padding: 8px 10px;
+  padding: 8px 12px;
   background: var(--bg-app);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-primary);
   font-size: 13px;
   box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  border-color: var(--accent);
 }
 
 .form-group input[type="range"] {
@@ -898,7 +925,7 @@ function formatDate(date: string) {
   background: transparent;
 }
 
-.form-group input:disabled { opacity: 0.6; }
+.form-group input:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .file-input {
   padding: 4px 0 !important;
@@ -919,5 +946,7 @@ function formatDate(date: string) {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
 }
 </style>
