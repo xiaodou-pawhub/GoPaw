@@ -117,10 +117,12 @@
           </div>
           <div class="form-field">
             <label>模型</label>
-            <input v-model="formModel.model" :list="'model-list-' + formModel.id" placeholder="gpt-4o-mini" class="form-input" />
-            <datalist :id="'model-list-' + formModel.id">
-              <option v-for="m in modelOptions" :key="m" :value="m" />
-            </datalist>
+            <ModelCombobox
+              v-model="formModel.model"
+              :selected-vendor-id="selectedVendorId"
+              :builtin-providers="builtinProviders"
+              placeholder="输入或选择模型"
+            />
           </div>
 
           <div class="form-field">
@@ -173,6 +175,7 @@ import { getProviders, saveProvider, deleteProvider, getBuiltinProviders, getPro
 import { toggleProvider, reorderProviders } from '@/api/settings-providers'
 import type { BackendProvider, BuiltinProvider } from '@/types'
 import { MODEL_CAPABILITIES, autoDetectCapabilities } from '@/types'
+import ModelCombobox from './ModelCombobox.vue'
 
 const appStore = useAppStore()
 
@@ -201,11 +204,6 @@ const coreCaps = computed(() =>
 const featureCaps = computed(() =>
   Object.values(MODEL_CAPABILITIES).filter(c => c.category === 'feature')
 )
-
-const modelOptions = computed(() => {
-  const vendor = builtinProviders.value.find(v => v.id === selectedVendorId.value)
-  return vendor ? vendor.models : []
-})
 
 async function loadData() {
   try {
@@ -675,6 +673,44 @@ onUnmounted(() => { if (healthTimer) clearInterval(healthTimer) })
   color: var(--text-secondary);
 }
 
+.form-field-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+.model-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.model-input-wrapper .form-input {
+  width: 100%;
+  padding-right: 32px; /* Space for clear button */
+}
+
+.btn-clear-model {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.btn-clear-model:hover {
+  color: var(--text-primary);
+  background: var(--bg-overlay);
+}
+
 .form-input,
 .form-select {
   width: 100%;
@@ -693,6 +729,14 @@ onUnmounted(() => { if (healthTimer) clearInterval(healthTimer) })
 .form-select:focus { border-color: var(--accent); }
 
 .form-select option { background: var(--bg-elevated); }
+
+/* Datalist styling */
+.form-input[list]::-webkit-calendar-picker-indicator {
+  display: block;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
 
 /* Cap toggles */
 .tag-section { display: flex; flex-direction: column; gap: 6px; }
