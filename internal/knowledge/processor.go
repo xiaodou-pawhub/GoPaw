@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -58,6 +59,14 @@ func (p *DocumentProcessor) Process(ctx context.Context, docID string) error {
 	if err != nil {
 		p.updateDocumentStatus(ctx, docID, "failed", err.Error())
 		return err
+	}
+
+	// 检测文本有效性
+	textLength := len(strings.TrimSpace(text))
+	if textLength < 50 {
+		errMsg := fmt.Sprintf("文档文本太少（仅 %d 字符），无法有效处理", textLength)
+		p.updateDocumentStatus(ctx, docID, "no_text", errMsg)
+		return fmt.Errorf(errMsg)
 	}
 
 	// 文本分块（使用默认配置）

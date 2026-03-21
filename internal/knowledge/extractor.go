@@ -164,6 +164,7 @@ func (e *PDFExtractor) Extract(r io.Reader) (string, error) {
 
 	var result strings.Builder
 	numPages := pdfReader.NumPage()
+	textPages := 0
 
 	for pageNum := 1; pageNum <= numPages; pageNum++ {
 		page := pdfReader.Page(pageNum)
@@ -176,10 +177,27 @@ func (e *PDFExtractor) Extract(r io.Reader) (string, error) {
 			continue
 		}
 
-		result.WriteString(fmt.Sprintf("\n--- Page %d ---\n", pageNum))
-		result.WriteString(text)
-		result.WriteString("\n")
+		// 检测页面是否有有效文本
+		pageText := strings.TrimSpace(text)
+		if len(pageText) > 0 {
+			textPages++
+			result.WriteString(fmt.Sprintf("\n--- Page %d ---\n", pageNum))
+			result.WriteString(text)
+			result.WriteString("\n")
+		}
 	}
 
-	return result.String(), nil
+	// 检测提取结果有效性
+	extractedText := strings.TrimSpace(result.String())
+	textLength := len(extractedText)
+
+	// 如果文本太少，可能是扫描版 PDF
+	if textLength < 100 {
+		if numPages > 0 && textPages == 0 {
+			return "", fmt.Errorf("PDF 无文本内容（可能是扫描版），请上传文本版本或使用 OCR 工具转换")
+		}
+		return "", fmt.Errorf("PDF 文本太少（仅 %d 字符），无法有效处理", textLength)
+	}
+
+	return extractedText, nil
 }
