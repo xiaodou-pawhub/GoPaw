@@ -21,6 +21,11 @@ type AppConfig struct {
 	Language   string `mapstructure:"language"`
 	Timezone   string `mapstructure:"timezone"`
 	AdminToken string `mapstructure:"admin_token"`
+	// Mode controls multi-tenancy and authentication behaviour.
+	// solo: single-user, no login required.
+	// team: JWT auth, admin-managed users (up to 50).
+	// cloud: JWT auth + invite codes, open registration.
+	Mode string `mapstructure:"mode"`
 }
 
 // ServerConfig holds HTTP server bind settings.
@@ -152,9 +157,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.name", "GoPaw")
 	v.SetDefault("app.language", "zh")
 	v.SetDefault("app.timezone", "Asia/Shanghai")
+	v.SetDefault("app.mode", "solo")
 
 	v.SetDefault("server.host", "0.0.0.0")
-	v.SetDefault("server.port", 8088)
+	v.SetDefault("server.port", 16688)
 
 	v.SetDefault("agent.max_steps", 20)
 	v.SetDefault("agent.memory.context_limit", 4000)

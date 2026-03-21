@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGo)
 )
 
 // Storage handles database operations for traces.
@@ -20,7 +20,7 @@ type Storage struct {
 
 // NewStorage creates a new storage instance.
 func NewStorage(dbPath string) (*Storage, error) {
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open trace database: %w", err)
 	}

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGo)
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -48,7 +48,7 @@ func NewManager(dbPath string, agentsDir string, logger *zap.Logger) (*Manager, 
 	}
 
 	// Open database
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open agents database: %w", err)
 	}

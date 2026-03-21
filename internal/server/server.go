@@ -16,11 +16,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/agent"
 	"github.com/gopaw/gopaw/internal/agent/message"
+	"github.com/gopaw/gopaw/internal/auth"
 	"github.com/gopaw/gopaw/internal/channel"
 	"github.com/gopaw/gopaw/internal/config"
 	"github.com/gopaw/gopaw/internal/cron"
 	"github.com/gopaw/gopaw/internal/knowledge"
 	"github.com/gopaw/gopaw/internal/mcp"
+	"github.com/gopaw/gopaw/internal/mode"
 	"github.com/gopaw/gopaw/internal/orchestration"
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/metrics"
@@ -31,6 +33,7 @@ import (
 	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/internal/trace"
 	"github.com/gopaw/gopaw/internal/trigger"
+	"github.com/gopaw/gopaw/internal/user"
 	"github.com/gopaw/gopaw/internal/workflow"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"go.uber.org/zap"
@@ -39,6 +42,7 @@ import (
 // Server bundles the HTTP server and all route handlers.
 type Server struct {
 	cfg       *config.Config
+	mode      mode.Mode
 	engine    *gin.Engine
 	httpSrv   *http.Server
 	wsHandler *WSHandler
@@ -47,10 +51,15 @@ type Server struct {
 
 // New creates and configures the HTTP server without starting it.
 // adminToken is the resolved access token (from config or auto-generated).
+// m is the deployment mode controlling authentication behaviour.
+// authSvc and userSvc are only used in team/cloud mode (pass nil for solo).
 // staticFS is the embedded Vue frontend filesystem (pass nil to disable static serving).
 func New(
 	cfg *config.Config,
 	adminToken string,
+	m mode.Mode,
+	authSvc *auth.Service,
+	userSvc *user.Service,
 	agentInstance *agent.ReActAgent,
 	memMgr *memory.Manager,
 	ltmStore *memory.LTMStore,
@@ -84,12 +93,13 @@ func New(
 
 	s := &Server{
 		cfg:       cfg,
+		mode:      m,
 		engine:    engine,
 		wsHandler: NewWSHandler(agentInstance, agentRouter, logger),
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, wp, staticFS)
+	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -104,6 +114,9 @@ func New(
 // registerRoutes wires all API routes and the SPA static file handler.
 func (s *Server) registerRoutes(
 	adminToken string,
+	m mode.Mode,
+	authSvc *auth.Service,
+	userSvc *user.Service,
 	agentInstance *agent.ReActAgent,
 	memMgr *memory.Manager,
 	ltmStore *memory.LTMStore,
@@ -128,24 +141,34 @@ func (s *Server) registerRoutes(
 	staticFS fs.FS,
 ) {
 	// WebSocket endpoint — protected by WebAuth (cookie must be valid).
-	s.engine.GET("/ws", WebAuth(adminToken), s.wsHandler.Handle)
+	s.engine.GET("/ws", WebAuth(adminToken, m, authSvc), s.wsHandler.Handle)
 
 	// Approval WebSocket endpoint — for tool execution approval in Web Console.
 	approvalHandler := NewApprovalWSHandler(tool.GlobalApprovalStore, s.logger)
-	s.engine.GET("/ws/approval", WebAuth(adminToken), approvalHandler.Handle)
+	s.engine.GET("/ws/approval", WebAuth(adminToken, m, authSvc), approvalHandler.Handle)
 	_ = approvalHandler // avoid unused warning for now
 
-	// /api/auth — public, no auth required
-	authH := handlers.NewAuthHandler(adminToken)
+	// /api/mode — public, returns current deployment mode and auth requirements.
+	s.engine.GET("/api/mode", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"mode":         m.String(),
+			"require_auth": m.RequireAuth(),
+			"multi_user":   m.IsMultiUser(),
+		})
+	})
+
+	// /api/auth — public, no auth required (except /status and /me)
+	authH := handlers.NewAuthHandler(adminToken, m, authSvc, userSvc)
 	authG := s.engine.Group("/api/auth")
 	{
 		authG.POST("/login", authH.Login)
 		authG.POST("/logout", authH.Logout)
-		// /api/auth/status is behind WebAuth: 200 = logged in, 401 = not logged in
-		authG.GET("/status", WebAuth(adminToken), authH.Status)
+		// /api/auth/status and /me are behind WebAuth
+		authG.GET("/status", WebAuth(adminToken, m, authSvc), authH.Status)
+		authG.GET("/me", WebAuth(adminToken, m, authSvc), authH.Me)
 	}
 
-	api := s.engine.Group("/api", WebAuth(adminToken))
+	api := s.engine.Group("/api", WebAuth(adminToken, m, authSvc))
 
 	// /api/agent
 	agentH := handlers.NewAgentHandler(agentInstance, agentRouter, memMgr, s.logger)
@@ -426,6 +449,18 @@ func (s *Server) registerRoutes(
 	if orchestrationEngine != nil {
 		orchH := handlers.NewOrchestrationHandler(orchestration.NewService(orchestrationEngine.DB, orchestrationEngine))
 		orchH.RegisterRoutes(api)
+	}
+
+	// /api/users — user management (team/cloud mode only, admin access)
+	if userSvc != nil && m.IsMultiUser() {
+		usersH := handlers.NewUsersHandler(userSvc)
+		usersG := api.Group("/users")
+		{
+			usersG.GET("", usersH.List)
+			usersG.POST("", usersH.Create)
+			usersG.DELETE("/:id", usersH.Delete)
+			usersG.PUT("/:id/active", usersH.SetActive)
+		}
 	}
 
 	// DingTalk channel routes (no /api prefix).

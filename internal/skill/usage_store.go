@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGo)
 	"go.uber.org/zap"
 )
 
@@ -28,7 +28,7 @@ type UsageRecord struct {
 
 // NewUsageStore creates a new usage store.
 func NewUsageStore(dbPath string, logger *zap.Logger) (*UsageStore, error) {
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open usage store: %w", err)
 	}

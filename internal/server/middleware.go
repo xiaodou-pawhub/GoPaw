@@ -3,11 +3,18 @@ package server
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gopaw/gopaw/internal/auth"
+	"github.com/gopaw/gopaw/internal/mode"
 	"go.uber.org/zap"
 )
+
+// contextKeyUserID is the gin context key for the authenticated user ID (team/cloud mode).
+const contextKeyUserID = "gopaw_user_id"
+const contextKeyUsername = "gopaw_username"
 
 // ZapLogger returns a Gin middleware that logs HTTP requests using zap.
 // 2xx/3xx → Debug（正常请求不打扰控制台）
@@ -59,17 +66,52 @@ func Recovery(logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-// WebAuth returns a middleware that enforces session-cookie authentication for the Web UI.
-// Requests carrying a valid gopaw_session cookie are allowed through.
-// Returns 401 for unauthenticated API calls so the frontend can redirect to the login overlay.
-func WebAuth(adminToken string) gin.HandlerFunc {
+// WebAuth returns a middleware that enforces authentication based on the current mode.
+//
+//   - solo:        no authentication — UI is immediately accessible.
+//   - team/cloud:  JWT validation (Bearer header or gopaw_session cookie).
+//     Falls back to admin token cookie for backward compatibility.
+func WebAuth(adminToken string, m mode.Mode, authSvc ...*auth.Service) gin.HandlerFunc {
+	var svc *auth.Service
+	if len(authSvc) > 0 {
+		svc = authSvc[0]
+	}
 	return func(c *gin.Context) {
-		cookie, err := c.Cookie("gopaw_session")
-		if err != nil || cookie != adminToken {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "未登录，请输入访问 Token"})
+		// Solo mode: open access, no token required.
+		if !m.RequireAuth() {
+			c.Next()
 			return
 		}
-		c.Next()
+
+		// Attempt JWT from Authorization: Bearer header.
+		if svc != nil {
+			if bearer := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "); bearer != "" {
+				if claims, err := svc.ValidateToken(bearer); err == nil {
+					c.Set(contextKeyUserID, claims.UserID)
+					c.Set(contextKeyUsername, claims.Username)
+					c.Next()
+					return
+				}
+			}
+			// Attempt JWT stored in session cookie.
+			if cookie, err := c.Cookie("gopaw_session"); err == nil && cookie != "" {
+				if claims, err := svc.ValidateToken(cookie); err == nil {
+					c.Set(contextKeyUserID, claims.UserID)
+					c.Set(contextKeyUsername, claims.Username)
+					c.Next()
+					return
+				}
+			}
+		}
+
+		// Fallback: legacy admin token cookie (team mode on fresh install).
+		cookie, err := c.Cookie("gopaw_session")
+		if err == nil && cookie == adminToken {
+			c.Next()
+			return
+		}
+
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "未登录，请输入访问 Token"})
 	}
 }
 

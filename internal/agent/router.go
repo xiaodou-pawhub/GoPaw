@@ -27,7 +27,7 @@ type Router struct {
 // NewRouter creates a new agent router.
 func NewRouter(manager *Manager, factory *Factory, dbPath string, logger *zap.Logger) (*Router, error) {
 	// Open database for session-agent bindings
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open session-agent database: %w", err)
 	}

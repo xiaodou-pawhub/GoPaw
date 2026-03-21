@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/gopaw/gopaw/internal/agent"
 	"github.com/gopaw/gopaw/internal/audit"
+	"github.com/gopaw/gopaw/internal/auth"
 	"github.com/gopaw/gopaw/internal/channel"
 	"github.com/gopaw/gopaw/internal/config"
 	"github.com/gopaw/gopaw/internal/convlog"
@@ -31,6 +33,7 @@ import (
 	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/mcp"
 	"github.com/gopaw/gopaw/internal/memory"
+	"github.com/gopaw/gopaw/internal/mode"
 	"github.com/gopaw/gopaw/internal/orchestration"
 	"github.com/gopaw/gopaw/internal/agent/message"
 	"github.com/gopaw/gopaw/internal/sandbox"
@@ -40,9 +43,11 @@ import (
 	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/internal/tool/builtin"
 	"github.com/gopaw/gopaw/internal/trace"
+	"github.com/gopaw/gopaw/internal/tray"
 	"github.com/gopaw/gopaw/internal/queue"
 	"github.com/gopaw/gopaw/internal/metrics"
 	"github.com/gopaw/gopaw/internal/trigger"
+	"github.com/gopaw/gopaw/internal/user"
 	"github.com/gopaw/gopaw/internal/workflow"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"github.com/gopaw/gopaw/pkg/plugin"
@@ -80,7 +85,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Fprintln(os.Stderr, `GoPaw - Lightweight AI Assistant Workbench
+	fmt.Fprintln(os.Stderr, `GoPaw - Unified AI Assistant Workbench
 
 Usage:
   gopaw <command> [flags]
@@ -88,7 +93,13 @@ Usage:
 Commands:
   init      Generate a default config.yaml
   start     Start the GoPaw server
-  version   Print version info`)
+  version   Print version info
+
+Start flags:
+  --config string   Path to config file (default "config.yaml")
+  --mode  string    Deployment mode: solo|team|cloud (overrides config app.mode)
+  --tray            Run as system tray app (requires -tags tray build)
+  --no-browser      Suppress auto-opening browser on startup`)
 }
 
 func runInit() {
@@ -107,9 +118,14 @@ app:
   name: "GoPaw"
   language: zh
   timezone: Asia/Shanghai
+  # mode: solo | team | cloud
+  # solo  - single user, no login required (default)
+  # team  - multi-user with JWT auth (≤50 users, admin-managed)
+  # cloud - JWT auth + invite codes, open registration
+  mode: solo
 server:
   host: 0.0.0.0
-  port: 8088
+  port: 16688
 agent:
   max_steps: 20
   memory:
@@ -130,7 +146,11 @@ func runVersion() {
 func runStart() {
 	fs := flag.NewFlagSet("start", flag.ExitOnError)
 	cfgFile := fs.String("config", "config.yaml", "Path to config file")
+	modeFlag := fs.String("mode", "", "Deployment mode: solo|team|cloud (overrides config app.mode)")
+	trayFlag := fs.Bool("tray", false, "Run as system tray app (auto-opens browser, requires -tags tray build)")
+	noBrowserFlag := fs.Bool("no-browser", false, "Suppress auto-opening browser on startup")
 	fs.Parse(os.Args[2:])
+	_ = trayFlag // systray integration handled below after logger is ready
 
 	preLogger, _ := zap.NewProduction()
 	cfgMgr, err := config.NewManager(*cfgFile, preLogger)
@@ -139,6 +159,12 @@ func runStart() {
 		os.Exit(1)
 	}
 	cfg := cfgMgr.Get()
+
+	// --mode flag overrides config app.mode
+	appMode := mode.Parse(cfg.App.Mode)
+	if *modeFlag != "" {
+		appMode = mode.Parse(*modeFlag)
+	}
 
 	wp, err := workspace.Resolve(cfg.Workspace.Dir)
 	if err != nil {
@@ -460,6 +486,25 @@ func runStart() {
 		logger.Info("⚡ Admin token", zap.String("token", adminToken))
 	}
 
+	// --- Auth + User Services (team/cloud mode only) ---
+	var authSvc *auth.Service
+	var userSvc *user.Service
+	if appMode.IsMultiUser() {
+		authSvc = auth.NewService(auth.DefaultConfig())
+		userStore, err := user.NewStore(store.DB())
+		if err != nil {
+			logger.Warn("failed to initialize user store", zap.Error(err))
+		} else {
+			userSvc = user.NewService(userStore)
+			// Ensure there is at least one admin user on first launch.
+			if _, err := userSvc.EnsureAdminExists("admin", adminToken); err != nil {
+				logger.Warn("failed to ensure admin user exists", zap.Error(err))
+			} else {
+				logger.Info("team mode: admin user ready", zap.String("username", "admin"))
+			}
+		}
+	}
+
 	// Initialize agent manager for multi-agent support
 	agentsDBPath := filepath.Join(wp.Root, "agents.db")
 	agentsDir := filepath.Join(wp.Root, "agents")
@@ -605,8 +650,50 @@ func runStart() {
 		metricsService.Collect()
 	}
 
-	srv := server.New(cfg, adminToken, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, wp, web.FS(), logger)
+	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, wp, web.FS(), logger)
 	go srv.Start()
+
+	// Auto-open browser in solo mode unless --no-browser is set.
+	serverAddr := fmt.Sprintf("http://%s:%d", func() string {
+		if cfg.Server.Host == "0.0.0.0" {
+			return "localhost"
+		}
+		return cfg.Server.Host
+	}(), cfg.Server.Port)
+	if (appMode == mode.Solo || *trayFlag) && !*noBrowserFlag {
+		go openBrowser(serverAddr, logger)
+	}
+	logger.Info("gopaw started",
+		zap.String("mode", appMode.String()),
+		zap.String("url", serverAddr),
+		zap.Bool("tray", *trayFlag),
+	)
+
+	if *trayFlag {
+		// Tray mode: systray.Run() blocks the main thread (required by macOS).
+		// The quit channel is still monitored in a goroutine so SIGTERM works too.
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-quit
+			cancel()
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer shutdownCancel()
+			srv.Shutdown(shutdownCtx)
+			os.Exit(0)
+		}()
+		tray.Run(tray.Config{
+			AppURL: serverAddr,
+			OnQuit: func() {
+				cancel()
+				shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer shutdownCancel()
+				srv.Shutdown(shutdownCtx)
+			},
+			Logger: logger,
+		})
+		return // systray.Run exited
+	}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -912,5 +999,24 @@ func (t *knowledgeListTool) Execute(ctx context.Context, args map[string]interfa
 
 	return &plugin.ToolResult{
 		LLMOutput: result.String(),
+	}
+}
+
+// openBrowser opens the default web browser to the given URL after a short delay
+// to allow the HTTP server time to start.
+func openBrowser(url string, logger *zap.Logger) {
+	time.Sleep(800 * time.Millisecond)
+	var cmd string
+	var args []string
+	switch runtime.GOOS {
+	case "darwin":
+		cmd, args = "open", []string{url}
+	case "windows":
+		cmd, args = "rundll32", []string{"url.dll,FileProtocolHandler", url}
+	default:
+		cmd, args = "xdg-open", []string{url}
+	}
+	if err := exec.Command(cmd, args...).Start(); err != nil {
+		logger.Warn("failed to open browser", zap.String("url", url), zap.Error(err))
 	}
 }
