@@ -11,27 +11,31 @@ import (
 
 // Service 知识库服务
 type Service struct {
-	db        *sql.DB
-	encoder   embedding.Encoder
+	db       *sql.DB
+	encoder  embedding.Encoder
 	processor *DocumentProcessor
-	searcher  *KnowledgeSearcher
+	indexer  *VectorIndexer
 }
 
 // NewService 创建知识库服务
 func NewService(db *sql.DB) *Service {
 	encoder := embedding.GetDefaultEncoder()
+	indexer := NewVectorIndexer(db, encoder)
 	return &Service{
 		db:        db,
 		encoder:   encoder,
-		processor: NewDocumentProcessor(db, encoder, ChunkByMarkdown),
-		searcher:  NewKnowledgeSearcher(db, encoder),
+		processor: NewDocumentProcessor(db, encoder, ChunkByMarkdown, indexer),
+		indexer:   indexer,
 	}
 }
 
 // CreateKnowledgeBase 创建知识库
 func (s *Service) CreateKnowledgeBase(ctx context.Context, req CreateKnowledgeBaseRequest) (*KnowledgeBase, error) {
+	// 自动生成 ID
+	kbID := fmt.Sprintf("kb_%d", time.Now().UnixNano())
+	
 	kb := &KnowledgeBase{
-		ID:          req.ID,
+		ID:          kbID,
 		Name:        req.Name,
 		Description: req.Description,
 		Status:      "active",
@@ -113,7 +117,13 @@ func (s *Service) UpdateKnowledgeBase(ctx context.Context, id string, req Update
 func (s *Service) DeleteKnowledgeBase(ctx context.Context, id string) error {
 	// 删除知识库会级联删除文档和块
 	_, err := s.db.ExecContext(ctx, "DELETE FROM knowledge_bases WHERE id = ?", id)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// 删除向量索引
+	s.indexer.DeleteIndex(id)
+	return nil
 }
 
 // UploadDocument 上传文档
@@ -137,8 +147,10 @@ func (s *Service) UploadDocument(ctx context.Context, kbID string, filename stri
 	err := s.db.QueryRowContext(ctx,
 		"SELECT id FROM knowledge_documents WHERE knowledge_base_id = ? AND file_hash = ?",
 		kbID, doc.FileHash).Scan(&existingID)
+	
+	// 如果存在相同哈希的文档，返回已存在的文档（不报错）
 	if err == nil && existingID != "" {
-		return nil, fmt.Errorf("document with same content already exists: %s", existingID)
+		return s.GetDocument(ctx, existingID)
 	}
 
 	_, err = s.db.ExecContext(ctx, `
@@ -167,7 +179,7 @@ func (s *Service) processDocument(ctx context.Context, docID string) {
 // GetDocument 获取文档
 func (s *Service) GetDocument(ctx context.Context, id string) (*Document, error) {
 	var doc Document
-	var metadataStr string
+	var metadataStr sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, knowledge_base_id, filename, file_type, file_size, file_hash, metadata, status, error_message, chunk_count, processed_at, created_at
@@ -180,8 +192,8 @@ func (s *Service) GetDocument(ctx context.Context, id string) (*Document, error)
 		return nil, err
 	}
 
-	if metadataStr != "" {
-		doc.Metadata.Scan(metadataStr)
+	if metadataStr.Valid && metadataStr.String != "" {
+		doc.Metadata.Scan(metadataStr.String)
 	}
 
 	return &doc, nil
@@ -201,7 +213,7 @@ func (s *Service) ListDocuments(ctx context.Context, kbID string) ([]Document, e
 	var docs []Document
 	for rows.Next() {
 		var doc Document
-		var metadataStr string
+		var metadataStr sql.NullString
 		err := rows.Scan(
 			&doc.ID, &doc.KnowledgeBaseID, &doc.Filename, &doc.FileType, &doc.FileSize, &doc.FileHash,
 			&metadataStr, &doc.Status, &doc.ErrorMessage, &doc.ChunkCount, &doc.ProcessedAt, &doc.CreatedAt,
@@ -210,8 +222,8 @@ func (s *Service) ListDocuments(ctx context.Context, kbID string) ([]Document, e
 			continue
 		}
 
-		if metadataStr != "" {
-			doc.Metadata.Scan(metadataStr)
+		if metadataStr.Valid && metadataStr.String != "" {
+			doc.Metadata.Scan(metadataStr.String)
 		}
 
 		docs = append(docs, doc)
@@ -277,28 +289,10 @@ func (s *Service) Search(ctx context.Context, kbID string, req SearchRequest) (*
 		req.TopK = 5
 	}
 
-	var results []SearchResult
-	var err error
-
-	switch req.SearchType {
-	case "fulltext":
-		results, err = s.searcher.FullTextSearch(ctx, kbID, req.Query, req.TopK)
-	case "hybrid":
-		results, err = s.searcher.HybridSearch(ctx, kbID, req.Query, req.TopK, 0.7)
-	default: // vector
-		results, err = s.searcher.Search(ctx, kbID, req.Query, req.TopK)
-	}
-
+	// 使用 HNSW 索引进行向量搜索
+	results, err := s.indexer.Search(ctx, kbID, req.Query, req.TopK)
 	if err != nil {
 		return nil, err
-	}
-
-	// 应用过滤条件
-	if len(req.Filters) > 0 {
-		results, err = s.searcher.SearchWithFilters(ctx, kbID, req.Query, req.TopK, req.Filters)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	return &SearchResponse{

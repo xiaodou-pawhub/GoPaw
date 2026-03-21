@@ -88,7 +88,6 @@ type SearchResult struct {
 
 // CreateKnowledgeBaseRequest 创建知识库请求
 type CreateKnowledgeBaseRequest struct {
-	ID          string `json:"id" binding:"required"`
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
 }
@@ -170,6 +169,18 @@ func InitSchema(db *sql.DB) error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (document_id) REFERENCES knowledge_documents(id) ON DELETE CASCADE,
 			FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// 向量嵌入表（使用 BLOB 存储向量）
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS chunk_embeddings (
+			chunk_id TEXT PRIMARY KEY,
+			embedding BLOB NOT NULL,
+			FOREIGN KEY (chunk_id) REFERENCES knowledge_chunks(id) ON DELETE CASCADE
 		)
 	`)
 	if err != nil {

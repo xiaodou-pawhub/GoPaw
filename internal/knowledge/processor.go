@@ -15,19 +15,21 @@ import (
 
 // DocumentProcessor 文档处理器
 type DocumentProcessor struct {
-	db          *sql.DB
-	encoder     embedding.Encoder
-	extractors  *ExtractorRegistry
-	chunker     Chunker
+	db         *sql.DB
+	encoder    embedding.Encoder
+	extractors *ExtractorRegistry
+	chunker    Chunker
+	indexer    *VectorIndexer
 }
 
 // NewDocumentProcessor 创建文档处理器
-func NewDocumentProcessor(db *sql.DB, encoder embedding.Encoder, chunkStrategy ChunkStrategy) *DocumentProcessor {
+func NewDocumentProcessor(db *sql.DB, encoder embedding.Encoder, chunkStrategy ChunkStrategy, indexer *VectorIndexer) *DocumentProcessor {
 	return &DocumentProcessor{
 		db:         db,
 		encoder:    encoder,
 		extractors: NewExtractorRegistry(),
 		chunker:    NewChunker(chunkStrategy),
+		indexer:    indexer,
 	}
 }
 
@@ -112,10 +114,15 @@ func (p *DocumentProcessor) saveChunks(ctx context.Context, doc *Document, chunk
 		}
 
 		// 保存块
+		metadataValue, err := chunk.Metadata.Value()
+		if err != nil {
+			return fmt.Errorf("failed to serialize metadata: %w", err)
+		}
+		
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO knowledge_chunks (id, document_id, knowledge_base_id, content, token_count, chunk_index, metadata)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
-		`, chunkID, doc.ID, doc.KnowledgeBaseID, chunk.Content, chunk.TokenCount, i, chunk.Metadata)
+		`, chunkID, doc.ID, doc.KnowledgeBaseID, chunk.Content, chunk.TokenCount, i, metadataValue)
 		if err != nil {
 			return err
 		}
@@ -124,10 +131,15 @@ func (p *DocumentProcessor) saveChunks(ctx context.Context, doc *Document, chunk
 		if len(embedding) > 0 {
 			_, err := tx.ExecContext(ctx, `
 				INSERT INTO chunk_embeddings (chunk_id, embedding)
-				VALUES (?, vec_normalize(vec_f32(?)))
+				VALUES (?, ?)
 			`, chunkID, float32SliceToBlob(embedding))
 			if err != nil {
 				return fmt.Errorf("failed to save embedding: %w", err)
+			}
+
+			// 更新 HNSW 索引
+			if p.indexer != nil {
+				p.indexer.AddChunk(ctx, doc.KnowledgeBaseID, chunkID, chunk.Content, embedding)
 			}
 		}
 	}
@@ -146,7 +158,7 @@ func (p *DocumentProcessor) saveChunks(ctx context.Context, doc *Document, chunk
 // getDocument 获取文档
 func (p *DocumentProcessor) getDocument(ctx context.Context, id string) (*Document, error) {
 	var doc Document
-	var metadataStr string
+	var metadataStr sql.NullString
 
 	err := p.db.QueryRowContext(ctx, `
 		SELECT id, knowledge_base_id, filename, file_type, file_size, file_hash, content, metadata, status
@@ -159,8 +171,8 @@ func (p *DocumentProcessor) getDocument(ctx context.Context, id string) (*Docume
 		return nil, err
 	}
 
-	if metadataStr != "" {
-		doc.Metadata.Scan(metadataStr)
+	if metadataStr.Valid && metadataStr.String != "" {
+		doc.Metadata.Scan(metadataStr.String)
 	}
 
 	return &doc, nil
@@ -221,4 +233,49 @@ func float32SliceToBlob(slice []float32) []byte {
 		*(*float32)(unsafe.Pointer(&blob[i*4])) = v
 	}
 	return blob
+}
+
+// blobToFloat32Slice 将 blob 转换为 float32 切片
+func blobToFloat32Slice(blob []byte) []float32 {
+	if len(blob) == 0 || len(blob)%4 != 0 {
+		return nil
+	}
+	slice := make([]float32, len(blob)/4)
+	for i := range slice {
+		slice[i] = *(*float32)(unsafe.Pointer(&blob[i*4]))
+	}
+	return slice
+}
+
+// cosineSimilarity 计算两个向量的余弦相似度
+func cosineSimilarity(a, b []float32) float64 {
+	if len(a) != len(b) {
+		return 0
+	}
+
+	var dotProduct, normA, normB float64
+	for i := range a {
+		dotProduct += float64(a[i]) * float64(b[i])
+		normA += float64(a[i]) * float64(a[i])
+		normB += float64(b[i]) * float64(b[i])
+	}
+
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+
+	return dotProduct / (sqrt(normA) * sqrt(normB))
+}
+
+// sqrt 简单的平方根函数
+func sqrt(x float64) float64 {
+	if x <= 0 {
+		return 0
+	}
+	// 牛顿迭代法
+	z := x
+	for i := 0; i < 10; i++ {
+		z = z - (z*z-x)/(2*z)
+	}
+	return z
 }

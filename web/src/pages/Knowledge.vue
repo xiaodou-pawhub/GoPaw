@@ -160,12 +160,8 @@
         <h2 class="modal-title">{{ dialog.isEdit ? '编辑知识库' : '新建知识库' }}</h2>
         <form @submit.prevent="saveKnowledgeBase">
           <div class="form-group">
-            <label>ID</label>
-            <input v-model="dialog.data.id" type="text" :disabled="dialog.isEdit" required />
-          </div>
-          <div class="form-group">
             <label>名称</label>
-            <input v-model="dialog.data.name" type="text" required />
+            <input v-model="dialog.data.name" type="text" required placeholder="请输入知识库名称" />
           </div>
           <div class="form-group">
             <label>描述</label>
@@ -180,30 +176,62 @@
     </div>
 
     <!-- 上传文档弹窗 -->
-    <div v-if="uploadDialog.show" class="modal-overlay" @click.self="uploadDialog.show = false">
-      <div class="modal-card modal-sm">
-        <h2 class="modal-title">上传文档</h2>
-        <div class="form-group">
-          <label>选择文件</label>
+    <div v-if="uploadDialog.show" class="modal-overlay" @click.self="closeUploadDialog">
+      <div class="modal-card modal-lg" @click.stop>
+        <div class="modal-header">
+          <h2 class="modal-title">上传文档</h2>
+          <button class="btn-close" @click="closeUploadDialog">
+            <XIcon :size="16" />
+          </button>
+        </div>
+        
+        <!-- 拖拽上传区域 -->
+        <div
+          class="upload-area"
+          :class="{ dragging: uploadDialog.isDragging }"
+          @dragover.prevent="uploadDialog.isDragging = true"
+          @dragleave.prevent="uploadDialog.isDragging = false"
+          @drop.prevent="handleDrop"
+          @click="triggerFileInput"
+        >
+          <UploadCloudIcon :size="40" class="upload-icon" />
+          <p class="upload-text">点击或拖拽文件到此处上传</p>
+          <p class="upload-hint">支持 PDF, Markdown, TXT 等格式</p>
           <input
+            ref="fileInput"
             type="file"
+            multiple
             accept=".pdf,.md,.txt,.doc,.docx"
             class="file-input"
-            @change="onFileChange"
+            @change="handleFileSelect"
           />
         </div>
-        <div class="form-group">
-          <label>文件类型（可选，自动检测）</label>
-          <select v-model="uploadDialog.fileType">
-            <option value="">自动检测</option>
-            <option value="pdf">PDF</option>
-            <option value="md">Markdown</option>
-            <option value="txt">纯文本</option>
-          </select>
+
+        <!-- 文件列表 -->
+        <div v-if="uploadDialog.files.length > 0" class="file-list">
+          <div
+            v-for="(file, index) in uploadDialog.files"
+            :key="index"
+            class="file-item"
+          >
+            <FileIcon :size="18" class="file-icon" />
+            <span class="file-name">{{ file.name }}</span>
+            <span class="file-size">{{ formatFileSize(file.size) }}</span>
+            <button class="btn-remove" @click="removeFile(index)">
+              <XIcon :size="14" />
+            </button>
+          </div>
         </div>
+
         <div class="modal-actions">
-          <button class="btn-ghost" @click="uploadDialog.show = false">取消</button>
-          <button class="btn-primary" :disabled="!uploadDialog.file" @click="uploadDocument">上传</button>
+          <button class="btn-ghost" @click="closeUploadDialog">取消</button>
+          <button
+            class="btn-primary"
+            :disabled="uploadDialog.files.length === 0 || uploadDialog.uploading"
+            @click="uploadFiles"
+          >
+            {{ uploadDialog.uploading ? '上传中...' : `上传 ${uploadDialog.files.length} 个文件` }}
+          </button>
         </div>
       </div>
     </div>
@@ -228,8 +256,8 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive } from 'vue'
 import {
-  PlusIcon, PencilIcon, Trash2Icon, UploadIcon,
-  RefreshCwIcon, SearchIcon, BookOpenIcon,
+  PlusIcon, PencilIcon, Trash2Icon, UploadIcon, UploadCloudIcon, XIcon,
+  RefreshCwIcon, SearchIcon, BookOpenIcon, FileIcon,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { knowledgeApi, type KnowledgeBase, type Document, type SearchResult } from '@/api/knowledge'
@@ -240,18 +268,23 @@ const documents = ref<Document[]>([])
 const stats = ref<Record<string, number> | null>(null)
 const loadingDocs = ref(false)
 const activeTab = ref('documents')
+const fileInput = ref<HTMLInputElement>()
 
 const dialog = reactive({
   show: false,
   isEdit: false,
   data: {
-    id: '',
     name: '',
     description: '',
   },
 })
 
-const uploadDialog = reactive({ show: false, file: null as File | null, fileType: '' })
+const uploadDialog = reactive({
+  show: false,
+  files: [] as File[],
+  isDragging: false,
+  uploading: false,
+})
 
 const deleteDialog = reactive({ show: false, kb: null as KnowledgeBase | null })
 
@@ -298,7 +331,7 @@ async function loadStats(kbId: string) {
 
 function openCreateDialog() {
   dialog.isEdit = false
-  dialog.data = { id: '', name: '', description: '' }
+  dialog.data = { name: '', description: '' }
   dialog.show = true
 }
 
@@ -306,7 +339,6 @@ function openEditDialog() {
   if (!selectedKB.value) return
   dialog.isEdit = true
   dialog.data = {
-    id: selectedKB.value.id,
     name: selectedKB.value.name,
     description: selectedKB.value.description,
   }
@@ -322,8 +354,77 @@ async function saveKnowledgeBase() {
     }
     dialog.show = false
     loadKnowledgeBases()
-  } catch {
-    toast.error('保存失败')
+    if (selectedKB.value) {
+      selectKB(selectedKB.value)
+    }
+  } catch (e: any) {
+    toast.error(e?.response?.data?.message || '保存失败')
+  }
+}
+
+function openUploadDialog() {
+  uploadDialog.files = []
+  uploadDialog.show = true
+}
+
+function closeUploadDialog() {
+  uploadDialog.files = []
+  uploadDialog.show = false
+}
+
+function triggerFileInput() {
+  fileInput.value?.click()
+}
+
+function handleDrop(e: DragEvent) {
+  uploadDialog.isDragging = false
+  if (e.dataTransfer?.files) {
+    addFiles(Array.from(e.dataTransfer.files))
+  }
+}
+
+function handleFileSelect(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (input.files) {
+    addFiles(Array.from(input.files))
+  }
+}
+
+function addFiles(newFiles: File[]) {
+  const validFiles = newFiles.filter(file => {
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    return ['pdf', 'md', 'txt', 'doc', 'docx'].includes(ext || '')
+  })
+  uploadDialog.files.push(...validFiles)
+}
+
+function removeFile(index: number) {
+  uploadDialog.files.splice(index, 1)
+}
+
+async function uploadFiles() {
+  if (!selectedKB.value || uploadDialog.files.length === 0) return
+  
+  uploadDialog.uploading = true
+  let successCount = 0
+  
+  for (const file of uploadDialog.files) {
+    try {
+      await knowledgeApi.uploadDocument(selectedKB.value.id, file)
+      successCount++
+    } catch (e: any) {
+      toast.error(`上传失败：${file.name}`)
+    }
+  }
+  
+  uploadDialog.uploading = false
+  uploadDialog.files = []
+  uploadDialog.show = false
+  
+  if (successCount > 0) {
+    toast.success(`已上传 ${successCount} 个文件`)
+    loadDocuments(selectedKB.value.id)
+    loadStats(selectedKB.value.id)
   }
 }
 
@@ -342,30 +443,6 @@ async function deleteKnowledgeBase() {
     loadKnowledgeBases()
   } catch {
     toast.error('删除失败')
-  }
-}
-
-function openUploadDialog() {
-  uploadDialog.file = null
-  uploadDialog.fileType = ''
-  uploadDialog.show = true
-}
-
-function onFileChange(e: Event) {
-  const input = e.target as HTMLInputElement
-  uploadDialog.file = input.files?.[0] || null
-}
-
-async function uploadDocument() {
-  if (!uploadDialog.file || !selectedKB.value) return
-  try {
-    await knowledgeApi.uploadDocument(selectedKB.value.id, uploadDialog.file, uploadDialog.fileType)
-    toast.success('文档上传成功')
-    uploadDialog.show = false
-    loadDocuments(selectedKB.value.id)
-    loadStats(selectedKB.value.id)
-  } catch {
-    toast.error('上传失败')
   }
 }
 
@@ -929,6 +1006,140 @@ function formatDate(date: string) {
   gap: 8px;
   margin-top: 20px;
   padding-top: 16px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--border);
+}
+
+/* Upload Dialog */
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-header .modal-title {
+  margin: 0;
+}
+
+.btn-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.btn-close:hover {
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+}
+
+.upload-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  background: var(--bg-app);
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.upload-area:hover,
+.upload-area.dragging {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.upload-icon {
+  color: var(--text-tertiary);
+  margin-bottom: 12px;
+}
+
+.upload-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+}
+
+.upload-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+.file-input {
+  display: none;
+}
+
+.file-list {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.file-item .file-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.file-item .file-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-item .file-size {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.btn-remove {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.btn-remove:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.modal-lg {
+  width: 560px;
 }
 </style>

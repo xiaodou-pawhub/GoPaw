@@ -4,6 +4,8 @@ import (
 	"math"
 	"strings"
 	"sync"
+
+	"github.com/go-ego/gse"
 )
 
 // SimpleEncoder implements a TF-IDF based encoder.
@@ -13,14 +15,19 @@ type SimpleEncoder struct {
 	idf       map[string]float64
 	dimension int
 	mu        sync.RWMutex
+	segmenter *gse.Segmenter // 中文分词器
 }
 
 // NewSimpleEncoder creates a new simple encoder with the given vocabulary size.
 func NewSimpleEncoder(vocabSize int) *SimpleEncoder {
+	var seg gse.Segmenter
+	seg.LoadDict() // 加载默认词典
+
 	return &SimpleEncoder{
 		vocab:     make(map[string]int),
 		idf:       make(map[string]float64),
 		dimension: vocabSize,
+		segmenter: &seg,
 	}
 }
 
@@ -74,30 +81,34 @@ func (e *SimpleEncoder) Close() error {
 	return nil
 }
 
-// tokenize splits text into tokens.
+// tokenize splits text into tokens using Chinese word segmentation.
 func (e *SimpleEncoder) tokenize(text string) []string {
-	// Convert to lowercase
-	text = strings.ToLower(text)
+	// 使用 gse 进行中英文混合分词
+	// CutSearch 模式适合搜索场景，会将文本切分成更细粒度的词
+	segments := e.segmenter.CutSearch(text, true)
 
-	// Split by non-alphanumeric characters
 	var tokens []string
-	var current strings.Builder
-
-	for _, r := range text {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r > 127 {
-			current.WriteRune(r)
-		} else {
-			if current.Len() > 0 {
-				tokens = append(tokens, current.String())
-				current.Reset()
-			}
+	for _, seg := range segments {
+		token := strings.ToLower(strings.TrimSpace(seg))
+		// 过滤掉单字符标点和空白
+		if len(token) > 0 && !isPunctuation(token) {
+			tokens = append(tokens, token)
 		}
-	}
-	if current.Len() > 0 {
-		tokens = append(tokens, current.String())
 	}
 
 	return tokens
+}
+
+// isPunctuation checks if a token is just punctuation.
+func isPunctuation(token string) bool {
+	if len(token) != 1 {
+		return false
+	}
+	r := rune(token[0])
+	return (r >= 0x2000 && r <= 0x206F) || // 中文标点
+		(r >= 0x3000 && r <= 0x303F) || // CJK 标点
+		(r >= 0xFF00 && r <= 0xFFEF) || // 全角字符
+		strings.ContainsAny(token, ".,!?;:\"'()[]{}<>+-*/=\\|@#$%^&~`")
 }
 
 // hashToken creates a hash for a token.

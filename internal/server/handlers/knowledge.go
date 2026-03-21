@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"io"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/knowledge"
 	"github.com/gopaw/gopaw/pkg/api"
@@ -135,19 +137,14 @@ func (h *KnowledgeHandler) UploadDocument(c *gin.Context) {
 	defer file.Close()
 
 	// 读取文件内容
-	content := make([]byte, header.Size)
-	_, err = file.Read(content)
+	content, err := io.ReadAll(file)
 	if err != nil {
 		api.InternalErrorWithDetails(c, "failed to read file", err)
 		return
 	}
 
-	// 获取文件类型
-	fileType := c.PostForm("file_type")
-	if fileType == "" {
-		// 从文件名推断
-		fileType = getFileTypeFromName(header.Filename)
-	}
+	// 从文件名推断文件类型
+	fileType := getFileTypeFromName(header.Filename)
 
 	doc, err := h.service.UploadDocument(c.Request.Context(), kbID, header.Filename, fileType, content)
 	if err != nil {

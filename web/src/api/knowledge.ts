@@ -111,12 +111,9 @@ export const knowledgeApi = {
     return data || []
   },
 
-  uploadDocument: async (kbId: string, file: File, fileType?: string) => {
+  uploadDocument: async (kbId: string, file: File) => {
     const formData = new FormData()
     formData.append('file', file)
-    if (fileType) {
-      formData.append('file_type', fileType)
-    }
     const res = await api.post(`/knowledge/bases/${kbId}/documents`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data'

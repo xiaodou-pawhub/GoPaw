@@ -35,7 +35,7 @@ func (s *KnowledgeSearcher) Search(ctx context.Context, kbID string, query strin
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
 
-	// 执行向量搜索（使用余弦相似度）
+	// 从数据库读取所有块和向量
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT
 			c.id,
@@ -43,40 +43,63 @@ func (s *KnowledgeSearcher) Search(ctx context.Context, kbID string, query strin
 			c.metadata,
 			c.document_id,
 			d.filename as document_name,
-			1.0 - vec_cosine(e.embedding, vec_normalize(vec_f32(?))) as distance
+			e.embedding
 		FROM knowledge_chunks c
 		JOIN chunk_embeddings e ON c.id = e.chunk_id
 		JOIN knowledge_documents d ON c.document_id = d.id
 		WHERE c.knowledge_base_id = ?
-		ORDER BY distance ASC
-		LIMIT ?
-	`, float32SliceToBlob(queryVec), kbID, topK)
+	`, kbID)
 	if err != nil {
 		return nil, fmt.Errorf("vector search failed: %w", err)
 	}
 	defer rows.Close()
 
-	var results []SearchResult
+	type chunkWithEmbedding struct {
+		result     SearchResult
+		embedding  []float32
+	}
+
+	var chunks []chunkWithEmbedding
 	for rows.Next() {
-		var result SearchResult
-		var metadataStr string
+		var c chunkWithEmbedding
+		var metadataStr sql.NullString
+		var embeddingBlob []byte
+
 		err := rows.Scan(
-			&result.ChunkID,
-			&result.Content,
+			&c.result.ChunkID,
+			&c.result.Content,
 			&metadataStr,
-			&result.DocumentID,
-			&result.DocumentName,
-			&result.Distance,
+			&c.result.DocumentID,
+			&c.result.DocumentName,
+			&embeddingBlob,
 		)
 		if err != nil {
 			continue
 		}
 
-		if metadataStr != "" {
-			result.Metadata.Scan(metadataStr)
+		if metadataStr.Valid && metadataStr.String != "" {
+			c.result.Metadata.Scan(metadataStr.String)
 		}
 
-		results = append(results, result)
+		// 解码向量
+		c.embedding = blobToFloat32Slice(embeddingBlob)
+		chunks = append(chunks, c)
+	}
+
+	// 计算余弦相似度并排序
+	for i := range chunks {
+		chunks[i].result.Distance = 1.0 - cosineSimilarity(queryVec, chunks[i].embedding)
+	}
+
+	// 按距离排序
+	sort.Slice(chunks, func(i, j int) bool {
+		return chunks[i].result.Distance < chunks[j].result.Distance
+	})
+
+	// 返回 topK 结果
+	var results []SearchResult
+	for i := 0; i < len(chunks) && i < topK; i++ {
+		results = append(results, chunks[i].result)
 	}
 
 	return results, rows.Err()
