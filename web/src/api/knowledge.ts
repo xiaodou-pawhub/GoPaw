@@ -4,9 +4,6 @@ export interface KnowledgeBase {
   id: string
   name: string
   description: string
-  embedding_model: string
-  chunk_size: number
-  chunk_overlap: number
   status: string
   document_count: number
   chunk_count: number
@@ -76,9 +73,6 @@ export const knowledgeApi = {
     id: string
     name: string
     description?: string
-    embedding_model?: string
-    chunk_size?: number
-    chunk_overlap?: number
   }) => {
     const res = await api.post('/knowledge/bases', data)
     return knowledgeApi.parseData<KnowledgeBase>(res)

@@ -5,54 +5,44 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/gopaw/gopaw/internal/embedding"
 )
 
 // Service 知识库服务
 type Service struct {
 	db        *sql.DB
-	embedder  Embedder
+	encoder   embedding.Encoder
 	processor *DocumentProcessor
 	searcher  *KnowledgeSearcher
 }
 
 // NewService 创建知识库服务
-func NewService(db *sql.DB, embedder Embedder) *Service {
+func NewService(db *sql.DB) *Service {
+	encoder := embedding.GetDefaultEncoder()
 	return &Service{
 		db:        db,
-		embedder:  embedder,
-		processor: NewDocumentProcessor(db, embedder, ChunkByMarkdown),
-		searcher:  NewKnowledgeSearcher(db, embedder),
+		encoder:   encoder,
+		processor: NewDocumentProcessor(db, encoder, ChunkByMarkdown),
+		searcher:  NewKnowledgeSearcher(db, encoder),
 	}
 }
 
 // CreateKnowledgeBase 创建知识库
 func (s *Service) CreateKnowledgeBase(ctx context.Context, req CreateKnowledgeBaseRequest) (*KnowledgeBase, error) {
 	kb := &KnowledgeBase{
-		ID:             req.ID,
-		Name:           req.Name,
-		Description:    req.Description,
-		EmbeddingModel: req.EmbeddingModel,
-		ChunkSize:      req.ChunkSize,
-		ChunkOverlap:   req.ChunkOverlap,
-		Status:         "active",
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
-	}
-
-	if kb.EmbeddingModel == "" {
-		kb.EmbeddingModel = "nomic-embed-text"
-	}
-	if kb.ChunkSize == 0 {
-		kb.ChunkSize = 500
-	}
-	if kb.ChunkOverlap == 0 {
-		kb.ChunkOverlap = 50
+		ID:          req.ID,
+		Name:        req.Name,
+		Description: req.Description,
+		Status:      "active",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO knowledge_bases (id, name, description, embedding_model, chunk_size, chunk_overlap, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, kb.ID, kb.Name, kb.Description, kb.EmbeddingModel, kb.ChunkSize, kb.ChunkOverlap, kb.Status, kb.CreatedAt, kb.UpdatedAt)
+		INSERT INTO knowledge_bases (id, name, description, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, kb.ID, kb.Name, kb.Description, kb.Status, kb.CreatedAt, kb.UpdatedAt)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create knowledge base: %w", err)
@@ -65,11 +55,11 @@ func (s *Service) CreateKnowledgeBase(ctx context.Context, req CreateKnowledgeBa
 func (s *Service) GetKnowledgeBase(ctx context.Context, id string) (*KnowledgeBase, error) {
 	var kb KnowledgeBase
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, description, embedding_model, chunk_size, chunk_overlap, status,
+		SELECT id, name, description, status,
 			document_count, chunk_count, total_tokens, created_at, updated_at
 		FROM knowledge_bases WHERE id = ?
 	`, id).Scan(
-		&kb.ID, &kb.Name, &kb.Description, &kb.EmbeddingModel, &kb.ChunkSize, &kb.ChunkOverlap, &kb.Status,
+		&kb.ID, &kb.Name, &kb.Description, &kb.Status,
 		&kb.DocumentCount, &kb.ChunkCount, &kb.TotalTokens, &kb.CreatedAt, &kb.UpdatedAt,
 	)
 	if err != nil {
@@ -81,7 +71,7 @@ func (s *Service) GetKnowledgeBase(ctx context.Context, id string) (*KnowledgeBa
 // ListKnowledgeBases 列出知识库
 func (s *Service) ListKnowledgeBases(ctx context.Context) ([]KnowledgeBase, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, description, embedding_model, chunk_size, chunk_overlap, status,
+		SELECT id, name, description, status,
 			document_count, chunk_count, total_tokens, created_at, updated_at
 		FROM knowledge_bases ORDER BY updated_at DESC
 	`)
@@ -94,7 +84,7 @@ func (s *Service) ListKnowledgeBases(ctx context.Context) ([]KnowledgeBase, erro
 	for rows.Next() {
 		var kb KnowledgeBase
 		err := rows.Scan(
-			&kb.ID, &kb.Name, &kb.Description, &kb.EmbeddingModel, &kb.ChunkSize, &kb.ChunkOverlap, &kb.Status,
+			&kb.ID, &kb.Name, &kb.Description, &kb.Status,
 			&kb.DocumentCount, &kb.ChunkCount, &kb.TotalTokens, &kb.CreatedAt, &kb.UpdatedAt,
 		)
 		if err != nil {

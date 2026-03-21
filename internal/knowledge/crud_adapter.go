@@ -16,12 +16,9 @@ func NewCRUDAdapter(service *Service) *CRUDAdapter {
 
 // CreateRequest represents a request to create a knowledge base.
 type CreateRequest struct {
-	ID             string `json:"id" binding:"required"`
-	Name           string `json:"name" binding:"required"`
-	Description    string `json:"description"`
-	EmbeddingModel string `json:"embedding_model"`
-	ChunkSize      int    `json:"chunk_size"`
-	ChunkOverlap   int    `json:"chunk_overlap"`
+	ID          string `json:"id" binding:"required"`
+	Name        string `json:"name" binding:"required"`
+	Description string `json:"description"`
 }
 
 // UpdateRequest represents a request to update a knowledge base.
@@ -34,12 +31,9 @@ type UpdateRequest struct {
 // Create creates a new knowledge base.
 func (a *CRUDAdapter) Create(ctx context.Context, req CreateRequest) (*KnowledgeBase, error) {
 	return a.service.CreateKnowledgeBase(ctx, CreateKnowledgeBaseRequest{
-		ID:             req.ID,
-		Name:           req.Name,
-		Description:    req.Description,
-		EmbeddingModel: req.EmbeddingModel,
-		ChunkSize:      req.ChunkSize,
-		ChunkOverlap:   req.ChunkOverlap,
+		ID:          req.ID,
+		Name:        req.Name,
+		Description: req.Description,
 	})
 }
 

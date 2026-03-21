@@ -9,21 +9,23 @@ import (
 	"fmt"
 	"time"
 	"unsafe"
+
+	"github.com/gopaw/gopaw/internal/embedding"
 )
 
 // DocumentProcessor 文档处理器
 type DocumentProcessor struct {
 	db          *sql.DB
-	embedder    Embedder
+	encoder     embedding.Encoder
 	extractors  *ExtractorRegistry
 	chunker     Chunker
 }
 
 // NewDocumentProcessor 创建文档处理器
-func NewDocumentProcessor(db *sql.DB, embedder Embedder, chunkStrategy ChunkStrategy) *DocumentProcessor {
+func NewDocumentProcessor(db *sql.DB, encoder embedding.Encoder, chunkStrategy ChunkStrategy) *DocumentProcessor {
 	return &DocumentProcessor{
 		db:         db,
-		embedder:   embedder,
+		encoder:    encoder,
 		extractors: NewExtractorRegistry(),
 		chunker:    NewChunker(chunkStrategy),
 	}
@@ -42,7 +44,7 @@ func (p *DocumentProcessor) Process(ctx context.Context, docID string) error {
 		return err
 	}
 
-	// 获取知识库配置
+	// 获取知识库
 	kb, err := p.getKnowledgeBase(ctx, doc.KnowledgeBaseID)
 	if err != nil {
 		p.updateDocumentStatus(ctx, docID, "failed", err.Error())
@@ -56,8 +58,8 @@ func (p *DocumentProcessor) Process(ctx context.Context, docID string) error {
 		return err
 	}
 
-	// 文本分块
-	chunks := p.chunker.Chunk(text, kb.ChunkSize, kb.ChunkOverlap)
+	// 文本分块（使用默认配置）
+	chunks := p.chunker.Chunk(text, 500, 50)
 
 	// 生成 Embedding 并保存
 	if err := p.saveChunks(ctx, doc, chunks); err != nil {
@@ -92,16 +94,6 @@ func (p *DocumentProcessor) saveChunks(ctx context.Context, doc *Document, chunk
 	}
 	defer tx.Rollback()
 
-	// 先删除旧的 Embedding（通过 JOIN 获取 chunk_id）
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM chunk_embeddings 
-		WHERE chunk_id IN (
-			SELECT id FROM knowledge_chunks WHERE document_id = ?
-		)
-	`, doc.ID); err != nil {
-		return err
-	}
-
 	// 删除旧的块
 	if _, err := tx.ExecContext(ctx,
 		"DELETE FROM knowledge_chunks WHERE document_id = ?",
@@ -109,29 +101,18 @@ func (p *DocumentProcessor) saveChunks(ctx context.Context, doc *Document, chunk
 		return err
 	}
 
-	// 准备 Embedding 生成
-	contents := make([]string, len(chunks))
-	for i, chunk := range chunks {
-		contents[i] = chunk.Content
-	}
-
-	// 批量生成 Embedding
-	embeddings, err := p.embedder.BatchEmbed(ctx, contents)
-	if err != nil {
-		return fmt.Errorf("failed to generate embeddings: %w", err)
-	}
-
-	// 检查 embeddings 长度是否匹配
-	if len(embeddings) != len(chunks) {
-		return fmt.Errorf("embeddings count mismatch: expected %d, got %d", len(chunks), len(embeddings))
-	}
-
 	// 保存块和 Embedding
 	for i, chunk := range chunks {
 		chunkID := generateChunkID(doc.ID, i)
 
+		// 生成向量
+		embedding, err := p.encoder.Encode(chunk.Content)
+		if err != nil {
+			return fmt.Errorf("failed to generate embedding: %w", err)
+		}
+
 		// 保存块
-		_, err := tx.ExecContext(ctx, `
+		_, err = tx.ExecContext(ctx, `
 			INSERT INTO knowledge_chunks (id, document_id, knowledge_base_id, content, token_count, chunk_index, metadata)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
 		`, chunkID, doc.ID, doc.KnowledgeBaseID, chunk.Content, chunk.TokenCount, i, chunk.Metadata)
@@ -140,7 +121,6 @@ func (p *DocumentProcessor) saveChunks(ctx context.Context, doc *Document, chunk
 		}
 
 		// 保存 Embedding
-		embedding := embeddings[i]
 		if len(embedding) > 0 {
 			_, err := tx.ExecContext(ctx, `
 				INSERT INTO chunk_embeddings (chunk_id, embedding)
@@ -190,11 +170,10 @@ func (p *DocumentProcessor) getDocument(ctx context.Context, id string) (*Docume
 func (p *DocumentProcessor) getKnowledgeBase(ctx context.Context, id string) (*KnowledgeBase, error) {
 	var kb KnowledgeBase
 	err := p.db.QueryRowContext(ctx, `
-		SELECT id, name, description, embedding_model, chunk_size, chunk_overlap, status
+		SELECT id, name, description, status
 		FROM knowledge_bases WHERE id = ?
 	`, id).Scan(
-		&kb.ID, &kb.Name, &kb.Description, &kb.EmbeddingModel,
-		&kb.ChunkSize, &kb.ChunkOverlap, &kb.Status,
+		&kb.ID, &kb.Name, &kb.Description, &kb.Status,
 	)
 	if err != nil {
 		return nil, err

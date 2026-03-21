@@ -5,19 +5,21 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+
+	"github.com/gopaw/gopaw/internal/embedding"
 )
 
 // KnowledgeSearcher 知识库搜索器
 type KnowledgeSearcher struct {
-	db       *sql.DB
-	embedder Embedder
+	db      *sql.DB
+	encoder embedding.Encoder
 }
 
 // NewKnowledgeSearcher 创建搜索器
-func NewKnowledgeSearcher(db *sql.DB, embedder Embedder) *KnowledgeSearcher {
+func NewKnowledgeSearcher(db *sql.DB, encoder embedding.Encoder) *KnowledgeSearcher {
 	return &KnowledgeSearcher{
-		db:       db,
-		embedder: embedder,
+		db:      db,
+		encoder: encoder,
 	}
 }
 
@@ -28,20 +30,20 @@ func (s *KnowledgeSearcher) Search(ctx context.Context, kbID string, query strin
 	}
 
 	// 生成查询向量
-	queryVec, err := s.embedder.Embed(ctx, query)
+	queryVec, err := s.encoder.Encode(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
 
-	// 执行向量搜索
+	// 执行向量搜索（使用余弦相似度）
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT 
+		SELECT
 			c.id,
 			c.content,
 			c.metadata,
 			c.document_id,
 			d.filename as document_name,
-			vec_distance_L2(e.embedding, vec_normalize(vec_f32(?))) as distance
+			1.0 - vec_cosine(e.embedding, vec_normalize(vec_f32(?))) as distance
 		FROM knowledge_chunks c
 		JOIN chunk_embeddings e ON c.id = e.chunk_id
 		JOIN knowledge_documents d ON c.document_id = d.id

@@ -603,21 +603,10 @@ func runStart() {
 	if err := knowledge.InitSchema(store.DB()); err != nil {
 		logger.Warn("failed to initialize knowledge schema", zap.Error(err))
 	} else {
-		// Create embedder with default config
-		embedderConfig := knowledge.EmbedderConfig{
-			Provider: "ollama",
-			Model:    "nomic-embed-text",
-			BaseURL:  "http://localhost:11434",
-		}
-		embedder, err := knowledge.NewEmbedder(embedderConfig)
-		if err != nil {
-			logger.Warn("failed to create embedder", zap.Error(err))
-		} else {
-			knowledgeService = knowledge.NewService(store.DB(), embedder)
-			// Register knowledge tools
-			registerKnowledgeTools(toolReg, knowledgeService, logger)
-			logger.Info("knowledge service initialized")
-		}
+		knowledgeService = knowledge.NewService(store.DB())
+		// Register knowledge tools
+		registerKnowledgeTools(toolReg, knowledgeService, logger)
+		logger.Info("knowledge service initialized")
 	}
 
 	// Initialize orchestration engine

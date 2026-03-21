@@ -169,25 +169,7 @@
           </div>
           <div class="form-group">
             <label>描述</label>
-            <textarea v-model="dialog.data.description" rows="2" />
-          </div>
-          <div class="form-group">
-            <label>Embedding 模型</label>
-            <select v-model="dialog.data.embedding_model">
-              <option value="nomic-embed-text">nomic-embed-text (本地)</option>
-              <option value="mxbai-embed-large">mxbai-embed-large (本地)</option>
-              <option value="text-embedding-3-small">text-embedding-3-small (OpenAI)</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>分块大小 ({{ dialog.data.chunk_size }})</label>
-              <input v-model.number="dialog.data.chunk_size" type="range" min="100" max="2000" step="100" />
-            </div>
-            <div class="form-group">
-              <label>分块重叠 ({{ dialog.data.chunk_overlap }})</label>
-              <input v-model.number="dialog.data.chunk_overlap" type="range" min="0" max="200" step="10" />
-            </div>
+            <textarea v-model="dialog.data.description" rows="2" placeholder="请输入知识库描述..." />
           </div>
           <div class="modal-actions">
             <button type="button" class="btn-ghost" @click="dialog.show = false">取消</button>
@@ -263,8 +245,9 @@ const dialog = reactive({
   show: false,
   isEdit: false,
   data: {
-    id: '', name: '', description: '',
-    embedding_model: 'nomic-embed-text', chunk_size: 500, chunk_overlap: 50,
+    id: '',
+    name: '',
+    description: '',
   },
 })
 
@@ -315,7 +298,7 @@ async function loadStats(kbId: string) {
 
 function openCreateDialog() {
   dialog.isEdit = false
-  dialog.data = { id: '', name: '', description: '', embedding_model: 'nomic-embed-text', chunk_size: 500, chunk_overlap: 50 }
+  dialog.data = { id: '', name: '', description: '' }
   dialog.show = true
 }
 
@@ -323,10 +306,9 @@ function openEditDialog() {
   if (!selectedKB.value) return
   dialog.isEdit = true
   dialog.data = {
-    id: selectedKB.value.id, name: selectedKB.value.name,
+    id: selectedKB.value.id,
+    name: selectedKB.value.name,
     description: selectedKB.value.description,
-    embedding_model: selectedKB.value.embedding_model,
-    chunk_size: selectedKB.value.chunk_size, chunk_overlap: selectedKB.value.chunk_overlap,
   }
   dialog.show = true
 }

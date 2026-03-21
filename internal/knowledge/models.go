@@ -8,18 +8,15 @@ import (
 
 // KnowledgeBase 知识库
 type KnowledgeBase struct {
-	ID             string    `json:"id" db:"id"`
-	Name           string    `json:"name" db:"name"`
-	Description    string    `json:"description" db:"description"`
-	EmbeddingModel string    `json:"embedding_model" db:"embedding_model"`
-	ChunkSize      int       `json:"chunk_size" db:"chunk_size"`
-	ChunkOverlap   int       `json:"chunk_overlap" db:"chunk_overlap"`
-	Status         string    `json:"status" db:"status"`
-	DocumentCount  int       `json:"document_count" db:"document_count"`
-	ChunkCount     int       `json:"chunk_count" db:"chunk_count"`
-	TotalTokens    int       `json:"total_tokens" db:"total_tokens"`
-	CreatedAt      time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`
+	ID            string    `json:"id" db:"id"`
+	Name          string    `json:"name" db:"name"`
+	Description   string    `json:"description" db:"description"`
+	Status        string    `json:"status" db:"status"`
+	DocumentCount int       `json:"document_count" db:"document_count"`
+	ChunkCount    int       `json:"chunk_count" db:"chunk_count"`
+	TotalTokens   int       `json:"total_tokens" db:"total_tokens"`
+	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // Document 知识库文档
@@ -91,12 +88,9 @@ type SearchResult struct {
 
 // CreateKnowledgeBaseRequest 创建知识库请求
 type CreateKnowledgeBaseRequest struct {
-	ID             string `json:"id" binding:"required"`
-	Name           string `json:"name" binding:"required"`
-	Description    string `json:"description"`
-	EmbeddingModel string `json:"embedding_model"`
-	ChunkSize      int    `json:"chunk_size"`
-	ChunkOverlap   int    `json:"chunk_overlap"`
+	ID          string `json:"id" binding:"required"`
+	Name        string `json:"name" binding:"required"`
+	Description string `json:"description"`
 }
 
 // UpdateKnowledgeBaseRequest 更新知识库请求
@@ -128,9 +122,6 @@ func InitSchema(db *sql.DB) error {
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
 			description TEXT,
-			embedding_model TEXT DEFAULT 'nomic-embed-text',
-			chunk_size INTEGER DEFAULT 500,
-			chunk_overlap INTEGER DEFAULT 50,
 			status TEXT DEFAULT 'active',
 			document_count INTEGER DEFAULT 0,
 			chunk_count INTEGER DEFAULT 0,
@@ -199,13 +190,6 @@ func InitSchema(db *sql.DB) error {
 	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_kb_chunks_kb ON knowledge_chunks(knowledge_base_id)`)
 	if err != nil {
 		return err
-	}
-
-	// 初始化 sqlite-vec 扩展
-	_, err = db.Exec(`SELECT vec_version()`)
-	if err != nil {
-		// sqlite-vec 扩展未加载，需要在连接时加载
-		// 这里只是检查，实际加载在数据库连接时处理
 	}
 
 	return nil
