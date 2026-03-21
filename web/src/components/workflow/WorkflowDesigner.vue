@@ -2,29 +2,20 @@
   <div class="workflow-designer">
     <!-- 工具栏 -->
     <div class="designer-toolbar">
-      <v-btn
-        size="small"
-        prepend-icon="mdi-content-save"
-        color="primary"
-        @click="saveWorkflow"
-      >
-        保存
-      </v-btn>
-      <v-btn
-        size="small"
-        prepend-icon="mdi-check-circle"
-        @click="validateWorkflow"
-      >
-        验证
-      </v-btn>
-      <v-divider vertical class="mx-2" />
-      <v-btn
-        size="small"
-        icon="mdi-delete"
-        color="error"
+      <button class="toolbar-btn toolbar-btn-primary" @click="saveWorkflow">
+        <SaveIcon :size="14" /> 保存
+      </button>
+      <button class="toolbar-btn" @click="validateWorkflow">
+        <CheckCircleIcon :size="14" /> 验证
+      </button>
+      <div class="toolbar-divider" />
+      <button
+        class="toolbar-btn toolbar-btn-danger"
         :disabled="!selectedNode"
         @click="deleteSelectedNode"
-      />
+      >
+        <Trash2Icon :size="14" />
+      </button>
     </div>
 
     <div class="designer-content">
@@ -35,10 +26,11 @@
           v-for="type in nodeTypes"
           :key="type.id"
           class="component-item"
+          :style="{ borderLeftColor: type.color }"
           draggable="true"
           @dragstart="onDragStart($event, type)"
         >
-          <v-icon :icon="type.icon" :color="type.color" class="mr-2" />
+          <span class="comp-icon" :style="{ background: type.color }">{{ type.abbr }}</span>
           <span>{{ type.name }}</span>
         </div>
       </div>
@@ -46,8 +38,8 @@
       <!-- 画布 -->
       <div class="canvas-container" @drop="onDrop" @dragover.prevent>
         <VueFlow
-          v-model="elements"
-          :node-types="vueFlowNodeTypes"
+          v-model="(elements as any)"
+          :node-types="(vueFlowNodeTypes as any)"
           :default-edge-options="defaultEdgeOptions"
           :connectable="true"
           :zoom-on-scroll="true"
@@ -72,9 +64,8 @@
           @delete="deleteSelectedNode"
         />
         <div v-else class="no-selection">
-          <v-alert type="info" variant="tonal">
-            选择一个步骤以编辑属性
-          </v-alert>
+          <MousePointerIcon :size="24" />
+          <p>选择一个步骤以编辑属性</p>
         </div>
       </div>
     </div>
@@ -83,6 +74,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { SaveIcon, CheckCircleIcon, Trash2Icon, MousePointerIcon } from 'lucide-vue-next'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
@@ -91,7 +83,6 @@ import type { Connection } from '@vue-flow/core'
 import { TaskNode, NotifyNode, QueryNode } from './nodes'
 import NodeProperties from './NodeProperties.vue'
 
-// 导入 Vue Flow 样式
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 
@@ -100,7 +91,7 @@ interface WorkflowStep {
   name: string
   action: 'task' | 'notify' | 'query'
   agent: string
-  input?: Record<string, any>
+  input?: Record<string, unknown>
   output?: string[]
   depends_on?: string[]
   condition?: string
@@ -122,8 +113,8 @@ interface Agent {
 interface NodeType {
   id: string
   name: string
-  icon: string
   color: string
+  abbr: string
 }
 
 const props = defineProps<{
@@ -136,224 +127,132 @@ const emit = defineEmits<{
   validate: [definition: WorkflowDefinition]
 }>()
 
-// Vue Flow 实例
 const { addNodes, addEdges, removeNodes } = useVueFlow()
 
-// 节点类型配置
 const nodeTypes: NodeType[] = [
-  { id: 'task', name: '任务', icon: 'mdi-robot', color: 'primary' },
-  { id: 'notify', name: '通知', icon: 'mdi-bell', color: 'warning' },
-  { id: 'query', name: '查询', icon: 'mdi-magnify', color: 'info' },
+  { id: 'task',   name: '任务', color: '#3b82f6', abbr: 'T' },
+  { id: 'notify', name: '通知', color: '#f59e0b', abbr: 'N' },
+  { id: 'query',  name: '查询', color: '#6366f1', abbr: 'Q' },
 ]
 
-// Vue Flow 节点类型映射
-const vueFlowNodeTypes: any = {
-  task: TaskNode,
-  notify: NotifyNode,
-  query: QueryNode,
-}
+const vueFlowNodeTypes: Record<string, unknown> = { task: TaskNode, notify: NotifyNode, query: QueryNode }
 
-// 默认边选项
-const defaultEdgeOptions: any = {
+const defaultEdgeOptions = {
   animated: true,
   style: { stroke: '#666', strokeWidth: 2 },
 }
 
-// 画布元素
-const elements = ref<any>({ nodes: [], edges: [] })
+const elements = ref<{ nodes: unknown[]; edges: unknown[] }>({ nodes: [], edges: [] })
+const selectedNode = ref<unknown>(null)
 
-// 选中的节点
-const selectedNode = ref<any>(null)
-
-// 监听 workflow 变化，加载到画布
 watch(() => props.workflow, (workflow) => {
-  if (workflow) {
-    loadWorkflow(workflow)
-  }
+  if (workflow) loadWorkflow(workflow)
 }, { immediate: true })
 
-// 加载工作流到画布
 function loadWorkflow(definition: WorkflowDefinition) {
-  const nodes: any[] = []
-  const edges: any[] = []
-  
-  // 计算节点位置（简单的网格布局）
+  const nodes: unknown[] = []
+  const edges: unknown[] = []
   const gridSize = 200
   const positions = new Map<string, { x: number; y: number }>()
-  
+
   definition.steps.forEach((step) => {
-    // 根据依赖关系计算层级
     const level = calculateLevel(step, definition.steps)
     const siblings = definition.steps.filter(s => calculateLevel(s, definition.steps) === level)
     const siblingIndex = siblings.findIndex(s => s.id === step.id)
-    
-    positions.set(step.id, {
-      x: 100 + level * gridSize,
-      y: 100 + siblingIndex * 150,
-    })
+    positions.set(step.id, { x: 100 + level * gridSize, y: 100 + siblingIndex * 150 })
   })
-  
-  // 创建节点
+
   definition.steps.forEach((step) => {
     const pos = positions.get(step.id) || { x: 100, y: 100 }
-    nodes.push({
-      id: step.id,
-      type: step.action,
-      position: pos,
-      data: {
-        name: step.name,
-        agent: step.agent,
-        input: step.input,
-        output: step.output,
-        condition: step.condition,
-        timeout: step.timeout,
-        retry: step.retry,
-        retry_delay: step.retry_delay,
-        priority: step.priority,
-      },
-    })
-    
-    // 创建边
+    nodes.push({ id: step.id, type: step.action, position: pos, data: { ...step } })
     step.depends_on?.forEach((depId) => {
-      edges.push({
-        id: `${depId}-${step.id}`,
-        source: depId,
-        target: step.id,
-        animated: true,
-      })
+      edges.push({ id: `${depId}-${step.id}`, source: depId, target: step.id, animated: true })
     })
   })
-  
+
   elements.value = { nodes, edges }
 }
 
-// 计算节点层级（带循环依赖检测）
 function calculateLevel(step: WorkflowStep, allSteps: WorkflowStep[], visited: Set<string> = new Set()): number {
-  // 检测循环依赖
-  if (visited.has(step.id)) {
-    console.warn(`Circular dependency detected at step: ${step.id}`)
-    return 0
-  }
-  
-  if (!step.depends_on || step.depends_on.length === 0) {
-    return 0
-  }
-  
+  if (visited.has(step.id)) return 0
+  if (!step.depends_on || step.depends_on.length === 0) return 0
   visited.add(step.id)
   let maxLevel = 0
-  
   step.depends_on.forEach((depId) => {
     const dep = allSteps.find(s => s.id === depId)
-    if (dep) {
-      maxLevel = Math.max(maxLevel, calculateLevel(dep, allSteps, visited) + 1)
-    }
+    if (dep) maxLevel = Math.max(maxLevel, calculateLevel(dep, allSteps, visited) + 1)
   })
-  
   visited.delete(step.id)
   return maxLevel
 }
 
-// 导出工作流定义
 function exportWorkflow(): WorkflowDefinition {
-  const nodes = elements.value.nodes || []
-  const edges = elements.value.edges || []
-  
-  const steps: WorkflowStep[] = nodes.map((node: any) => {
-    const dependsOn = edges
-      .filter((e: any) => e.target === node.id)
-      .map((e: any) => e.source)
-    
+  const nodes = (elements.value.nodes || []) as Array<{ id: string; type: string; data?: Record<string, unknown> }>
+  const edges = (elements.value.edges || []) as Array<{ source: string; target: string }>
+
+  const steps: WorkflowStep[] = nodes.map((node) => {
+    const dependsOn = edges.filter(e => e.target === node.id).map(e => e.source)
     return {
       id: node.id,
-      name: node.data?.name || node.type,
+      name: (node.data?.name as string) || node.type,
       action: node.type as 'task' | 'notify' | 'query',
-      agent: node.data?.agent || '',
-      input: node.data?.input || {},
-      output: node.data?.output || [],
+      agent: (node.data?.agent as string) || '',
+      input: (node.data?.input as Record<string, unknown>) || {},
+      output: (node.data?.output as string[]) || [],
       depends_on: dependsOn,
-      condition: node.data?.condition,
-      timeout: node.data?.timeout,
-      retry: node.data?.retry,
-      retry_delay: node.data?.retry_delay,
-      priority: node.data?.priority,
+      condition: node.data?.condition as string | undefined,
+      timeout: node.data?.timeout as number | undefined,
+      retry: node.data?.retry as number | undefined,
+      retry_delay: node.data?.retry_delay as number | undefined,
+      priority: node.data?.priority as string | undefined,
     }
   })
-  
+
   return { steps }
 }
 
-// 保存工作流
-function saveWorkflow() {
-  const definition = exportWorkflow()
-  emit('save', definition)
-}
+function saveWorkflow() { emit('save', exportWorkflow()) }
+function validateWorkflow() { emit('validate', exportWorkflow()) }
 
-// 验证工作流
-function validateWorkflow() {
-  const definition = exportWorkflow()
-  emit('validate', definition)
-}
-
-// 拖拽开始
 function onDragStart(event: DragEvent, type: NodeType) {
   event.dataTransfer?.setData('nodeType', type.id)
 }
 
-// 拖拽放置
 function onDrop(event: DragEvent) {
   const nodeType = event.dataTransfer?.getData('nodeType')
   if (!nodeType) return
-  
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  const x = event.clientX - rect.left
-  const y = event.clientY - rect.top
-  
-  const newNode: any = {
+  const newNode = {
     id: `step_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     type: nodeType,
-    position: { x, y },
-    data: {
-      name: nodeTypes.find(t => t.id === nodeType)?.name || nodeType,
-      agent: '',
-      input: {},
-    },
+    position: { x: event.clientX - rect.left, y: event.clientY - rect.top },
+    data: { name: nodeTypes.find(t => t.id === nodeType)?.name || nodeType, agent: '', input: {} },
   }
-  
   addNodes([newNode])
 }
 
-// 节点点击
-function onNodeClick(_event: any, node: any) {
+function onNodeClick(_event: unknown, node: unknown) {
   selectedNode.value = node
 }
 
-// 连接节点
 function onConnect(connection: Connection) {
   if (connection.source && connection.target) {
-    const newEdge: any = {
-      id: `${connection.source}-${connection.target}`,
-      source: connection.source,
-      target: connection.target,
-      animated: true,
-    }
-    addEdges([newEdge])
+    addEdges([{ id: `${connection.source}-${connection.target}`, source: connection.source, target: connection.target, animated: true }])
   }
 }
 
-// 节点更新
-function onNodeUpdate(updatedNode: any) {
-  const nodes = elements.value.nodes || []
-  const index = nodes.findIndex((n: any) => n.id === updatedNode.id)
+function onNodeUpdate(updatedNode: unknown) {
+  const nodes = (elements.value.nodes || []) as Array<{ id: string }>
+  const index = nodes.findIndex(n => n.id === (updatedNode as { id: string }).id)
   if (index !== -1) {
-    nodes[index] = updatedNode
+    nodes[index] = updatedNode as { id: string }
     selectedNode.value = updatedNode
   }
 }
 
-// 删除选中的节点
 function deleteSelectedNode() {
   if (selectedNode.value) {
-    removeNodes([selectedNode.value.id])
+    removeNodes([(selectedNode.value as { id: string }).id])
     selectedNode.value = null
   }
 }
@@ -364,16 +263,45 @@ function deleteSelectedNode() {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #f5f5f5;
+  background: #f8fafc;
 }
 
 .designer-toolbar {
   display: flex;
   align-items: center;
   padding: 8px 16px;
-  background: white;
-  border-bottom: 1px solid #e0e0e0;
-  gap: 8px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  gap: 6px;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: transparent;
+  color: #475569;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.toolbar-btn:hover { background: #f1f5f9; }
+.toolbar-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.toolbar-btn-primary { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+.toolbar-btn-primary:hover { background: #2563eb; }
+
+.toolbar-btn-danger:hover { background: rgba(239,68,68,0.1); color: #ef4444; border-color: rgba(239,68,68,0.3); }
+
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: #e2e8f0;
+  margin: 0 4px;
 }
 
 .designer-content {
@@ -383,38 +311,57 @@ function deleteSelectedNode() {
 }
 
 .component-library {
-  width: 200px;
-  background: white;
-  border-right: 1px solid #e0e0e0;
+  width: 180px;
+  background: #fff;
+  border-right: 1px solid #e2e8f0;
   padding: 16px;
   overflow-y: auto;
+  flex-shrink: 0;
 }
 
 .library-title {
-  font-weight: 500;
-  font-size: 14px;
+  font-weight: 600;
+  font-size: 12px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   margin-bottom: 12px;
-  color: rgba(0, 0, 0, 0.87);
 }
 
 .component-item {
   display: flex;
   align-items: center;
-  padding: 12px;
-  margin-bottom: 8px;
-  background: #f5f5f5;
-  border-radius: 8px;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #e2e8f0;
+  border-radius: 6px;
   cursor: grab;
-  transition: all 0.2s ease;
+  transition: all 0.15s;
+  font-size: 13px;
+  color: #475569;
 }
 
 .component-item:hover {
-  background: #e0e0e0;
-  transform: translateX(4px);
+  background: #f1f5f9;
+  transform: translateX(3px);
 }
 
-.component-item:active {
-  cursor: grabbing;
+.component-item:active { cursor: grabbing; }
+
+.comp-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
 }
 
 .canvas-container {
@@ -423,50 +370,34 @@ function deleteSelectedNode() {
 }
 
 .properties-panel {
-  width: 300px;
-  background: white;
-  border-left: 1px solid #e0e0e0;
-  padding: 16px;
+  width: 280px;
+  background: #fff;
+  border-left: 1px solid #e2e8f0;
   overflow-y: auto;
+  flex-shrink: 0;
 }
 
 .panel-title {
-  font-weight: 500;
-  font-size: 14px;
-  margin-bottom: 16px;
-  color: rgba(0, 0, 0, 0.87);
+  font-weight: 600;
+  font-size: 12px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .no-selection {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 200px;
+  gap: 8px;
+  color: #94a3b8;
 }
 
-/* Vue Flow 自定义样式 */
-:deep(.vue-flow__node) {
-  border: none;
-  padding: 0;
-  background: transparent;
-}
+.no-selection p { font-size: 13px; margin: 0; }
 
-:deep(.vue-flow__edge-path) {
-  stroke: #666;
-  stroke-width: 2;
-}
-
-:deep(.vue-flow__edge.animated .vue-flow__edge-path) {
-  stroke-dasharray: 5;
-  animation: dashdraw 0.5s linear infinite;
-}
-
-@keyframes dashdraw {
-  from {
-    stroke-dashoffset: 10;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
+:deep(.vue-flow__node) { border: none; padding: 0; background: transparent; }
 </style>

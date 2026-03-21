@@ -2,46 +2,20 @@
   <BaseNode
     :id="id"
     :selected="selected"
-    :data="data"
-    :icon="'mdi-account'"
-    :title="data.name || '人工'"
+    title="人工"
+    icon-color="#f59e0b"
     :executing="data.waiting"
     :completed="false"
-    :show-input-handle="true"
-    :show-output-handle="true"
   >
-    <template #body>
-      <!-- 等待提示 -->
-      <div v-if="data.waiting" class="waiting-indicator">
-        <v-progress-circular
-          indeterminate
-          size="14"
-          width="2"
-          color="warning"
-          class="mr-1"
-        />
-        <span class="text-caption text-warning">等待输入...</span>
-      </div>
-
-      <!-- 提示摘要 -->
-      <div v-if="data.prompt" class="node-prompt text-caption">
-        {{ truncatePrompt(data.prompt) }}
-      </div>
-
-      <!-- 快捷选项 -->
-      <div v-if="data.options && data.options.length > 0" class="node-options">
-        <v-chip
-          v-for="(option, index) in data.options.slice(0, 3)"
-          :key="index"
-          size="x-small"
-          variant="outlined"
-          class="mr-1 mb-1"
-        >
-          {{ option }}
-        </v-chip>
-        <span v-if="data.options.length > 3" class="text-caption">+{{ data.options.length - 3 }}</span>
-      </div>
-    </template>
+    <div v-if="data.waiting" class="waiting-status">
+      <span class="dot-pulse" />
+      <span class="wait-text">等待输入...</span>
+    </div>
+    <div v-if="data.prompt" class="node-prompt">{{ truncate(data.prompt, 40) }}</div>
+    <div v-if="data.options?.length" class="node-options">
+      <span v-for="(opt, i) in data.options.slice(0, 2)" :key="i" class="option-chip">{{ opt }}</span>
+      <span v-if="data.options.length > 2" class="more-chip">+{{ data.options.length - 2 }}</span>
+    </div>
   </BaseNode>
 </template>
 
@@ -56,34 +30,41 @@ interface NodeData {
   timeout?: number
 }
 
-interface Props {
-  id: string
-  selected?: boolean
-  data: NodeData
-}
+defineProps<{ id: string; selected?: boolean; data: NodeData }>()
 
-const props = defineProps<Props>()
-
-function truncatePrompt(prompt: string): string {
-  const maxLength = 40
-  if (prompt.length <= maxLength) return prompt
-  return prompt.substring(0, maxLength) + '...'
+function truncate(s: string, len: number) {
+  return s.length <= len ? s : s.substring(0, len) + '...'
 }
 </script>
 
 <style scoped>
-.node-prompt {
-  color: #666;
-  margin-top: 4px;
+.waiting-status { display: flex; align-items: center; gap: 5px; margin-bottom: 3px; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
-.node-options {
-  margin-top: 4px;
+.dot-pulse {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #f59e0b;
+  animation: pulse-dot 1.2s ease-in-out infinite;
+  display: inline-block;
 }
 
-.waiting-indicator {
-  display: flex;
-  align-items: center;
-  margin-bottom: 4px;
+.wait-text { font-size: 11px; color: #d97706; }
+
+.node-prompt { font-size: 11px; color: #64748b; margin-top: 2px; }
+
+.node-options { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+
+.option-chip, .more-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
 }
+
+.option-chip { background: rgba(245,158,11,0.1); color: #d97706; border: 1px solid rgba(245,158,11,0.3); }
+.more-chip { color: #94a3b8; }
 </style>

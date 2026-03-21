@@ -1,279 +1,218 @@
 <template>
   <div class="agent-messages-page">
     <div class="page-header">
-      <h1 class="text-h5">Agent 消息</h1>
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openSendDialog">
+      <h1 class="page-title">Agent 消息</h1>
+      <button class="btn-primary" @click="openSendDialog">
+        <SendIcon :size="16" />
         发送消息
-      </v-btn>
+      </button>
     </div>
 
-    <v-row class="mt-4">
-      <!-- 左侧：会话列表 -->
-      <v-col cols="3">
-        <v-card>
-          <v-card-title>会话</v-card-title>
-          <v-list density="compact">
-            <v-list-item
-              v-for="conv in conversations"
-              :key="conv.id"
-              :active="selectedConversation === conv.id"
-              @click="selectConversation(conv)"
-            >
-              <v-list-item-title>{{ conv.title }}</v-list-item-title>
-              <v-list-item-subtitle>
-                {{ conv.message_count }} 条消息
-                <span v-if="conv.last_message_at">
-                  · {{ formatDate(conv.last_message_at) }}
-                </span>
-              </v-list-item-subtitle>
-            </v-list-item>
-          </v-list>
-        </v-card>
-
-        <!-- 统计信息 -->
-        <v-card class="mt-4">
-          <v-card-title>统计</v-card-title>
-          <v-card-text>
-            <div v-if="stats">
-              <div class="d-flex justify-space-between">
-                <span>发送:</span>
-                <span>{{ stats.total_sent }}</span>
-              </div>
-              <div class="d-flex justify-space-between">
-                <span>接收:</span>
-                <span>{{ stats.total_received }}</span>
-              </div>
-              <div class="d-flex justify-space-between">
-                <span>待处理:</span>
-                <span class="text-warning">{{ stats.pending_count }}</span>
-              </div>
-              <div class="d-flex justify-space-between">
-                <span>失败:</span>
-                <span class="text-error">{{ stats.failed_count }}</span>
-              </div>
+    <div class="msg-layout">
+      <!-- 左侧：会话列表 + 统计 -->
+      <div class="left-panel">
+        <div class="panel-card">
+          <div class="panel-section-title">会话</div>
+          <div
+            v-for="conv in conversations"
+            :key="conv.id"
+            class="conv-item"
+            :class="{ active: selectedConversation === conv.id }"
+            @click="selectConversation(conv)"
+          >
+            <div class="conv-title">{{ conv.title }}</div>
+            <div class="conv-meta">
+              {{ conv.message_count }} 条消息
+              <span v-if="conv.last_message_at">· {{ formatDate(conv.last_message_at) }}</span>
             </div>
-          </v-card-text>
-        </v-card>
-      </v-col>
+          </div>
+          <div v-if="conversations.length === 0" class="empty-state">暂无会话</div>
+        </div>
+
+        <div v-if="stats" class="panel-card">
+          <div class="panel-section-title">统计</div>
+          <div class="stats-list">
+            <div class="stat-row">
+              <span>发送</span><span>{{ stats.total_sent }}</span>
+            </div>
+            <div class="stat-row">
+              <span>接收</span><span>{{ stats.total_received }}</span>
+            </div>
+            <div class="stat-row">
+              <span>待处理</span>
+              <span class="text-warning">{{ stats.pending_count }}</span>
+            </div>
+            <div class="stat-row">
+              <span>失败</span>
+              <span class="text-error">{{ stats.failed_count }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- 右侧：消息列表 -->
-      <v-col cols="9">
-        <v-card>
-          <v-card-title class="d-flex align-center">
-            <span>消息</span>
-            <v-spacer />
-            <v-btn-toggle v-model="messageFilter" density="compact">
-              <v-btn value="received">接收</v-btn>
-              <v-btn value="sent">发送</v-btn>
-            </v-btn-toggle>
-            <v-btn
-              icon="mdi-refresh"
-              variant="text"
-              density="compact"
-              @click="loadMessages"
-            />
-          </v-card-title>
-          <v-card-text>
-            <v-data-table
-              :headers="headers"
-              :items="filteredMessages"
-              :loading="loading"
-              item-value="id"
-            >
-              <template #item.type="{ item }">
-                <v-chip
-                  :color="getTypeColor(item.type)"
-                  size="small"
-                >
-                  {{ item.type }}
-                </v-chip>
-              </template>
+      <div class="right-panel">
+        <div class="messages-header">
+          <span class="panel-section-title" style="flex:1">消息</span>
+          <div class="filter-tabs">
+            <button class="filter-tab" :class="{ active: messageFilter === 'received' }" @click="messageFilter = 'received'; loadMessages()">接收</button>
+            <button class="filter-tab" :class="{ active: messageFilter === 'sent' }" @click="messageFilter = 'sent'; loadMessages()">发送</button>
+          </div>
+          <button class="btn-icon" title="刷新" @click="loadMessages">
+            <RefreshCwIcon :size="15" />
+          </button>
+        </div>
 
-              <template #item.status="{ item }">
-                <v-chip
-                  :color="getStatusColor(item.status)"
-                  size="small"
-                >
-                  {{ item.status }}
-                </v-chip>
-              </template>
-
-              <template #item.from_agent="{ item }">
-                <span v-if="messageFilter === 'sent'">
-                  {{ item.to_agent }}
-                </span>
-                <span v-else>
-                  {{ item.from_agent }}
-                </span>
-              </template>
-
-              <template #item.content="{ item }">
-                <div class="text-truncate" style="max-width: 300px;">
-                  {{ item.content }}
-                </div>
-              </template>
-
-              <template #item.created_at="{ item }">
-                {{ formatDate(item.created_at) }}
-              </template>
-
-              <template #item.actions="{ item }">
-                <v-btn
-                  icon="mdi-eye"
-                  size="small"
-                  variant="text"
-                  @click="viewMessage(item)"
-                />
-                <v-btn
-                  v-if="item.status === 'pending'"
-                  icon="mdi-check"
-                  size="small"
-                  variant="text"
-                  color="success"
-                  @click="markCompleted(item)"
-                />
-                <v-btn
-                  v-if="item.status === 'pending'"
-                  icon="mdi-close"
-                  size="small"
-                  variant="text"
-                  color="error"
-                  @click="markFailed(item)"
-                />
-              </template>
-            </v-data-table>
-          </v-card-text>
-        </v-card>
-      </v-col>
-    </v-row>
-
-    <!-- 发送消息对话框 -->
-    <v-dialog v-model="sendDialog.show" max-width="600">
-      <v-card>
-        <v-card-title>发送消息</v-card-title>
-        <v-card-text>
-          <v-form ref="form" v-model="sendDialog.valid">
-            <v-select
-              v-model="sendDialog.data.type"
-              :items="messageTypes"
-              label="消息类型"
-              :rules="[(v: string) => !!v || '请选择类型']"
-              required
-            />
-            <v-select
-              v-model="sendDialog.data.from_agent"
-              :items="agents"
-              item-title="name"
-              item-value="id"
-              label="发送 Agent"
-              :rules="[(v: string) => !!v || '请选择发送 Agent']"
-              required
-            />
-            <v-select
-              v-model="sendDialog.data.to_agent"
-              :items="agents"
-              item-title="name"
-              item-value="id"
-              label="接收 Agent"
-              :rules="[(v: string) => !!v || '请选择接收 Agent']"
-              required
-            />
-            <v-textarea
-              v-model="sendDialog.data.content"
-              label="内容"
-              :rules="[(v: string) => !!v || '内容不能为空']"
-              rows="3"
-              required
-            />
-            <v-textarea
-              v-model="sendDialog.data.payloadText"
-              label="Payload (JSON)"
-              rows="3"
-              placeholder='{"key": "value"}'
-            />
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="sendDialog.show = false">取消</v-btn>
-          <v-btn color="primary" :disabled="!sendDialog.valid" @click="sendMessage">
-            发送
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- 查看消息对话框 -->
-    <v-dialog v-model="viewDialog.show" max-width="600">
-      <v-card>
-        <v-card-title>消息详情</v-card-title>
-        <v-card-text v-if="viewDialog.message">
-          <v-row>
-            <v-col cols="6">
-              <div class="text-caption text-grey">ID</div>
-              <div>{{ viewDialog.message.id }}</div>
-            </v-col>
-            <v-col cols="6">
-              <div class="text-caption text-grey">类型</div>
-              <v-chip
-                :color="getTypeColor(viewDialog.message.type)"
-                size="small"
+        <div class="msg-table">
+          <div class="msg-thead">
+            <span>类型</span>
+            <span>{{ messageFilter === 'sent' ? '接收者' : '发送者' }}</span>
+            <span>内容</span>
+            <span>状态</span>
+            <span>时间</span>
+            <span>操作</span>
+          </div>
+          <div v-if="loading" class="empty-state">加载中...</div>
+          <div v-else-if="filteredMessages.length === 0" class="empty-state">暂无消息</div>
+          <div v-for="msg in filteredMessages" :key="msg.id" class="msg-row">
+            <span>
+              <span class="badge" :class="getTypeClass(msg.type)">{{ msg.type }}</span>
+            </span>
+            <span class="text-ellipsis">{{ messageFilter === 'sent' ? msg.to_agent : msg.from_agent }}</span>
+            <span class="text-ellipsis">{{ msg.content }}</span>
+            <span>
+              <span class="badge" :class="getStatusClass(msg.status)">{{ msg.status }}</span>
+            </span>
+            <span class="text-sm">{{ formatDate(msg.created_at) }}</span>
+            <span class="actions">
+              <button class="action-btn" title="查看" @click="viewMessage(msg)">
+                <EyeIcon :size="14" />
+              </button>
+              <button
+                v-if="msg.status === 'pending'"
+                class="action-btn action-success"
+                title="标记完成"
+                @click="markCompleted(msg)"
               >
-                {{ viewDialog.message.type }}
-              </v-chip>
-            </v-col>
-            <v-col cols="6">
-              <div class="text-caption text-grey">发送者</div>
-              <div>{{ viewDialog.message.from_agent }}</div>
-            </v-col>
-            <v-col cols="6">
-              <div class="text-caption text-grey">接收者</div>
-              <div>{{ viewDialog.message.to_agent }}</div>
-            </v-col>
-            <v-col cols="6">
-              <div class="text-caption text-grey">状态</div>
-              <v-chip
-                :color="getStatusColor(viewDialog.message.status)"
-                size="small"
+                <CheckIcon :size="14" />
+              </button>
+              <button
+                v-if="msg.status === 'pending'"
+                class="action-btn action-danger"
+                title="标记失败"
+                @click="markFailed(msg)"
               >
-                {{ viewDialog.message.status }}
-              </v-chip>
-            </v-col>
-            <v-col cols="6">
-              <div class="text-caption text-grey">时间</div>
-              <div>{{ formatDate(viewDialog.message.created_at) }}</div>
-            </v-col>
-            <v-col cols="12">
-              <div class="text-caption text-grey">内容</div>
-              <div class="text-body-1">{{ viewDialog.message.content }}</div>
-            </v-col>
-            <v-col v-if="viewDialog.message.payload" cols="12">
-              <div class="text-caption text-grey">Payload</div>
-              <pre class="bg-grey-lighten-3 pa-2 rounded">{{ formatPayload(viewDialog.message.payload) }}</pre>
-            </v-col>
-            <v-col v-if="viewDialog.message.error" cols="12">
-              <div class="text-caption text-grey">错误</div>
-              <div class="text-error">{{ viewDialog.message.error }}</div>
-            </v-col>
-          </v-row>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="viewDialog.show = false">关闭</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+                <XIcon :size="14" />
+              </button>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 发送消息弹窗 -->
+    <div v-if="sendDialog.show" class="modal-overlay" @click.self="sendDialog.show = false">
+      <div class="modal-card">
+        <h2 class="modal-title">发送消息</h2>
+        <div class="form-group">
+          <label>消息类型</label>
+          <select v-model="sendDialog.data.type">
+            <option value="task">任务 (Task)</option>
+            <option value="response">响应 (Response)</option>
+            <option value="notify">通知 (Notify)</option>
+            <option value="query">查询 (Query)</option>
+            <option value="result">结果 (Result)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>发送 Agent</label>
+          <select v-model="sendDialog.data.from_agent">
+            <option value="">请选择...</option>
+            <option v-for="agent in agents" :key="agent.id" :value="agent.id">{{ agent.name }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>接收 Agent</label>
+          <select v-model="sendDialog.data.to_agent">
+            <option value="">请选择...</option>
+            <option v-for="agent in agents" :key="agent.id" :value="agent.id">{{ agent.name }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>内容</label>
+          <textarea v-model="sendDialog.data.content" rows="3" placeholder="消息内容" />
+        </div>
+        <div class="form-group">
+          <label>Payload (JSON)</label>
+          <textarea v-model="sendDialog.data.payloadText" rows="3" placeholder='{"key": "value"}' />
+        </div>
+        <div class="modal-actions">
+          <button class="btn-ghost" @click="sendDialog.show = false">取消</button>
+          <button class="btn-primary" @click="sendMessage">发送</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 查看消息弹窗 -->
+    <div v-if="viewDialog.show" class="modal-overlay" @click.self="viewDialog.show = false">
+      <div class="modal-card" v-if="viewDialog.message">
+        <h2 class="modal-title">消息详情</h2>
+        <div class="detail-grid">
+          <div class="detail-item">
+            <div class="detail-label">ID</div>
+            <div class="detail-value mono">{{ viewDialog.message.id }}</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">类型</div>
+            <div class="detail-value">
+              <span class="badge" :class="getTypeClass(viewDialog.message.type)">{{ viewDialog.message.type }}</span>
+            </div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">发送者</div>
+            <div class="detail-value">{{ viewDialog.message.from_agent }}</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">接收者</div>
+            <div class="detail-value">{{ viewDialog.message.to_agent }}</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">状态</div>
+            <div class="detail-value">
+              <span class="badge" :class="getStatusClass(viewDialog.message.status)">{{ viewDialog.message.status }}</span>
+            </div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">时间</div>
+            <div class="detail-value">{{ formatDate(viewDialog.message.created_at) }}</div>
+          </div>
+          <div class="detail-item full">
+            <div class="detail-label">内容</div>
+            <div class="detail-value">{{ viewDialog.message.content }}</div>
+          </div>
+          <div v-if="viewDialog.message.payload" class="detail-item full">
+            <div class="detail-label">Payload</div>
+            <pre class="code-block">{{ formatPayload(viewDialog.message.payload) }}</pre>
+          </div>
+          <div v-if="viewDialog.message.error" class="detail-item full">
+            <div class="detail-label">错误</div>
+            <div class="detail-value text-error">{{ viewDialog.message.error }}</div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-ghost" @click="viewDialog.show = false">关闭</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive } from 'vue'
+import { SendIcon, RefreshCwIcon, EyeIcon, CheckIcon, XIcon } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import { agentMessagesApi, type AgentMessage, type Conversation, type MessageStats } from '@/api/agent_messages'
 import { listAgents, type Agent } from '@/api/agents'
-
-const showSnackbar = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-  console.log(`[${type}] ${message}`)
-}
 
 const loading = ref(false)
 const messages = ref<AgentMessage[]>([])
@@ -283,26 +222,8 @@ const stats = ref<MessageStats | null>(null)
 const messageFilter = ref<'received' | 'sent'>('received')
 const selectedConversation = ref<string | null>(null)
 
-const headers = computed(() => [
-  { title: '类型', key: 'type' },
-  { title: messageFilter.value === 'sent' ? '接收者' : '发送者', key: 'from_agent' },
-  { title: '内容', key: 'content' },
-  { title: '状态', key: 'status' },
-  { title: '时间', key: 'created_at' },
-  { title: '操作', key: 'actions', sortable: false },
-])
-
-const messageTypes = [
-  { title: '任务 (Task)', value: 'task' },
-  { title: '响应 (Response)', value: 'response' },
-  { title: '通知 (Notify)', value: 'notify' },
-  { title: '查询 (Query)', value: 'query' },
-  { title: '结果 (Result)', value: 'result' },
-]
-
 const sendDialog = reactive({
   show: false,
-  valid: false,
   data: {
     type: 'task' as 'task' | 'response' | 'notify' | 'query' | 'result',
     from_agent: '',
@@ -320,62 +241,53 @@ const viewDialog = reactive({
 const filteredMessages = computed(() => {
   if (selectedConversation.value) {
     return messages.value.filter(m =>
-      m.id === selectedConversation.value ||
-      m.parent_id === selectedConversation.value
+      m.id === selectedConversation.value || m.parent_id === selectedConversation.value,
     )
   }
   return messages.value
 })
 
-function getTypeColor(type: string) {
-  switch (type) {
-    case 'task': return 'primary'
-    case 'response': return 'success'
-    case 'notify': return 'warning'
-    case 'query': return 'info'
-    case 'result': return 'secondary'
-    default: return 'grey'
+function getTypeClass(type: string) {
+  const map: Record<string, string> = {
+    task: 'badge-info',
+    response: 'badge-success',
+    notify: 'badge-warning',
+    query: 'badge-purple',
+    result: 'badge-neutral',
   }
+  return map[type] || 'badge-neutral'
 }
 
-function getStatusColor(status: string) {
-  switch (status) {
-    case 'completed': return 'success'
-    case 'processing': return 'info'
-    case 'pending': return 'warning'
-    case 'failed': return 'error'
-    default: return 'grey'
+function getStatusClass(status: string) {
+  const map: Record<string, string> = {
+    completed: 'badge-success',
+    processing: 'badge-info',
+    pending: 'badge-warning',
+    failed: 'badge-error',
   }
+  return map[status] || 'badge-neutral'
 }
 
 function formatDate(date: string) {
   return new Date(date).toLocaleString('zh-CN')
 }
 
-function formatPayload(payload: any) {
-  try {
-    return JSON.stringify(payload, null, 2)
-  } catch {
-    return String(payload)
-  }
+function formatPayload(payload: unknown) {
+  try { return JSON.stringify(payload, null, 2) } catch { return String(payload) }
 }
 
 async function loadMessages() {
   loading.value = true
   try {
-    // 这里需要知道当前选中的 agent
     const currentAgent = agents.value[0]?.id
     if (!currentAgent) return
-
     if (messageFilter.value === 'sent') {
-      const response = await agentMessagesApi.listSent(currentAgent)
-      messages.value = response
+      messages.value = await agentMessagesApi.listSent(currentAgent)
     } else {
-      const response = await agentMessagesApi.list(currentAgent)
-      messages.value = response
+      messages.value = await agentMessagesApi.list(currentAgent)
     }
-  } catch (error) {
-    showSnackbar('加载消息失败', 'error')
+  } catch {
+    toast.error('加载消息失败')
   } finally {
     loading.value = false
   }
@@ -385,11 +297,9 @@ async function loadConversations() {
   try {
     const currentAgent = agents.value[0]?.id
     if (!currentAgent) return
-
-    const response = await agentMessagesApi.listConversations(currentAgent)
-    conversations.value = response
-  } catch (error) {
-    showSnackbar('加载会话失败', 'error')
+    conversations.value = await agentMessagesApi.listConversations(currentAgent)
+  } catch {
+    toast.error('加载会话失败')
   }
 }
 
@@ -397,11 +307,9 @@ async function loadStats() {
   try {
     const currentAgent = agents.value[0]?.id
     if (!currentAgent) return
-
-    const response = await agentMessagesApi.getStats(currentAgent)
-    stats.value = response
-  } catch (error) {
-    showSnackbar('加载统计失败', 'error')
+    stats.value = await agentMessagesApi.getStats(currentAgent)
+  } catch {
+    // 忽略
   }
 }
 
@@ -409,8 +317,8 @@ async function loadAgents() {
   try {
     const response = await listAgents()
     agents.value = response.agents
-  } catch (error) {
-    showSnackbar('加载 Agents 失败', 'error')
+  } catch {
+    toast.error('加载 Agents 失败')
   }
 }
 
@@ -426,17 +334,16 @@ function openSendDialog() {
 }
 
 async function sendMessage() {
-  try {
-    let payload = {}
-    if (sendDialog.data.payloadText) {
-      try {
-        payload = JSON.parse(sendDialog.data.payloadText)
-      } catch {
-        showSnackbar('Payload JSON 格式错误', 'error')
-        return
-      }
+  let payload = {}
+  if (sendDialog.data.payloadText) {
+    try {
+      payload = JSON.parse(sendDialog.data.payloadText)
+    } catch {
+      toast.error('Payload JSON 格式错误')
+      return
     }
-
+  }
+  try {
     await agentMessagesApi.send({
       type: sendDialog.data.type,
       from_agent: sendDialog.data.from_agent,
@@ -444,13 +351,13 @@ async function sendMessage() {
       content: sendDialog.data.content,
       payload,
     })
-
-    showSnackbar('消息发送成功', 'success')
+    toast.success('消息发送成功')
     sendDialog.show = false
     loadMessages()
     loadStats()
-  } catch (error: any) {
-    showSnackbar(error.response?.data?.error || '发送失败', 'error')
+  } catch (error: unknown) {
+    const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error
+    toast.error(msg || '发送失败')
   }
 }
 
@@ -462,28 +369,27 @@ function viewMessage(msg: AgentMessage) {
 async function markCompleted(msg: AgentMessage) {
   try {
     await agentMessagesApi.updateStatus(msg.id, 'completed')
-    showSnackbar('标记完成', 'success')
+    toast.success('已标记完成')
     loadMessages()
     loadStats()
-  } catch (error) {
-    showSnackbar('操作失败', 'error')
+  } catch {
+    toast.error('操作失败')
   }
 }
 
 async function markFailed(msg: AgentMessage) {
   try {
     await agentMessagesApi.updateStatus(msg.id, 'failed', '手动标记失败')
-    showSnackbar('标记失败', 'success')
+    toast.success('已标记失败')
     loadMessages()
     loadStats()
-  } catch (error) {
-    showSnackbar('操作失败', 'error')
+  } catch {
+    toast.error('操作失败')
   }
 }
 
 function selectConversation(conv: Conversation) {
   selectedConversation.value = conv.id
-  // Load conversation messages
   agentMessagesApi.listConversation(conv.id).then(response => {
     messages.value = response
   })
@@ -499,12 +405,354 @@ onMounted(async () => {
 
 <style scoped>
 .agent-messages-page {
-  padding: 16px;
+  padding: 24px 32px;
+  height: 100%;
+  overflow-y: auto;
 }
 
 .page-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-primary:hover { background: var(--accent-hover); }
+
+.btn-ghost {
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btn-ghost:hover { background: var(--bg-overlay); }
+
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.btn-icon:hover { background: var(--bg-overlay); }
+
+.msg-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 16px;
+  min-height: 400px;
+}
+
+.left-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.panel-section-title {
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--bg-overlay);
+  border-bottom: 1px solid var(--border);
+}
+
+.conv-item {
+  padding: 10px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background 0.1s;
+}
+
+.conv-item:hover { background: var(--bg-overlay); }
+.conv-item.active { background: var(--accent-dim); }
+
+.conv-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conv-meta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.stats-list { padding: 8px 0; }
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.text-warning { color: #ca8a04; }
+.text-error   { color: #ef4444; }
+.text-sm      { font-size: 12px; color: var(--text-secondary); }
+
+.right-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.messages-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-overlay);
+}
+
+.filter-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.filter-tab {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.filter-tab:hover { background: var(--bg-overlay); }
+.filter-tab.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.msg-table { flex: 1; overflow-y: auto; }
+
+.msg-thead, .msg-row {
+  display: grid;
+  grid-template-columns: 90px 120px 1fr 100px 130px 90px;
+  padding: 10px 16px;
+  align-items: center;
+  gap: 8px;
+}
+
+.msg-thead {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--bg-overlay);
+  border-bottom: 1px solid var(--border);
+}
+
+.msg-row {
+  font-size: 13px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.msg-row:last-child { border-bottom: none; }
+
+.text-ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-info    { background: rgba(59,130,246,0.15);  color: #3b82f6; }
+.badge-success { background: rgba(34,197,94,0.15);   color: #16a34a; }
+.badge-warning { background: rgba(234,179,8,0.15);   color: #ca8a04; }
+.badge-error   { background: rgba(239,68,68,0.15);   color: #ef4444; }
+.badge-purple  { background: rgba(168,85,247,0.15);  color: #a855f7; }
+.badge-neutral { background: var(--bg-overlay); color: var(--text-secondary); border: 1px solid var(--border); }
+
+.actions {
+  display: flex;
+  gap: 4px;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.1s;
+}
+
+.action-btn:hover { background: var(--bg-overlay); }
+.action-success:hover { background: rgba(34,197,94,0.1); color: #16a34a; border-color: rgba(34,197,94,0.3); }
+.action-danger:hover  { background: rgba(239,68,68,0.1); color: #ef4444; border-color: rgba(239,68,68,0.3); }
+
+.empty-state {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  width: 520px;
+  max-width: 95vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 20px;
+}
+
+.form-group {
+  margin-bottom: 14px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.form-group textarea { resize: vertical; }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.detail-item.full { grid-column: 1 / -1; }
+
+.detail-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.detail-value {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.detail-value.mono { font-family: monospace; font-size: 12px; }
+
+.code-block {
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0;
+  color: var(--text-primary);
 }
 </style>

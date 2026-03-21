@@ -3,7 +3,6 @@
     class="gopaw-node"
     :class="[type, { selected, executing, completed }]"
   >
-    <!-- 输入连接点 -->
     <Handle
       v-if="showInputHandle"
       type="target"
@@ -12,38 +11,28 @@
     />
 
     <div class="node-content">
-      <!-- 节点头部：图标 + 名称 -->
       <div class="node-header">
-        <div class="node-icon" :style="iconStyle">
-          <v-icon :icon="icon" size="20" color="white" />
+        <div class="node-icon" :style="{ background: iconColor }">
+          <span class="node-abbr">{{ abbr }}</span>
         </div>
         <span class="node-title">{{ title }}</span>
       </div>
 
-      <!-- 节点主体（插槽） -->
       <div class="node-body">
         <slot />
       </div>
 
-      <!-- 执行状态 -->
       <div v-if="executing" class="node-status">
-        <v-progress-circular
-          indeterminate
-          size="14"
-          width="2"
-          :color="statusColor"
-          class="mr-1"
-        />
-        <span class="text-caption">执行中...</span>
+        <span class="spinner-small" />
+        <span class="status-text">执行中...</span>
       </div>
 
-      <div v-if="completed" class="node-status">
-        <v-icon icon="mdi-check-circle" size="14" :color="statusColor" class="mr-1" />
-        <span class="text-caption text-success">已完成</span>
+      <div v-if="completed" class="node-status completed-status">
+        <span class="check-icon">✓</span>
+        <span class="status-text text-success">已完成</span>
       </div>
     </div>
 
-    <!-- 输出连接点 -->
     <Handle
       v-if="showOutputHandle"
       type="source"
@@ -63,7 +52,7 @@ interface Props {
   selected?: boolean
   executing?: boolean
   completed?: boolean
-  icon: string
+  icon?: string
   title: string
   iconColor?: string
   showInputHandle?: boolean
@@ -75,17 +64,14 @@ const props = withDefaults(defineProps<Props>(), {
   selected: false,
   executing: false,
   completed: false,
-  iconColor: '#1976d2',
+  iconColor: '#3b82f6',
   showInputHandle: true,
   showOutputHandle: true,
 })
 
-const iconStyle = computed(() => ({
-  background: props.iconColor,
-}))
-
-const statusColor = computed(() => {
-  return props.iconColor
+// Create abbreviation from title
+const abbr = computed(() => {
+  return props.title?.charAt(0)?.toUpperCase() || '?'
 })
 </script>
 
@@ -95,82 +81,75 @@ const statusColor = computed(() => {
   max-width: 180px;
   background: white;
   border-radius: 12px;
-  border: 2px solid #e0e0e0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 2px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   transition: all 0.2s ease;
 }
 
-.gopaw-node:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
+.gopaw-node:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
 
-.gopaw-node.selected {
-  border-color: #1976d2;
-  box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.2);
-}
-
-.gopaw-node.executing {
-  animation: pulse 2s infinite;
-}
+.gopaw-node.selected { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }
 
 @keyframes pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(25, 118, 210, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 0 8px rgba(25, 118, 210, 0);
-  }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(59,130,246,0); }
 }
 
-.node-content {
-  padding: 12px;
-}
+.gopaw-node.executing { animation: pulse 2s infinite; }
 
-.node-header {
-  display: flex;
-  align-items: center;
-  margin-bottom: 8px;
-}
+.node-content { padding: 12px; }
+
+.node-header { display: flex; align-items: center; margin-bottom: 8px; gap: 8px; }
 
 .node-icon {
-  width: 32px;
-  height: 32px;
+  width: 32px; height: 32px;
   border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 8px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
 }
+
+.node-abbr { font-size: 13px; font-weight: 700; color: #fff; }
 
 .node-title {
   font-weight: 600;
-  font-size: 14px;
-  color: #333;
+  font-size: 13px;
+  color: #1e293b;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.node-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
+.node-body { display: flex; flex-direction: column; gap: 4px; }
 
 .node-status {
   display: flex;
   align-items: center;
-  margin-top: 4px;
+  gap: 4px;
+  margin-top: 6px;
 }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.spinner-small {
+  width: 12px; height: 12px;
+  border: 2px solid #e2e8f0;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+.check-icon { color: #16a34a; font-size: 13px; font-weight: 700; }
+
+.status-text { font-size: 11px; color: #64748b; }
+.text-success { color: #16a34a; }
 
 .node-handle {
   width: 10px;
   height: 10px;
-  background: #1976d2;
+  background: #3b82f6;
   border: 2px solid white;
 }
 
-.node-handle:hover {
-  transform: scale(1.2);
-}
+.node-handle:hover { transform: scale(1.2); }
 </style>

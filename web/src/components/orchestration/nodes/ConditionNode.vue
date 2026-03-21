@@ -2,14 +2,9 @@
   <DiamondBaseNode
     :id="id"
     :selected="selected"
-    :icon="'mdi-source-branch'"
-    :title="data.name || '条件'"
+    title="条件"
     :type-label="conditionTypeLabel"
-    :icon-color="'#4facfe'"
-    :show-input-handle="true"
-    :show-left-handle="true"
-    :show-right-handle="true"
-    :show-bottom-handle="true"
+    icon-color="#4facfe"
   />
 </template>
 
@@ -22,20 +17,10 @@ interface NodeData {
   condition_type?: 'expression' | 'intent' | 'llm'
 }
 
-interface Props {
-  id: string
-  selected?: boolean
-  data: NodeData
-}
-
-const props = defineProps<Props>()
+const props = defineProps<{ id: string; selected?: boolean; data: NodeData }>()
 
 const conditionTypeLabel = computed(() => {
-  switch (props.data.condition_type) {
-    case 'expression': return '表达式'
-    case 'intent': return '意图'
-    case 'llm': return 'LLM'
-    default: return ''
-  }
+  const map: Record<string, string> = { expression: '表达式', intent: '意图', llm: 'LLM' }
+  return map[props.data.condition_type || ''] || ''
 })
 </script>

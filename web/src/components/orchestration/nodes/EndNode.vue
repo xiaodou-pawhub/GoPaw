@@ -2,21 +2,13 @@
   <BaseNode
     :id="id"
     :selected="selected"
-    :data="data"
-    :icon="'mdi-flag-checkered'"
-    :title="data.name || '结束'"
+    title="结束"
+    icon-color="#16a34a"
     :executing="false"
     :completed="data.completed"
-    :show-input-handle="true"
     :show-output-handle="false"
   >
-    <template #body>
-      <!-- 完成状态 -->
-      <div v-if="data.completed" class="completion-status">
-        <v-icon icon="mdi-check-circle" size="16" color="success" />
-        <span class="text-caption text-success ml-1">已完成</span>
-      </div>
-    </template>
+    <div v-if="data.completed" class="done-status">✓ 已完成</div>
   </BaseNode>
 </template>
 
@@ -29,20 +21,14 @@ interface NodeData {
   output_template?: string
 }
 
-interface Props {
-  id: string
-  selected?: boolean
-  data: NodeData
-}
-
-defineProps<Props>()
+defineProps<{ id: string; selected?: boolean; data: NodeData }>()
 </script>
 
 <style scoped>
-.completion-status {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 4px;
+.done-status {
+  font-size: 11px;
+  color: #16a34a;
+  font-weight: 600;
+  margin-top: 3px;
 }
 </style>

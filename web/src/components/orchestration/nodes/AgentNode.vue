@@ -2,40 +2,13 @@
   <BaseNode
     :id="id"
     :selected="selected"
-    :data="data"
-    :icon="'mdi-robot'"
-    :title="data.name || 'Agent'"
+    title="Agent"
+    icon-color="#3b82f6"
     :executing="data.executing"
     :completed="data.completed"
-    :show-input-handle="true"
-    :show-output-handle="true"
   >
-    <template #body>
-      <!-- Agent ID -->
-      <v-chip
-        v-if="data.agent_id"
-        size="x-small"
-        color="primary"
-        variant="tonal"
-        class="mb-1"
-      >
-        {{ data.agent_id }}
-      </v-chip>
-      <v-chip
-        v-else
-        size="x-small"
-        color="error"
-        variant="tonal"
-        class="mb-1"
-      >
-        未指定
-      </v-chip>
-
-      <!-- 角色描述 -->
-      <div v-if="data.role" class="node-role text-caption">
-        {{ data.role }}
-      </div>
-    </template>
+    <span class="node-chip agent-chip">{{ data.agent_id || '未指定' }}</span>
+    <div v-if="data.role" class="node-role">{{ data.role }}</div>
   </BaseNode>
 </template>
 
@@ -47,23 +20,30 @@ interface NodeData {
   agent_id?: string
   role?: string
   prompt?: string
-  config?: Record<string, any>
   executing?: boolean
   completed?: boolean
 }
 
-interface Props {
-  id: string
-  selected?: boolean
-  data: NodeData
-}
-
-defineProps<Props>()
+defineProps<{ id: string; selected?: boolean; data: NodeData }>()
 </script>
 
 <style scoped>
+.node-chip {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.agent-chip { background: rgba(59,130,246,0.12); color: #2563eb; }
+
 .node-role {
-  color: #666;
-  margin-top: 4px;
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

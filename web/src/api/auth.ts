@@ -6,17 +6,32 @@ import axios from 'axios'
 
 const API_BASE = '/api'
 
-// Legacy token storage key (for admin token auth)
-const TOKEN_KEY = 'gopaw_token'
+export interface ModeInfo {
+  mode: 'solo' | 'team'
+  require_auth: boolean
+  is_multi_user: boolean
+}
 
-// ============================================
-// Legacy Auth Functions (for admin token auth)
-// ============================================
+export interface LoginResult {
+  user_id: string
+  username: string
+  role: string
+  access_token: string
+}
 
-/**
- * Check if user is authenticated (legacy admin token)
- * Uses cookie-based authentication, so we just check the status endpoint
- */
+/** GET /api/mode — 公开，无需 auth */
+export async function getMode(): Promise<ModeInfo> {
+  const response = await axios.get(`${API_BASE}/mode`)
+  return response.data
+}
+
+/** POST /api/auth/login — team 模式用户名+密码登录 */
+export async function loginWithPassword(username: string, password: string): Promise<LoginResult> {
+  const response = await axios.post(`${API_BASE}/auth/login`, { username, password })
+  return response.data
+}
+
+/** GET /api/auth/status — 检查当前 session 是否有效 */
 export async function checkAuthStatus(): Promise<boolean> {
   try {
     const response = await axios.get(`${API_BASE}/auth/status`)
@@ -26,232 +41,18 @@ export async function checkAuthStatus(): Promise<boolean> {
   }
 }
 
-/**
- * Login with admin token (legacy)
- */
-export async function login(token: string): Promise<void> {
-  const response = await axios.post(`${API_BASE}/auth/login`, { token })
-  if (response.status === 200) {
-    localStorage.setItem(TOKEN_KEY, token)
-  } else {
-    throw new Error('Login failed')
-  }
+/** POST /api/auth/logout */
+export async function logout(): Promise<void> {
+  await axios.post(`${API_BASE}/auth/logout`)
+  localStorage.removeItem('access_token')
 }
 
-/**
- * Logout (legacy)
- */
-export function logout(): void {
-  localStorage.removeItem(TOKEN_KEY)
-}
-
-/**
- * Get stored token (legacy)
- */
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY)
-}
-
-// ============================================
-// Types
-export interface User {
-  id: string
-  username: string
-  email: string
-  display_name: string
-  avatar: string
-  status: string
-  last_login_at?: string
-  created_at: string
-}
-
-export interface TokenPair {
-  access_token: string
-  refresh_token: string
-  expires_in: number
-  token_type: string
-}
-
-export interface AuthResponse {
-  code: number
-  message: string
-  data: {
-    user: User
-    tokens: TokenPair
-  }
-}
-
-export interface Team {
-  id: string
-  name: string
-  slug: string
-  description: string
-  avatar: string
-  owner_id: string
-  settings: string
-  status: string
-  created_at: string
-  updated_at: string
-}
-
-export interface TeamMember {
-  id: string
-  team_id: string
-  user_id: string
-  role: string
-  joined_at: string
-  invited_by?: string
-  user?: User
-}
-
-// Auth API
-export const authApi = {
-  // Register a new user
-  async register(data: {
-    username: string
-    email: string
-    password: string
-    display_name?: string
-  }): Promise<AuthResponse> {
-    const response = await axios.post(`${API_BASE}/auth/register`, data)
-    return response.data
-  },
-
-  // Login
-  async login(data: { username: string; password: string }): Promise<AuthResponse> {
-    const response = await axios.post(`${API_BASE}/auth/login`, data)
-    return response.data
-  },
-
-  // Refresh token
-  async refreshToken(refreshToken: string): Promise<{ code: number; message: string; data: { tokens: TokenPair } }> {
-    const response = await axios.post(`${API_BASE}/auth/refresh`, { refresh_token: refreshToken })
-    return response.data
-  },
-
-  // Get current user profile
-  async getProfile(): Promise<{ code: number; message: string; data: User }> {
-    const response = await axios.get(`${API_BASE}/auth/profile`)
-    return response.data
-  },
-
-  // Update profile
-  async updateProfile(data: { display_name?: string; avatar?: string }): Promise<{ code: number; message: string; data: User }> {
-    const response = await axios.put(`${API_BASE}/auth/profile`, data)
-    return response.data
-  },
-
-  // Change password
-  async changePassword(data: { current_password: string; new_password: string }): Promise<{ code: number; message: string }> {
-    const response = await axios.post(`${API_BASE}/auth/change-password`, data)
-    return response.data
-  },
-}
-
-// Team API
-export const teamApi = {
-  // 解析标准响应格式
-  parseData<T>(res: any): T {
-    if (res && res.data !== undefined) {
-      return res.data as T
-    }
-    return res as T
-  },
-
-  // Create a new team
-  async create(data: { name: string; slug?: string; description?: string; avatar?: string }): Promise<Team> {
-    const response = await axios.post(`${API_BASE}/teams`, data)
-    return teamApi.parseData<Team>(response.data)
-  },
-
-  // List user's teams
-  async list(): Promise<Team[]> {
-    const response = await axios.get(`${API_BASE}/teams`)
-    return teamApi.parseData<Team[]>(response.data)
-  },
-
-  // Get team by ID
-  async get(teamId: string): Promise<Team> {
-    const response = await axios.get(`${API_BASE}/teams/${teamId}`)
-    return teamApi.parseData<Team>(response.data)
-  },
-
-  // Update team
-  async update(teamId: string, data: { name?: string; description?: string; avatar?: string; settings?: string }): Promise<Team> {
-    const response = await axios.put(`${API_BASE}/teams/${teamId}`, data)
-    return teamApi.parseData<Team>(response.data)
-  },
-
-  // Delete team
-  async delete(teamId: string): Promise<void> {
-    await axios.delete(`${API_BASE}/teams/${teamId}`)
-  },
-
-  // Get team members
-  async getMembers(teamId: string): Promise<TeamMember[]> {
-    const response = await axios.get(`${API_BASE}/teams/${teamId}/members`)
-    return teamApi.parseData<TeamMember[]>(response.data)
-  },
-
-  // Add member
-  async addMember(teamId: string, data: { user_id: string; role: string }): Promise<void> {
-    await axios.post(`${API_BASE}/teams/${teamId}/members`, data)
-  },
-
-  // Remove member
-  async removeMember(teamId: string, userId: string): Promise<void> {
-    await axios.delete(`${API_BASE}/teams/${teamId}/members/${userId}`)
-  },
-
-  // Invite member
-  async inviteMember(teamId: string, data: { email: string; role: string; expires_in?: number }): Promise<{ invitation_id: string; token: string; expires_at?: string }> {
-    const response = await axios.post(`${API_BASE}/teams/${teamId}/invite`, data)
-    return teamApi.parseData<{ invitation_id: string; token: string; expires_at?: string }>(response.data)
-  },
-
-  // Accept invitation
-  async acceptInvitation(token: string): Promise<void> {
-    await axios.post(`${API_BASE}/teams/accept-invitation?token=${token}`)
-  },
-}
-
-// Token storage utilities
-export const tokenStorage = {
-  getAccessToken(): string | null {
-    return localStorage.getItem('access_token')
-  },
-
-  getRefreshToken(): string | null {
-    return localStorage.getItem('refresh_token')
-  },
-
-  setTokens(tokens: TokenPair): void {
-    localStorage.setItem('access_token', tokens.access_token)
-    localStorage.setItem('refresh_token', tokens.refresh_token)
-    localStorage.setItem('token_expires_at', String(Date.now() + tokens.expires_in * 1000))
-  },
-
-  clearTokens(): void {
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('refresh_token')
-    localStorage.removeItem('token_expires_at')
-    localStorage.removeItem('user')
-  },
-
-  isTokenExpired(): boolean {
-    const expiresAt = localStorage.getItem('token_expires_at')
-    if (!expiresAt) return true
-    return Date.now() > parseInt(expiresAt, 10)
-  },
-}
-
-// Setup axios interceptors
-export function setupAxiosInterceptors() {
-  // Request interceptor - add auth header
+/** 设置 axios 请求拦截器：读 localStorage access_token，自动加 Bearer header */
+export function setupAxiosInterceptors(): void {
   axios.interceptors.request.use(
     (config) => {
-      const token = tokenStorage.getAccessToken()
-      if (token && !tokenStorage.isTokenExpired()) {
+      const token = localStorage.getItem('access_token')
+      if (token) {
         config.headers.Authorization = `Bearer ${token}`
       }
       return config
@@ -259,31 +60,13 @@ export function setupAxiosInterceptors() {
     (error) => Promise.reject(error)
   )
 
-  // Response interceptor - handle token refresh
   axios.interceptors.response.use(
     (response) => response,
-    async (error) => {
-      const originalRequest = error.config
-
-      // If 401 and we have a refresh token, try to refresh
-      if (error.response?.status === 401 && !originalRequest._retry) {
-        originalRequest._retry = true
-
-        const refreshToken = tokenStorage.getRefreshToken()
-        if (refreshToken) {
-          try {
-            const response = await authApi.refreshToken(refreshToken)
-            tokenStorage.setTokens(response.data.tokens)
-            originalRequest.headers.Authorization = `Bearer ${response.data.tokens.access_token}`
-            return axios(originalRequest)
-          } catch {
-            // Refresh failed, clear tokens and redirect to login
-            tokenStorage.clearTokens()
-            window.location.href = '/login'
-          }
-        }
+    (error) => {
+      if (error.response?.status === 401) {
+        localStorage.removeItem('access_token')
+        window.location.href = '/login'
       }
-
       return Promise.reject(error)
     }
   )

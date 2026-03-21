@@ -2,35 +2,12 @@
   <BaseNode
     :id="id"
     :selected="selected"
-    :data="data"
-    :icon="'mdi-file-tree'"
-    :title="data.name || '工作流'"
+    title="工作流"
+    icon-color="#8b5cf6"
     :executing="data.executing"
     :completed="false"
-    :show-input-handle="true"
-    :show-output-handle="true"
   >
-    <template #body>
-      <!-- 工作流 ID -->
-      <v-chip
-        v-if="data.workflow_id"
-        size="x-small"
-        color="secondary"
-        variant="tonal"
-        class="mb-1"
-      >
-        {{ data.workflow_id }}
-      </v-chip>
-      <v-chip
-        v-else
-        size="x-small"
-        color="error"
-        variant="tonal"
-        class="mb-1"
-      >
-        未指定
-      </v-chip>
-    </template>
+    <span class="wf-chip">{{ data.workflow_id || '未指定' }}</span>
   </BaseNode>
 </template>
 
@@ -40,19 +17,20 @@ import BaseNode from './BaseNode.vue'
 interface NodeData {
   name?: string
   workflow_id?: string
-  config?: Record<string, any>
   executing?: boolean
 }
 
-interface Props {
-  id: string
-  selected?: boolean
-  data: NodeData
-}
-
-defineProps<Props>()
+defineProps<{ id: string; selected?: boolean; data: NodeData }>()
 </script>
 
 <style scoped>
-/* 工作流节点特定样式 */
+.wf-chip {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(139,92,246,0.12);
+  color: #7c3aed;
+}
 </style>
