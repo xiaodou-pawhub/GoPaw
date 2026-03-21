@@ -196,7 +196,7 @@
         >
           <UploadCloudIcon :size="40" class="upload-icon" />
           <p class="upload-text">点击或拖拽文件到此处上传</p>
-          <p class="upload-hint">支持 PDF, Markdown, TXT 等格式</p>
+          <p class="upload-hint">支持 PDF, Word, Markdown, TXT 等格式</p>
           <input
             ref="fileInput"
             type="file"

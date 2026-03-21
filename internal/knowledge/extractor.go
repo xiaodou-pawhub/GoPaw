@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ledongthuc/pdf"
+	"github.com/nguyenthenguyen/docx"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
@@ -33,6 +34,7 @@ func NewExtractorRegistry() *ExtractorRegistry {
 	registry.Register("md", &MarkdownExtractor{})
 	registry.Register("markdown", &MarkdownExtractor{})
 	registry.Register("pdf", &PDFExtractor{})
+	registry.Register("docx", &DocxExtractor{})
 
 	return registry
 }
@@ -197,6 +199,34 @@ func (e *PDFExtractor) Extract(r io.Reader) (string, error) {
 			return "", fmt.Errorf("PDF 无文本内容（可能是扫描版），请上传文本版本或使用 OCR 工具转换")
 		}
 		return "", fmt.Errorf("PDF 文本太少（仅 %d 字符），无法有效处理", textLength)
+	}
+
+	return extractedText, nil
+}
+
+// DocxExtractor Word 文档提取器
+type DocxExtractor struct{}
+
+// Extract 提取 Word 文档文本
+func (e *DocxExtractor) Extract(r io.Reader) (string, error) {
+	content, err := io.ReadAll(r)
+	if err != nil {
+		return "", err
+	}
+
+	reader := bytes.NewReader(content)
+	doc, err := docx.ReadDocxFromMemory(reader, int64(len(content)))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse docx: %w", err)
+	}
+	defer doc.Close()
+
+	// 提取文档内容
+	text := doc.Editable().GetContent()
+	extractedText := strings.TrimSpace(text)
+
+	if len(extractedText) < 10 {
+		return "", fmt.Errorf("Word 文档文本太少，无法有效处理")
 	}
 
 	return extractedText, nil
