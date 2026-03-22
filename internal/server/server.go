@@ -22,6 +22,7 @@ import (
 	"github.com/gopaw/gopaw/internal/config"
 	"github.com/gopaw/gopaw/internal/cron"
 	"github.com/gopaw/gopaw/internal/knowledge"
+	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/mcp"
 	"github.com/gopaw/gopaw/internal/mode"
 	"github.com/gopaw/gopaw/internal/orchestration"
@@ -66,6 +67,7 @@ func New(
 	ltmStore *memory.LTMStore,
 	channelMgr *channel.Manager,
 	skillMgr *skill.Manager,
+	llmClient llm.Client,
 	cronService *cron.CronService,
 	cfgMgr *config.Manager,
 	settingsStore *settings.Store,
@@ -101,7 +103,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, auditMgr, wp, staticFS)
+	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, auditMgr, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -124,6 +126,7 @@ func (s *Server) registerRoutes(
 	ltmStore *memory.LTMStore,
 	channelMgr *channel.Manager,
 	skillMgr *skill.Manager,
+	llmClient llm.Client,
 	cronService *cron.CronService,
 	cfgMgr *config.Manager,
 	settingsStore *settings.Store,
@@ -252,7 +255,7 @@ func (s *Server) registerRoutes(
 	}
 
 	// /api/skills
-	skillsH := handlers.NewSkillsHandler(skillMgr, wp.SkillsDir, s.logger)
+	skillsH := handlers.NewSkillsHandler(skillMgr, wp.SkillsDir, llmClient, s.logger)
 	skillsG := api.Group("/skills")
 	{
 		skillsG.GET("", skillsH.List)

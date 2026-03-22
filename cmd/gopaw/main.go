@@ -657,7 +657,7 @@ func runStart() {
 		metricsService.Collect()
 	}
 
-	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, auditMgr, wp, web.FS(), logger)
+	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, auditMgr, wp, web.FS(), logger)
 	go srv.Start()
 
 	// Auto-open browser in solo mode unless --no-browser is set.

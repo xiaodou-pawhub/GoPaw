@@ -4,6 +4,7 @@ package handlers
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,11 +12,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/skill"
 	"github.com/gopaw/gopaw/pkg/api"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 )
 
 const defaultMarketBaseURL = "https://market.gopaw.dev"
@@ -24,12 +28,13 @@ const defaultMarketBaseURL = "https://market.gopaw.dev"
 type SkillsHandler struct {
 	manager   *skill.Manager
 	skillsDir string
+	llm       llm.Client // may be nil if LLM is not configured
 	logger    *zap.Logger
 }
 
 // NewSkillsHandler creates a SkillsHandler.
-func NewSkillsHandler(m *skill.Manager, skillsDir string, logger *zap.Logger) *SkillsHandler {
-	return &SkillsHandler{manager: m, skillsDir: skillsDir, logger: logger}
+func NewSkillsHandler(m *skill.Manager, skillsDir string, llmClient llm.Client, logger *zap.Logger) *SkillsHandler {
+	return &SkillsHandler{manager: m, skillsDir: skillsDir, llm: llmClient, logger: logger}
 }
 
 type skillInfo struct {
@@ -102,11 +107,6 @@ func (h *SkillsHandler) SetEnabled(c *gin.Context) {
 //	  "version": "latest",      // optional, defaults to "latest"
 //	  "source":  "market",      // optional
 //	}
-//
-// Flow:
-//  1. Call market API to get the zip download URL.
-//  2. Download and extract zip to {skillsDir}/{name}/.
-//  3. Reload skill manager.
 func (h *SkillsHandler) Install(c *gin.Context) {
 	var req struct {
 		Name    string `json:"name"`
@@ -153,9 +153,12 @@ func (h *SkillsHandler) Install(c *gin.Context) {
 }
 
 // ImportZip handles POST /api/skills/import.
+//
 // Accepts a multipart/form-data upload with a "file" field containing a zip archive.
-// The zip must contain a valid skill directory (manifest.yaml required).
-// The skill name is read from the manifest inside the zip.
+// Supports two cases:
+//  1. Zip contains a valid manifest.yaml — name is read from the manifest.
+//  2. Zip has no manifest.yaml — reads SKILL.md / prompt.md / code files and uses the
+//     LLM to auto-generate a manifest.yaml and prompt.md before importing.
 func (h *SkillsHandler) ImportZip(c *gin.Context) {
 	fh, err := c.FormFile("file")
 	if err != nil {
@@ -186,18 +189,61 @@ func (h *SkillsHandler) ImportZip(c *gin.Context) {
 		return
 	}
 
-	// Read manifest.yaml from zip to determine skill name.
-	prefix := zipTopLevelPrefix(zr)
-	skillName, err := readSkillNameFromZip(zr, prefix)
+	// Extract everything to a temp directory.
+	tmpDir, err := os.MkdirTemp("", "gopaw-skill-*")
 	if err != nil {
-		api.BadRequest(c, "manifest.yaml not found or invalid: "+err.Error())
+		api.InternalErrorWithDetails(c, "cannot create temp dir", err)
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if err := extractZipToDir(zr, tmpDir); err != nil {
+		api.InternalErrorWithDetails(c, "skill import failed", err)
 		return
 	}
 
+	// Locate the skill root: the shallowest directory containing manifest.yaml,
+	// SKILL.md, prompt.md, or any code file.
+	skillRoot, err := findSkillRoot(tmpDir)
+	if err != nil {
+		api.BadRequest(c, "cannot locate skill files in zip: expected manifest.yaml, SKILL.md, or prompt.md")
+		return
+	}
+
+	manifestPath := filepath.Join(skillRoot, "manifest.yaml")
+	hasManifest := fileExists(manifestPath)
+
+	var skillName string
+
+	if hasManifest {
+		// Read name directly from existing manifest.
+		name, err := readSkillNameFromManifestFile(manifestPath)
+		if err != nil {
+			api.BadRequest(c, "manifest.yaml invalid: "+err.Error())
+			return
+		}
+		skillName = name
+		h.logger.Info("skill zip has manifest", zap.String("name", skillName))
+	} else {
+		// No manifest — auto-generate using LLM.
+		if h.llm == nil {
+			api.BadRequest(c, "skill zip has no manifest.yaml and LLM is not configured; cannot auto-generate manifest")
+			return
+		}
+		name, err := h.autoGenerateManifest(c.Request.Context(), skillRoot)
+		if err != nil {
+			h.logger.Error("auto-generate manifest failed", zap.Error(err))
+			api.InternalErrorWithDetails(c, "failed to auto-generate manifest.yaml", err)
+			return
+		}
+		skillName = name
+		h.logger.Info("auto-generated manifest for skill", zap.String("name", skillName))
+	}
+
+	// Copy skill root to skills directory.
 	destDir := filepath.Join(h.skillsDir, skillName)
-	if err := extractZip(zr, prefix, destDir); err != nil {
-		h.logger.Error("skill import failed",
-			zap.String("name", skillName), zap.Error(err))
+	if err := copyDir(skillRoot, destDir); err != nil {
+		h.logger.Error("skill copy failed", zap.String("name", skillName), zap.Error(err))
 		api.InternalErrorWithDetails(c, "skill import failed", err)
 		return
 	}
@@ -206,17 +252,20 @@ func (h *SkillsHandler) ImportZip(c *gin.Context) {
 		h.logger.Warn("skill reload after import failed", zap.Error(err))
 	}
 
-	h.logger.Info("skill imported", zap.String("name", skillName))
-	api.Success(c, gin.H{"ok": true, "name": skillName})
+	status := "imported"
+	if hasManifest {
+		status = "imported_with_manifest"
+	}
+
+	h.logger.Info("skill imported", zap.String("name", skillName), zap.String("status", status))
+	api.Success(c, gin.H{"ok": true, "name": skillName, "status": status})
 }
 
 // MarketList handles GET /api/skills/market.
 // Proxies the GoPaw Market public skills list to avoid CORS issues.
-// Query params: q, featured, page, page_size are forwarded transparently.
 func (h *SkillsHandler) MarketList(c *gin.Context) {
 	marketBase := marketBaseURL()
 
-	// Build query string from incoming params.
 	u := fmt.Sprintf("%s/api/public/skills", marketBase)
 	q := c.Request.URL.Query()
 	if len(q) > 0 {
@@ -238,6 +287,284 @@ func (h *SkillsHandler) MarketList(c *gin.Context) {
 	}
 
 	c.Data(resp.StatusCode, "application/json; charset=utf-8", body)
+}
+
+// ---- Auto-generate manifest ----
+
+// autoGenerateManifest reads skill files from skillRoot, calls the LLM to produce
+// name/display_name/description/level, writes manifest.yaml and ensures prompt.md exists.
+// Returns the generated skill name.
+func (h *SkillsHandler) autoGenerateManifest(ctx context.Context, skillRoot string) (string, error) {
+	const maxFileBytes = 20 * 1024
+	const maxTotalBytes = 50 * 1024
+
+	var parts []string
+	var totalBytes int
+
+	// Priority files: SKILL.md, prompt.md
+	for _, name := range []string{"SKILL.md", "prompt.md", "README.md"} {
+		if totalBytes >= maxTotalBytes {
+			break
+		}
+		data, err := os.ReadFile(filepath.Join(skillRoot, name))
+		if err != nil {
+			continue
+		}
+		chunk := limitBytes(data, min(maxFileBytes, maxTotalBytes-totalBytes))
+		parts = append(parts, "### "+name+"\n"+string(chunk))
+		totalBytes += len(chunk)
+	}
+
+	// Meta files for name/description hints
+	for _, name := range []string{"_meta.json", "skill.json", "package.json"} {
+		if totalBytes >= maxTotalBytes {
+			break
+		}
+		data, err := os.ReadFile(filepath.Join(skillRoot, name))
+		if err != nil {
+			continue
+		}
+		chunk := limitBytes(data, min(maxFileBytes, maxTotalBytes-totalBytes))
+		parts = append(parts, "### "+name+"\n"+string(chunk))
+		totalBytes += len(chunk)
+	}
+
+	// Detect code files to decide level; include first code file as context
+	hasCode := false
+	entries, _ := os.ReadDir(skillRoot)
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(e.Name()))
+		if ext == ".py" || ext == ".js" || ext == ".ts" || ext == ".sh" {
+			hasCode = true
+			if totalBytes < maxTotalBytes {
+				data, err := os.ReadFile(filepath.Join(skillRoot, e.Name()))
+				if err == nil {
+					chunk := limitBytes(data, min(maxFileBytes, maxTotalBytes-totalBytes))
+					parts = append(parts, "### "+e.Name()+"\n"+string(chunk))
+					totalBytes += len(chunk)
+				}
+			}
+			break
+		}
+	}
+
+	if len(parts) == 0 {
+		return "", fmt.Errorf("no recognizable skill files found (expected SKILL.md, prompt.md, README.md, or code files)")
+	}
+
+	level := 1
+	if hasCode {
+		level = 2
+	}
+
+	prompt := `You are analyzing a third-party AI skill package. Based on the files below, generate a JSON object with exactly these fields:
+- "name": a lowercase snake_case identifier (e.g. "web_search_helper")
+- "display_name": a human-readable name in the same language as the skill content
+- "description": one sentence describing what this skill does
+
+Respond ONLY with valid JSON, no explanation, no markdown fences.
+
+Files:
+` + strings.Join(parts, "\n\n")
+
+	ctxTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	resp, err := h.llm.Chat(ctxTimeout, llm.ChatRequest{
+		Messages:  []llm.ChatMessage{{Role: llm.RoleUser, Content: prompt}},
+		MaxTokens: 256,
+	})
+	if err != nil {
+		return "", fmt.Errorf("LLM call failed: %w", err)
+	}
+
+	content := strings.TrimSpace(resp.Message.Content)
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	content = strings.TrimSpace(content)
+
+	var meta struct {
+		Name        string `json:"name"`
+		DisplayName string `json:"display_name"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal([]byte(content), &meta); err != nil {
+		return "", fmt.Errorf("LLM returned invalid JSON: %w\ncontent: %s", err, content)
+	}
+	if meta.Name == "" {
+		return "", fmt.Errorf("LLM did not return a skill name")
+	}
+
+	// Build and write manifest.yaml
+	manifest := map[string]any{
+		"name":         meta.Name,
+		"display_name": meta.DisplayName,
+		"description":  meta.Description,
+		"version":      "1.0.0",
+		"level":        level,
+		"source":       "imported",
+	}
+	manifestBytes, err := yaml.Marshal(manifest)
+	if err != nil {
+		return "", fmt.Errorf("marshal manifest: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "manifest.yaml"), manifestBytes, 0o644); err != nil {
+		return "", fmt.Errorf("write manifest.yaml: %w", err)
+	}
+
+	// Ensure prompt.md exists: prefer existing prompt.md, then SKILL.md, then README.md
+	promptMDPath := filepath.Join(skillRoot, "prompt.md")
+	if !fileExists(promptMDPath) {
+		for _, src := range []string{"SKILL.md", "README.md"} {
+			srcPath := filepath.Join(skillRoot, src)
+			if data, err := os.ReadFile(srcPath); err == nil {
+				_ = os.WriteFile(promptMDPath, data, 0o644)
+				break
+			}
+		}
+	}
+
+	return meta.Name, nil
+}
+
+// ---- Helpers ----
+
+// findSkillRoot does a BFS under root for the shallowest directory containing
+// manifest.yaml, SKILL.md, prompt.md, or any script/code file.
+func findSkillRoot(root string) (string, error) {
+	queue := []string{root}
+	for len(queue) > 0 {
+		dir := queue[0]
+		queue = queue[1:]
+
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			ext := strings.ToLower(filepath.Ext(name))
+			if name == "manifest.yaml" || name == "SKILL.md" || name == "prompt.md" ||
+				name == "README.md" || name == "_meta.json" || name == "skill.json" ||
+				ext == ".py" || ext == ".js" || ext == ".ts" || ext == ".sh" {
+				return dir, nil
+			}
+		}
+
+		for _, e := range entries {
+			if e.IsDir() {
+				queue = append(queue, filepath.Join(dir, e.Name()))
+			}
+		}
+	}
+	return "", fmt.Errorf("no skill files found")
+}
+
+// extractZipToDir extracts all entries of zr into destDir, preserving the zip's
+// internal directory structure (top-level folder included).
+func extractZipToDir(zr *zip.Reader, destDir string) error {
+	for _, f := range zr.File {
+		cleaned := filepath.Clean(f.Name)
+		if strings.HasPrefix(cleaned, "..") {
+			continue // zip-slip guard
+		}
+		target := filepath.Join(destDir, cleaned)
+		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
+			continue // zip-slip guard
+		}
+		if f.FileInfo().IsDir() {
+			_ = os.MkdirAll(target, 0o755)
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		if err := extractZipFile(f, target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyDir recursively copies src directory to dst.
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		return copyFile(path, target)
+	})
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func limitBytes(data []byte, max int) []byte {
+	if len(data) > max {
+		return data[:max]
+	}
+	return data
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// readSkillNameFromManifestFile reads name from a manifest.yaml file on disk.
+func readSkillNameFromManifestFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var m struct {
+		Name string `yaml:"name"`
+	}
+	if err := yaml.Unmarshal(data, &m); err != nil {
+		return "", err
+	}
+	if m.Name == "" {
+		return "", fmt.Errorf("name field is required")
+	}
+	return m.Name, nil
 }
 
 // fetchPackageURL calls the skill market install API to get the zip download URL.
@@ -263,7 +590,6 @@ func (h *SkillsHandler) fetchPackageURL(name, version, source string) (string, e
 		return "", fmt.Errorf("market returned status %d", resp.StatusCode)
 	}
 
-	// Market response: {"code":0,"data":{"ok":true,"package_url":"/data/skills/...","version":"..."}}
 	var result struct {
 		Code int `json:"code"`
 		Data struct {
@@ -282,7 +608,6 @@ func (h *SkillsHandler) fetchPackageURL(name, version, source string) (string, e
 		return "", fmt.Errorf("market returned empty package_url")
 	}
 
-	// package_url may be relative (e.g. "/data/skills/foo-1.0.zip")
 	pkgURL := result.Data.PackageURL
 	if strings.HasPrefix(pkgURL, "/") {
 		pkgURL = marketBase + pkgURL
@@ -292,7 +617,7 @@ func (h *SkillsHandler) fetchPackageURL(name, version, source string) (string, e
 
 // marketBaseURL returns the market base URL from env or default.
 func marketBaseURL() string {
-	if v := os.Getenv("GOPAW_MARKET_URL"); v != "" {
+	if v := os.Getenv("GOPAW_MARKET_URL"); v != ""  {
 		return v
 	}
 	return defaultMarketBaseURL
@@ -389,6 +714,7 @@ func zipTopLevelPrefix(zr *zip.Reader) string {
 }
 
 // readSkillNameFromZip finds manifest.yaml in the zip and returns the skill name.
+// Kept for backward compatibility with Install flow.
 func readSkillNameFromZip(zr *zip.Reader, prefix string) (string, error) {
 	for _, f := range zr.File {
 		rel := strings.TrimPrefix(f.Name, prefix)
@@ -406,7 +732,6 @@ func readSkillNameFromZip(zr *zip.Reader, prefix string) (string, error) {
 			return "", err
 		}
 
-		// Quick YAML name extraction without full parse dependency.
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "name:") {
