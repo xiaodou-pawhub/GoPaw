@@ -1,9 +1,9 @@
 <template>
-  <div class="tab-root">
-    <div class="tab-header">
+  <div class="logs-page">
+    <div class="logs-header">
       <div>
-        <h2 class="tab-title">系统日志</h2>
-        <p class="tab-desc">实时监控系统运行状态与错误日志</p>
+        <h1 class="logs-title">系统日志</h1>
+        <p class="logs-desc">实时监控系统运行状态与错误日志</p>
       </div>
       <div class="header-actions">
         <label class="auto-refresh-toggle">
@@ -65,13 +65,41 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 </script>
 
 <style scoped>
-.tab-root { display: flex; flex-direction: column; gap: 20px; height: 100%; }
+.logs-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px 28px;
+  height: 100%;
+  overflow: hidden;
+}
 
-.tab-header { display: flex; align-items: flex-start; justify-content: space-between; }
-.tab-title { font-size: 16px; font-weight: 600; color: var(--text-primary); margin: 0 0 4px; }
-.tab-desc { font-size: 12px; color: var(--text-secondary); margin: 0; }
+.logs-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
 
-.header-actions { display: flex; align-items: center; gap: 10px; }
+.logs-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+}
+
+.logs-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 
 .auto-refresh-toggle {
   display: flex;
@@ -82,7 +110,9 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
   cursor: pointer;
 }
 
-.auto-refresh-toggle input { display: none; }
+.auto-refresh-toggle input {
+  display: none;
+}
 
 .toggle-slider {
   position: relative;
@@ -99,92 +129,126 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 .toggle-slider::before {
   content: '';
   position: absolute;
+  top: 2px;
+  left: 2px;
   width: 10px;
   height: 10px;
   background: var(--text-tertiary);
   border-radius: 50%;
-  top: 2px;
-  left: 2px;
   transition: transform 0.2s, background 0.2s;
 }
 
-.auto-refresh-toggle input:checked ~ .toggle-slider {
-  background: rgba(124, 106, 247, 0.2);
-  border-color: var(--accent);
+.auto-refresh-toggle input:checked + .toggle-slider {
+  background: var(--accent);
 }
 
-.auto-refresh-toggle input:checked ~ .toggle-slider::before {
+.auto-refresh-toggle input:checked + .toggle-slider::before {
   transform: translateX(14px);
-  background: var(--accent);
+  background: #fff;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-overlay);
 }
 
 .log-container {
   flex: 1;
-  background: var(--bg-elevated);
+  overflow-y: auto;
+  background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  min-height: 300px;
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 0;
 }
 
-.log-loading, .log-empty {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.log-loading,
+.log-empty {
+  text-align: center;
+  padding: 40px;
   color: var(--text-tertiary);
   font-size: 13px;
 }
 
 .log-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px 0;
-  font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
-  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
 }
 
 .log-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
-  padding: 4px 14px;
-  transition: background 0.1s;
+  padding: 8px 10px;
+  background: var(--bg-app);
+  border-radius: 6px;
+  font-family: 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  min-width: 0;
 }
-
-.log-item:hover { background: var(--bg-overlay); }
 
 .log-level {
-  flex-shrink: 0;
-  width: 40px;
-  text-align: right;
-  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
   font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  min-width: 42px;
+  text-align: center;
+  flex-shrink: 0;
 }
 
-.log-level.error, .log-level.ERROR { color: var(--red); }
-.log-level.warn, .log-level.WARN { color: var(--yellow); }
-.log-level.info, .log-level.INFO { color: var(--accent); }
-.log-level.debug, .log-level.DEBUG { color: var(--text-tertiary); }
+.log-level.info {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
 
-.log-time { color: var(--text-tertiary); flex-shrink: 0; }
-.log-msg { color: var(--text-secondary); word-break: break-all; }
+.log-level.warn,
+.log-level.warning {
+  background: var(--yellow-dim);
+  color: var(--yellow);
+}
 
-.btn-secondary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+.log-level.error {
+  background: var(--red-dim);
+  color: var(--red);
+}
+
+.log-level.debug {
   background: var(--bg-overlay);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s;
+  color: var(--text-tertiary);
 }
 
-.btn-secondary:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.log-time {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.log-msg {
+  color: var(--text-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
 </style>

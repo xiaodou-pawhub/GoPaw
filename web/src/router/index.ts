@@ -49,11 +49,6 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/Agents.vue')
       },
       {
-        path: 'settings',
-        name: 'Settings',
-        component: () => import('@/pages/Settings.vue')
-      },
-      {
         path: 'mcp',
         name: 'MCP',
         component: () => import('@/pages/MCP.vue')
@@ -107,6 +102,11 @@ const routes: RouteRecordRaw[] = [
         path: 'memory',
         name: 'Memory',
         component: () => import('@/pages/Memory.vue')
+      },
+      {
+        path: 'logs',
+        name: 'Logs',
+        component: () => import('@/pages/Logs.vue')
       },
       {
         path: 'cron',

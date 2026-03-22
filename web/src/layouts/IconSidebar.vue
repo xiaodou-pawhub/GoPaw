@@ -139,13 +139,13 @@ import {
   Activity,
   Server,
   MessageCircle,
-  Settings,
   Users as UsersIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ShieldCheckIcon,
   Brain as BrainIcon,
   Clock,
+  ScrollText as ScrollTextIcon,
 } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 
@@ -182,10 +182,10 @@ const dataItems = [
   { to: '/metrics', label: '监控面板', icon: BarChart3 },
 ]
 
-// 系统设置
+// 系统
 const systemItems = [
-  { to: '/mcp', label: 'MCP服务', icon: Server },
-  { to: '/settings', label: '设置', icon: Settings },
+  { to: '/logs', label: '系统日志', icon: ScrollTextIcon },
+  { to: '/mcp', label: 'MCP 服务', icon: Server },
 ]
 
 function isActive(to: string): boolean {
