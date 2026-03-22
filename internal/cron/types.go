@@ -5,21 +5,18 @@ import (
 )
 
 // CronJob represents a scheduled task.
-// JSON tags are aligned with the frontend expectations (legacy scheduler compatibility).
 type CronJob struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Schedule    string     `json:"schedule"`      // New field name
-	CronExpr    string     `json:"cron_expr"`     // Alias for frontend compatibility
-	Task        string     `json:"task"`          // New field name
-	Prompt      string     `json:"prompt"`        // Alias for frontend compatibility
-	Channel     string     `json:"channel"`       // Target channel: "feishu"
-	TargetID    string     `json:"target_id"`     // Target ChatID (platform level)
-	Enabled     bool       `json:"enabled"`       // Pause/Resume toggle
-	CreatedAt   time.Time  `json:"created_at"`
-	LastRunAt   *time.Time `json:"last_run_at,omitempty"`
-	LastResult  string     `json:"last_result,omitempty"` // "success" or error message
-	EntryID     int        `json:"-"`                     // Internal cron entry ID
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Schedule   string     `json:"schedule"`
+	Task       string     `json:"task"`
+	Channel    string     `json:"channel"`
+	TargetID   string     `json:"target_id"`
+	Enabled    bool       `json:"enabled"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastRunAt  *time.Time `json:"last_run_at,omitempty"`
+	LastResult string     `json:"last_result,omitempty"`
+	EntryID    int        `json:"-"`
 }
 
 // CronRun represents a single execution record of a job.

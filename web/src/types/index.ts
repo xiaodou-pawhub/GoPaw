@@ -245,12 +245,10 @@ export interface ChannelStatus {
 export interface CronJob {
   id: string
   name: string
-  schedule: string   // cron 表达式（6位，含秒）
-  cron_expr: string  // schedule 的别名（后端兼容字段）
-  task: string       // 触发提示词
-  prompt: string     // task 的别名（后端兼容字段）
+  schedule: string
+  task: string
   channel: string
-  target_id: string  // 关联的 Agent ID
+  target_id: string
   enabled: boolean
   created_at?: string
   last_run_at?: string | null

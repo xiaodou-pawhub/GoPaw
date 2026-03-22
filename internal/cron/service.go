@@ -84,9 +84,7 @@ func (s *CronService) AddJob(name, schedule, task, channel, targetID string) (*C
 		ID:        uuid.New().String(),
 		Name:      name,
 		Schedule:  schedule,
-		CronExpr:  schedule,
 		Task:      task,
-		Prompt:    task,
 		Channel:   channel,
 		TargetID:  targetID,
 		Enabled:   true,
@@ -186,9 +184,7 @@ func (s *CronService) UpdateJob(id, name, schedule, task, targetID string, enabl
 
 	job.Name = name
 	job.Schedule = schedule
-	job.CronExpr = schedule
 	job.Task = task
-	job.Prompt = task
 	job.TargetID = targetID
 	if enabled != nil {
 		job.Enabled = *enabled

@@ -32,8 +32,8 @@
             </div>
             <div class="card-schedule">
               <CalendarClockIcon :size="13" />
-              <span>{{ describeSchedule(job.schedule || job.cron_expr) }}</span>
-              <code class="expr-hint">{{ job.schedule || job.cron_expr }}</code>
+              <span>{{ describeSchedule(job.schedule) }}</span>
+              <code class="expr-hint">{{ job.schedule }}</code>
             </div>
           </div>
 
@@ -44,7 +44,7 @@
           </div>
 
           <!-- 任务内容预览 -->
-          <div class="card-task">{{ job.task || job.prompt }}</div>
+          <div class="card-task">{{ job.task }}</div>
 
           <!-- 最近运行状态 -->
           <div v-if="job.last_run_at" class="card-last-run">
@@ -280,9 +280,9 @@ function openModal(type: 'create' | 'edit', job?: CronJob) {
     editingId.value = job.id
     Object.assign(formModel, {
       name: job.name,
-      schedule: job.schedule || job.cron_expr || '',
-      task: job.task || job.prompt || '',
-      target_id: job.target_id || '',
+      schedule: job.schedule,
+      task: job.task,
+      target_id: job.target_id,
       enabled: job.enabled,
     })
   } else {
@@ -332,8 +332,8 @@ async function handleToggle(job: CronJob) {
   try {
     await updateCronJob(job.id, {
       name: job.name,
-      schedule: job.schedule || job.cron_expr,
-      task: job.task || job.prompt,
+      schedule: job.schedule,
+      task: job.task,
       target_id: job.target_id,
       enabled: !job.enabled,
       channel: job.channel,
