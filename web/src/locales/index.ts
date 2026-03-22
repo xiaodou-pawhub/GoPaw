@@ -72,11 +72,6 @@ const messages = {
         description: '定制 Agent 的性格、知识背景与行为逻辑',
         placeholder: '在此输入 Agent 的系统提示词...'
       },
-      context: {
-        title: '工作区背景',
-        description: '设置当前工作区的背景信息、项目信息和用户偏好',
-        placeholder: '在此输入工作区背景描述...'
-      },
       memory: {
         title: '记忆管理',
         description: '管理 Agent 的结构化记忆、每日笔记和记忆文件',
@@ -280,11 +275,6 @@ const messages = {
         title: 'Agent Persona',
         description: 'Customize Agent personality, knowledge and behavior',
         placeholder: 'Enter System Prompt here...'
-      },
-      context: {
-        title: 'Workspace Context',
-        description: 'Set workspace background, project info and user preferences',
-        placeholder: 'Enter workspace context here...'
       },
       memory: {
         title: 'Memory Management',

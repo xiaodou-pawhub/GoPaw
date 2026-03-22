@@ -69,13 +69,20 @@ func (p *DocumentProcessor) Process(ctx context.Context, docID string) error {
 		return fmt.Errorf(errMsg)
 	}
 
-	// 文本分块（使用默认配置）
-	chunks := p.chunker.Chunk(text, 500, 50)
-
-	// 生成 Embedding 并保存
-	if err := p.saveChunks(ctx, doc, chunks); err != nil {
-		p.updateDocumentStatus(ctx, docID, "failed", err.Error())
-		return err
+	// 根据知识库模式进行不同处理
+	if kb.Mode == "inject" {
+		// 全局注入模式：直接保存内容，不进行分块和向量化
+		if err := p.saveInjectContent(ctx, doc, text); err != nil {
+			p.updateDocumentStatus(ctx, docID, "failed", err.Error())
+			return err
+		}
+	} else {
+		// 向量检索模式：文本分块并生成 Embedding
+		chunks := p.chunker.Chunk(text, 500, 50)
+		if err := p.saveChunks(ctx, doc, chunks); err != nil {
+			p.updateDocumentStatus(ctx, docID, "failed", err.Error())
+			return err
+		}
 	}
 
 	// 更新文档状态
@@ -164,6 +171,25 @@ func (p *DocumentProcessor) saveChunks(ctx context.Context, doc *Document, chunk
 	return tx.Commit()
 }
 
+// saveInjectContent 保存全局注入内容（不进行分块和向量化）
+func (p *DocumentProcessor) saveInjectContent(ctx context.Context, doc *Document, text string) error {
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 更新文档内容（直接保存完整文本）
+	_, err = tx.ExecContext(ctx,
+		"UPDATE knowledge_documents SET content = ?, chunk_count = 1, processed_at = ? WHERE id = ?",
+		[]byte(text), time.Now(), doc.ID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 // getDocument 获取文档
 func (p *DocumentProcessor) getDocument(ctx context.Context, id string) (*Document, error) {
 	var doc Document
@@ -191,10 +217,10 @@ func (p *DocumentProcessor) getDocument(ctx context.Context, id string) (*Docume
 func (p *DocumentProcessor) getKnowledgeBase(ctx context.Context, id string) (*KnowledgeBase, error) {
 	var kb KnowledgeBase
 	err := p.db.QueryRowContext(ctx, `
-		SELECT id, name, description, status
+		SELECT id, name, description, mode, status
 		FROM knowledge_bases WHERE id = ?
 	`, id).Scan(
-		&kb.ID, &kb.Name, &kb.Description, &kb.Status,
+		&kb.ID, &kb.Name, &kb.Description, &kb.Mode, &kb.Status,
 	)
 	if err != nil {
 		return nil, err

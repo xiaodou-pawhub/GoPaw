@@ -11,6 +11,7 @@ type KnowledgeBase struct {
 	ID            string    `json:"id" db:"id"`
 	Name          string    `json:"name" db:"name"`
 	Description   string    `json:"description" db:"description"`
+	Mode          string    `json:"mode" db:"mode"` // "vector" 或 "inject"
 	Status        string    `json:"status" db:"status"`
 	DocumentCount int       `json:"document_count" db:"document_count"`
 	ChunkCount    int       `json:"chunk_count" db:"chunk_count"`
@@ -90,12 +91,14 @@ type SearchResult struct {
 type CreateKnowledgeBaseRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
+	Mode        string `json:"mode"` // "vector" 或 "inject"
 }
 
 // UpdateKnowledgeBaseRequest 更新知识库请求
 type UpdateKnowledgeBaseRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Mode        string `json:"mode"`
 	Status      string `json:"status"`
 }
 
@@ -121,6 +124,7 @@ func InitSchema(db *sql.DB) error {
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
 			description TEXT,
+			mode TEXT DEFAULT 'vector',
 			status TEXT DEFAULT 'active',
 			document_count INTEGER DEFAULT 0,
 			chunk_count INTEGER DEFAULT 0,

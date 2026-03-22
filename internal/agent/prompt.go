@@ -12,9 +12,13 @@ import (
 )
 
 // buildSystemPrompt assembles the full system prompt for an agent invocation.
-func buildSystemPrompt(basePrompt, memoryContent, skillFragments, capabilityFragment string) string {
+func buildSystemPrompt(basePrompt, memoryContent, skillFragments, capabilityFragment, globalKnowledge string) string {
 	var sb strings.Builder
 	sb.WriteString(basePrompt)
+	if globalKnowledge != "" {
+		sb.WriteString("\n\n---\n## Global Knowledge\n\n")
+		sb.WriteString(globalKnowledge)
+	}
 	if memoryContent != "" {
 		sb.WriteString("\n\n---\n## Long-term Memory\n\n")
 		sb.WriteString(memoryContent)

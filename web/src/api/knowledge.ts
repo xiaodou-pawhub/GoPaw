@@ -4,6 +4,7 @@ export interface KnowledgeBase {
   id: string
   name: string
   description: string
+  mode: 'vector' | 'inject'
   status: string
   document_count: number
   chunk_count: number

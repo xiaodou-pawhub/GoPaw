@@ -72,18 +72,6 @@ export async function saveChannelConfig(name: string, config: Record<string, str
   return parseData(res)
 }
 
-// 获取工作区背景描述（CONTEXT.md）
-export async function getWorkspaceContext(): Promise<{ content: string }> {
-  const res = await api.get('/workspace/context')
-  return parseData(res)
-}
-
-// 保存工作区背景描述
-export async function saveWorkspaceContext(content: string): Promise<{ saved: boolean }> {
-  const res = await api.put('/workspace/context', { content })
-  return parseData(res)
-}
-
 // 获取 Agent 记忆文件（MEMORY.md）
 export async function getAgentMemory(): Promise<{ content: string }> {
   const res = await api.get('/workspace/memory')

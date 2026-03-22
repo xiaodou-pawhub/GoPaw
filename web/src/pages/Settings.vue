@@ -33,13 +33,12 @@
 <script setup lang="ts">
 import { ref, computed, defineAsyncComponent } from 'vue'
 import {
-  ZapIcon, BrainIcon, BookOpenIcon,
+  ZapIcon, BrainIcon,
   FileTextIcon, ClockIcon, ScrollTextIcon
 } from 'lucide-vue-next'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 
 const tabs = [
-  { key: 'context', label: '工作区背景', icon: BookOpenIcon },
   { key: 'memory', label: '记忆管理', icon: FileTextIcon },
   { key: 'channels', label: '频道集成', icon: ZapIcon },
   { key: 'skills', label: '技能管理', icon: BrainIcon },
@@ -47,13 +46,12 @@ const tabs = [
   { key: 'logs', label: '系统日志', icon: ScrollTextIcon },
 ]
 
-const activeTab = ref('context')
+const activeTab = ref('memory')
 
 // 懒加载 Tab 组件（代码分割）
 const tabComponents: Record<string, any> = {
   channels: defineAsyncComponent(() => import('@/components/settings/ChannelsTab.vue')),
   skills: defineAsyncComponent(() => import('@/components/settings/SkillsTab.vue')),
-  context: defineAsyncComponent(() => import('@/components/settings/ContextTab.vue')),
   memory: defineAsyncComponent(() => import('@/components/settings/MemoryTab.vue')),
   cron: defineAsyncComponent(() => import('@/components/settings/CronTab.vue')),
   logs: defineAsyncComponent(() => import('@/components/settings/LogsTab.vue')),

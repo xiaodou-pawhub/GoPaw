@@ -5,6 +5,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,13 +22,14 @@ import (
 // Factory creates agent instances from definitions.
 type Factory struct {
 	// Shared components
-	llmClient      llm.Client
-	toolRegistry   *tool.Registry
-	skillManager   *skill.Manager
-	memoryManager  *memory.Manager
-	ltmStore       *memory.LTMStore
-	sandboxManager *sandbox.Manager
-	traceManager   *trace.Manager
+	llmClient         llm.Client
+	toolRegistry      *tool.Registry
+	skillManager      *skill.Manager
+	memoryManager     *memory.Manager
+	ltmStore          *memory.LTMStore
+	sandboxManager    *sandbox.Manager
+	traceManager      *trace.Manager
+	globalKnowledgeFn func(ctx context.Context) (string, error)
 
 	// Configuration
 	workspaceRoot string
@@ -36,29 +38,31 @@ type Factory struct {
 
 // FactoryConfig holds configuration for the factory.
 type FactoryConfig struct {
-	LLMClient      llm.Client
-	ToolRegistry   *tool.Registry
-	SkillManager   *skill.Manager
-	MemoryManager  *memory.Manager
-	LTMStore       *memory.LTMStore
-	SandboxManager *sandbox.Manager
-	TraceManager   *trace.Manager
-	WorkspaceRoot  string
-	Logger         *zap.Logger
+	LLMClient         llm.Client
+	ToolRegistry      *tool.Registry
+	SkillManager      *skill.Manager
+	MemoryManager     *memory.Manager
+	LTMStore          *memory.LTMStore
+	SandboxManager    *sandbox.Manager
+	TraceManager      *trace.Manager
+	WorkspaceRoot     string
+	Logger            *zap.Logger
+	GlobalKnowledgeFn func(ctx context.Context) (string, error)
 }
 
 // NewFactory creates a new agent factory.
 func NewFactory(cfg FactoryConfig) *Factory {
 	return &Factory{
-		llmClient:      cfg.LLMClient,
-		toolRegistry:   cfg.ToolRegistry,
-		skillManager:   cfg.SkillManager,
-		memoryManager:  cfg.MemoryManager,
-		ltmStore:       cfg.LTMStore,
-		sandboxManager: cfg.SandboxManager,
-		traceManager:   cfg.TraceManager,
-		workspaceRoot:  cfg.WorkspaceRoot,
-		logger:         cfg.Logger.Named("agent_factory"),
+		llmClient:         cfg.LLMClient,
+		toolRegistry:      cfg.ToolRegistry,
+		skillManager:      cfg.SkillManager,
+		memoryManager:     cfg.MemoryManager,
+		ltmStore:          cfg.LTMStore,
+		sandboxManager:    cfg.SandboxManager,
+		traceManager:      cfg.TraceManager,
+		workspaceRoot:     cfg.WorkspaceRoot,
+		globalKnowledgeFn: cfg.GlobalKnowledgeFn,
+		logger:            cfg.Logger.Named("agent_factory"),
 	}
 }
 
@@ -96,19 +100,20 @@ func (f *Factory) CreateAgent(def *Definition) (*ReActAgent, error) {
 
 	// Build agent config
 	agentCfg := Config{
-		DefaultPrompt:  config.SystemPrompt,
-		AgentMDPath:    "", // Not used in multi-agent mode
-		LTMStore:       f.ltmStore,
-		MemoryNotesDir: filepath.Join(agentWorkspace, "memory"),
-		MaxSteps:       config.MaxSteps,
+		DefaultPrompt:       config.SystemPrompt,
+		AgentMDPath:         "", // Not used in multi-agent mode
+		LTMStore:            f.ltmStore,
+		MemoryNotesDir:      filepath.Join(agentWorkspace, "memory"),
+		MaxSteps:            config.MaxSteps,
 		Hooks: Hooks{
 			PreReasoning: []HookPreReasoning{InjectCurrentTime()},
 			PostTool:     []HookPostTool{},
 		},
-		ConvLog:        nil, // Will be set by caller if needed
-		FocusManager:   nil, // Will be set by caller if needed
-		TraceManager:   f.traceManager,
-		SandboxManager: f.sandboxManager,
+		ConvLog:           nil, // Will be set by caller if needed
+		FocusManager:      nil, // Will be set by caller if needed
+		TraceManager:      f.traceManager,
+		SandboxManager:    f.sandboxManager,
+		GlobalKnowledgeFunc: f.globalKnowledgeFn,
 	}
 
 	// Create the agent

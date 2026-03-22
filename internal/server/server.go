@@ -214,14 +214,12 @@ func (s *Server) registerRoutes(
 		settingsG.PUT("/channels/:name", settingsH.SetChannelConfig)
 	}
 
-	// /api/workspace — agent files (PERSONA.md, CONTEXT.md, MEMORY.md)
+	// /api/workspace — agent files (PERSONA.md, MEMORY.md)
 	workspaceH := handlers.NewWorkspaceHandler(wp, s.logger)
 	workspaceG := api.Group("/workspace")
 	{
 		workspaceG.GET("/persona", workspaceH.GetPersona)
 		workspaceG.PUT("/persona", workspaceH.PutPersona)
-		workspaceG.GET("/context", workspaceH.GetContext)
-		workspaceG.PUT("/context", workspaceH.PutContext)
 		workspaceG.GET("/memory", workspaceH.GetMemory)
 		workspaceG.PUT("/memory", workspaceH.PutMemory)
 	}

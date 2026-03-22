@@ -43,6 +43,7 @@ type ReActAgent struct {
 	contextBuilder *ContextBuilder // dynamic context builder
 	traceManager   *trace.Manager  // execution trace manager (may be nil)
 	sandboxManager SandboxManager  // sandbox manager for file isolation (may be nil)
+	globalKnowledgeFunc func(ctx context.Context) (string, error) // global inject knowledge (may be nil)
 	// defaultPrompt is used when agentMDPath is not set or the file cannot be read.
 	defaultPrompt string
 	// agentMDPath is the path to data/AGENT.md. When set, the system prompt is
@@ -78,6 +79,8 @@ type Config struct {
 	TraceManager *trace.Manager
 	// SandboxManager is the optional sandbox manager for file isolation.
 	SandboxManager SandboxManager
+	// GlobalKnowledgeFunc is the optional function to get global inject knowledge content.
+	GlobalKnowledgeFunc func(ctx context.Context) (string, error)
 }
 
 // SandboxManager interface for sandbox operations.
@@ -112,6 +115,7 @@ func New(
 		convlog:        cfg.ConvLog,
 		traceManager:   cfg.TraceManager,
 		sandboxManager: cfg.SandboxManager,
+		globalKnowledgeFunc: cfg.GlobalKnowledgeFunc,
 	}
 
 	// Set sandbox manager for tool executor
@@ -387,6 +391,17 @@ func (a *ReActAgent) Process(ctx context.Context, req *types.Request) (*types.Re
 		// Fallback to base persona if context builder is not initialized
 		systemPrompt = a.currentBasePrompt() + "\n\n---\n" + buildCapabilityFragment(allTools)
 	}
+
+	// Inject global knowledge if available
+	if a.globalKnowledgeFunc != nil {
+		globalKnowledge, err := a.globalKnowledgeFunc(ctx)
+		if err != nil {
+			a.logger.Warn("failed to get global knowledge", zap.Error(err))
+		} else if globalKnowledge != "" {
+			systemPrompt = systemPrompt + "\n\n---\n## Global Knowledge\n\n" + globalKnowledge
+		}
+	}
+
 	toolDefs := buildToolDefinitions(allTools)
 
 	// Assemble the initial message list (req.Files triggers media manifest injection).

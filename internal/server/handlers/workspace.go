@@ -77,32 +77,6 @@ func (h *WorkspaceHandler) PutPersona(c *gin.Context) {
 	api.Success(c, gin.H{"message": "ok"})
 }
 
-// GetContext handles GET /api/workspace/context — reads CONTEXT.md.
-func (h *WorkspaceHandler) GetContext(c *gin.Context) {
-	content, err := h.readFile(h.paths.ContextMDFile)
-	if err != nil {
-		h.logger.Error("failed to read CONTEXT.md", zap.Error(err))
-		api.InternalErrorWithDetails(c, "failed to read CONTEXT.md", err)
-		return
-	}
-	api.Success(c, fileResponse{Content: content})
-}
-
-// PutContext handles PUT /api/workspace/context — writes CONTEXT.md.
-func (h *WorkspaceHandler) PutContext(c *gin.Context) {
-	var req fileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		api.BadRequestWithError(c, "invalid request", err)
-		return
-	}
-	if err := h.writeFile(h.paths.ContextMDFile, req.Content); err != nil {
-		h.logger.Error("failed to write CONTEXT.md", zap.Error(err))
-		api.InternalErrorWithDetails(c, "failed to write CONTEXT.md", err)
-		return
-	}
-	api.Success(c, gin.H{"message": "ok"})
-}
-
 // GetMemory handles GET /api/workspace/memory — reads MEMORY.md.
 func (h *WorkspaceHandler) GetMemory(c *gin.Context) {
 	content, err := h.readFile(h.paths.MemoryMDFile)

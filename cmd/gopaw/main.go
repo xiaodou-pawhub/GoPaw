@@ -513,29 +513,6 @@ func runStart() {
 		agentMgr = nil
 	}
 
-	// Initialize agent factory and router for dynamic agent switching
-	var agentRouter *agent.Router
-	if agentMgr != nil {
-		agentFactory := agent.NewFactory(agent.FactoryConfig{
-			LLMClient:      llmClient,
-			ToolRegistry:   toolReg,
-			SkillManager:   skillMgr,
-			MemoryManager:  memMgr,
-			LTMStore:       ltmStore,
-			SandboxManager: sandboxMgr,
-			TraceManager:   traceMgr,
-			WorkspaceRoot:  wp.Root,
-			Logger:         logger,
-		})
-
-		sessionAgentDBPath := filepath.Join(wp.Root, "session_agents.db")
-		agentRouter, err = agent.NewRouter(agentMgr, agentFactory, sessionAgentDBPath, logger)
-		if err != nil {
-			logger.Warn("failed to initialize agent router", zap.Error(err))
-			agentRouter = nil
-		}
-	}
-
 	// Initialize MCP manager
 	mcpMgr, err := mcp.NewManager(store.DB(), logger)
 	if err != nil {
@@ -555,11 +532,6 @@ func runStart() {
 		triggerMgr = nil
 	}
 
-	triggerEngine := trigger.NewEngine(triggerMgr, agentRouter, logger)
-	if triggerEngine != nil {
-		triggerEngine.Start()
-	}
-
 	// Initialize agent message manager
 	agentMsgMgr, err := message.NewManager(store.DB(), logger)
 	if err != nil {
@@ -575,7 +547,7 @@ func runStart() {
 	}
 
 	// Initialize workflow engine
-	workflowEngine, err := workflow.NewEngine(store.DB(), agentMsgMgr, agentRouter, queueMgr, logger)
+	workflowEngine, err := workflow.NewEngine(store.DB(), agentMsgMgr, nil, queueMgr, logger)
 	if err != nil {
 		logger.Warn("failed to initialize workflow engine", zap.Error(err))
 		workflowEngine = nil
@@ -607,6 +579,46 @@ func runStart() {
 		// Register knowledge tools
 		registerKnowledgeTools(toolReg, knowledgeService, logger)
 		logger.Info("knowledge service initialized")
+	}
+
+	// Initialize agent factory and router for dynamic agent switching (after knowledge service)
+	var agentRouter *agent.Router
+	if agentMgr != nil {
+		agentFactory := agent.NewFactory(agent.FactoryConfig{
+			LLMClient:         llmClient,
+			ToolRegistry:      toolReg,
+			SkillManager:      skillMgr,
+			MemoryManager:     memMgr,
+			LTMStore:          ltmStore,
+			SandboxManager:    sandboxMgr,
+			TraceManager:      traceMgr,
+			WorkspaceRoot:     wp.Root,
+			Logger:            logger,
+			GlobalKnowledgeFn: func(ctx context.Context) (string, error) {
+				if knowledgeService != nil {
+					return knowledgeService.GetGlobalInjectContent(ctx)
+				}
+				return "", nil
+			},
+		})
+
+		sessionAgentDBPath := filepath.Join(wp.Root, "session_agents.db")
+		agentRouter, err = agent.NewRouter(agentMgr, agentFactory, sessionAgentDBPath, logger)
+		if err != nil {
+			logger.Warn("failed to initialize agent router", zap.Error(err))
+			agentRouter = nil
+		}
+	}
+
+	// Initialize trigger engine (after agent router)
+	triggerEngine := trigger.NewEngine(triggerMgr, agentRouter, logger)
+	if triggerEngine != nil {
+		triggerEngine.Start()
+	}
+
+	// Update workflow engine with agent router
+	if workflowEngine != nil {
+		workflowEngine.SetAgentRouter(agentRouter)
 	}
 
 	// Initialize orchestration engine

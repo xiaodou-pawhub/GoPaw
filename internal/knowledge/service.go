@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gopaw/gopaw/internal/embedding"
@@ -38,15 +39,16 @@ func (s *Service) CreateKnowledgeBase(ctx context.Context, req CreateKnowledgeBa
 		ID:          kbID,
 		Name:        req.Name,
 		Description: req.Description,
+		Mode:        req.Mode,
 		Status:      "active",
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
 
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO knowledge_bases (id, name, description, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, kb.ID, kb.Name, kb.Description, kb.Status, kb.CreatedAt, kb.UpdatedAt)
+		INSERT INTO knowledge_bases (id, name, description, mode, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, kb.ID, kb.Name, kb.Description, kb.Mode, kb.Status, kb.CreatedAt, kb.UpdatedAt)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create knowledge base: %w", err)
@@ -59,11 +61,11 @@ func (s *Service) CreateKnowledgeBase(ctx context.Context, req CreateKnowledgeBa
 func (s *Service) GetKnowledgeBase(ctx context.Context, id string) (*KnowledgeBase, error) {
 	var kb KnowledgeBase
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, description, status,
+		SELECT id, name, description, mode, status,
 			document_count, chunk_count, total_tokens, created_at, updated_at
 		FROM knowledge_bases WHERE id = ?
 	`, id).Scan(
-		&kb.ID, &kb.Name, &kb.Description, &kb.Status,
+		&kb.ID, &kb.Name, &kb.Description, &kb.Mode, &kb.Status,
 		&kb.DocumentCount, &kb.ChunkCount, &kb.TotalTokens, &kb.CreatedAt, &kb.UpdatedAt,
 	)
 	if err != nil {
@@ -75,7 +77,7 @@ func (s *Service) GetKnowledgeBase(ctx context.Context, id string) (*KnowledgeBa
 // ListKnowledgeBases 列出知识库
 func (s *Service) ListKnowledgeBases(ctx context.Context) ([]KnowledgeBase, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, description, status,
+		SELECT id, name, description, mode, status,
 			document_count, chunk_count, total_tokens, created_at, updated_at
 		FROM knowledge_bases ORDER BY updated_at DESC
 	`)
@@ -88,7 +90,7 @@ func (s *Service) ListKnowledgeBases(ctx context.Context) ([]KnowledgeBase, erro
 	for rows.Next() {
 		var kb KnowledgeBase
 		err := rows.Scan(
-			&kb.ID, &kb.Name, &kb.Description, &kb.Status,
+			&kb.ID, &kb.Name, &kb.Description, &kb.Mode, &kb.Status,
 			&kb.DocumentCount, &kb.ChunkCount, &kb.TotalTokens, &kb.CreatedAt, &kb.UpdatedAt,
 		)
 		if err != nil {
@@ -106,10 +108,11 @@ func (s *Service) UpdateKnowledgeBase(ctx context.Context, id string, req Update
 		UPDATE knowledge_bases SET
 			name = COALESCE(NULLIF(?, ''), name),
 			description = COALESCE(NULLIF(?, ''), description),
+			mode = COALESCE(NULLIF(?, ''), mode),
 			status = COALESCE(NULLIF(?, ''), status),
 			updated_at = ?
 		WHERE id = ?
-	`, req.Name, req.Description, req.Status, time.Now(), id)
+	`, req.Name, req.Description, req.Mode, req.Status, time.Now(), id)
 	return err
 }
 
@@ -351,4 +354,35 @@ func (s *Service) GetStats(ctx context.Context, kbID string) (map[string]interfa
 		"completed_count":  completedCount,
 		"failed_count":     failedCount,
 	}, nil
+}
+
+// GetGlobalInjectContent 获取所有全局注入模式的知识库内容
+func (s *Service) GetGlobalInjectContent(ctx context.Context) (string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT kb.name, d.content
+		FROM knowledge_bases kb
+		JOIN knowledge_documents d ON d.knowledge_base_id = kb.id
+		WHERE kb.mode = 'inject' AND kb.status = 'active' AND d.status = 'completed'
+		ORDER BY kb.updated_at DESC
+	`)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	var parts []string
+	for rows.Next() {
+		var name string
+		var content []byte
+		if err := rows.Scan(&name, &content); err != nil {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("## %s\n\n%s", name, string(content)))
+	}
+
+	if len(parts) == 0 {
+		return "", nil
+	}
+
+	return strings.Join(parts, "\n\n---\n\n"), nil
 }

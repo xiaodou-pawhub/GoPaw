@@ -164,6 +164,13 @@
             <input v-model="dialog.data.name" type="text" required placeholder="请输入知识库名称" />
           </div>
           <div class="form-group">
+            <label>模式</label>
+            <select v-model="dialog.data.mode">
+              <option value="vector">向量检索（上传文档，智能搜索）</option>
+              <option value="inject">全局注入（纯文本，直接注入对话）</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label>描述</label>
             <textarea v-model="dialog.data.description" rows="2" placeholder="请输入知识库描述..." />
           </div>
@@ -276,6 +283,7 @@ const dialog = reactive({
   data: {
     name: '',
     description: '',
+    mode: 'vector' as 'vector' | 'inject',
   },
 })
 
@@ -331,7 +339,7 @@ async function loadStats(kbId: string) {
 
 function openCreateDialog() {
   dialog.isEdit = false
-  dialog.data = { name: '', description: '' }
+  dialog.data = { name: '', description: '', mode: 'vector' }
   dialog.show = true
 }
 
@@ -339,8 +347,10 @@ function openEditDialog() {
   if (!selectedKB.value) return
   dialog.isEdit = true
   dialog.data = {
+    id: selectedKB.value.id,
     name: selectedKB.value.name,
     description: selectedKB.value.description,
+    mode: selectedKB.value.mode,
   }
   dialog.show = true
 }
@@ -348,7 +358,11 @@ function openEditDialog() {
 async function saveKnowledgeBase() {
   try {
     if (dialog.isEdit) {
-      await knowledgeApi.updateBase(dialog.data.id, { name: dialog.data.name, description: dialog.data.description })
+      await knowledgeApi.updateBase(dialog.data.id, { 
+        name: dialog.data.name, 
+        description: dialog.data.description,
+        mode: dialog.data.mode 
+      })
     } else {
       await knowledgeApi.createBase(dialog.data)
     }

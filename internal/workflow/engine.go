@@ -64,6 +64,13 @@ func (e *Engine) Close() error {
 	return nil
 }
 
+// SetAgentRouter sets the agent router (used when router is created after engine).
+func (e *Engine) SetAgentRouter(router *agent.Router) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.agentRouter = router
+}
+
 // initSchema creates the database tables.
 func (e *Engine) initSchema() error {
 	schema := `
