@@ -48,11 +48,13 @@ export async function listMemories(params?: {
   category?: string
   q?: string
   limit?: number
+  namespace?: string
 }): Promise<{ memories: MemoryEntry[]; total: number }> {
   const p: Record<string, string> = {}
   if (params?.category) p.category = params.category
   if (params?.q) p.q = params.q
   if (params?.limit) p.limit = String(params.limit)
+  if (params?.namespace) p.namespace = params.namespace
   const res = await api.get('/memories', { params: p })
   return parseData<{ memories: MemoryEntry[]; total: number }>(res)
 }

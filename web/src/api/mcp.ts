@@ -97,6 +97,15 @@ export async function getAllMCPTools(): Promise<{ tools: MCPTool[] }> {
   return { tools }
 }
 
+export async function testMCPServer(config: {
+  command: string
+  args?: string[]
+  env?: string[]
+}): Promise<{ tools: string[]; error?: string }> {
+  const res = await api.post('/mcp/test', config)
+  return parseData<{ tools: string[]; error?: string }>(res)
+}
+
 // ---- Helpers ----
 
 export function getTransportLabel(transport: string): string {

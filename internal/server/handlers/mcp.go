@@ -102,3 +102,26 @@ func (h *MCPHandler) GetAllTools(c *gin.Context) {
 	tools := h.manager.GetTools()
 	api.Success(c, gin.H{"tools": tools})
 }
+
+// TestServer handles POST /api/mcp/test
+// Temporarily starts a server, lists its tools, then stops it.
+func (h *MCPHandler) TestServer(c *gin.Context) {
+	var req struct {
+		Command string   `json:"command" binding:"required"`
+		Args    []string `json:"args"`
+		Env     []string `json:"env"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		api.BadRequestWithError(c, "invalid request", err)
+		return
+	}
+
+	tools, err := h.manager.TestServer(req.Command, req.Args, req.Env)
+	if err != nil {
+		h.logger.Warn("mcp test server failed", zap.Error(err))
+		api.Success(c, gin.H{"tools": []string{}, "error": err.Error()})
+		return
+	}
+
+	api.Success(c, gin.H{"tools": tools})
+}

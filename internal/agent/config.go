@@ -8,8 +8,17 @@ import "fmt"
 
 // AgentConfig represents the complete agent configuration for multi-agent mode.
 type AgentConfig struct {
+	// Display emoji for the agent (e.g. "🤖")
+	Emoji string `yaml:"emoji" json:"emoji"`
+
+	// Short description of the agent
+	Description string `yaml:"description" json:"description"`
+
 	// LLM configuration
 	LLM LLMConfig `yaml:"llm" json:"llm"`
+
+	// Provider IDs in priority order (multi-model support)
+	ProviderIDs []string `yaml:"provider_ids" json:"provider_ids"`
 
 	// System prompt for the agent
 	SystemPrompt string `yaml:"system_prompt" json:"system_prompt"`
@@ -19,6 +28,15 @@ type AgentConfig struct {
 
 	// Skills to enable
 	Skills []string `yaml:"skills" json:"skills"`
+
+	// MCP server IDs bound to this agent
+	MCPServers []string `yaml:"mcp_servers" json:"mcp_servers"`
+
+	// Knowledge base IDs associated with this agent
+	KnowledgeBases []string `yaml:"knowledge_bases" json:"knowledge_bases"`
+
+	// Per-agent channel configurations (each agent has its own credentials)
+	Channels []AgentChannelConfig `yaml:"channels" json:"channels"`
 
 	// Autonomy levels for tools
 	Autonomy map[string]string `yaml:"autonomy" json:"autonomy"`
@@ -72,6 +90,18 @@ type WorkspaceConfig struct {
 	AllowedPaths []string `yaml:"allowed_paths" json:"allowed_paths"`
 }
 
+// AgentChannelConfig represents a per-agent channel configuration with full credentials.
+type AgentChannelConfig struct {
+	// Channel type: feishu / dingtalk / webhook / email
+	Type string `yaml:"type" json:"type"`
+
+	// Whether this channel is enabled
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// Type-specific configuration fields (app_id, app_secret, url, etc.)
+	Config map[string]string `yaml:"config" json:"config"`
+}
+
 // MemoryConfig represents memory configuration.
 type MemoryConfig struct {
 	// Whether memory is enabled
@@ -84,6 +114,10 @@ type MemoryConfig struct {
 // DefaultAgentConfig returns a default agent configuration.
 func DefaultAgentConfig() *AgentConfig {
 	return &AgentConfig{
+		Emoji:       "🤖",
+		Description: "",
+		ProviderIDs: []string{},
+		MCPServers:  []string{},
 		LLM: LLMConfig{
 			Model:       "gpt-4",
 			Temperature: 0.7,

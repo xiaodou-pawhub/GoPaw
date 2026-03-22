@@ -144,6 +144,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ShieldCheckIcon,
+  Brain as BrainIcon,
 } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 
@@ -158,8 +159,9 @@ const isCollapsed = ref(false)
 const coreItems = [
   { to: '/chat', label: '聊天', icon: MessageSquare },
   { to: '/models', label: '模型', icon: Cpu },
-  { to: '/agents', label: 'Agents', icon: Bot },
-  { to: '/market', label: '技能市场', icon: Store },
+  { to: '/agents', label: '数字员工', icon: Bot },
+  { to: '/memory', label: '记忆', icon: BrainIcon },
+  { to: '/skills', label: '技能', icon: Store },
 ]
 
 // 自动化

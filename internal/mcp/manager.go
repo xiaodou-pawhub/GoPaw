@@ -370,6 +370,28 @@ func (m *Manager) GetTools() []tool.MCPToolInfo {
 	return allTools
 }
 
+// TestServer temporarily starts an MCP server, lists its tools, then stops it.
+// Returns the discovered tool names or an error.
+func (m *Manager) TestServer(command string, args []string, env []string) ([]string, error) {
+	client := tool.NewMCPClient("_test_", command, args)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := client.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start MCP server: %w", err)
+	}
+
+	// Collect tool names
+	tools := client.GetTools()
+	names := make([]string, 0, len(tools))
+	for _, t := range tools {
+		names = append(names, t.Name)
+	}
+
+	return names, nil
+}
+
 // CreateBuiltinServers creates built-in MCP servers.
 func (m *Manager) CreateBuiltinServers(workspaceRoot string) error {
 	// Create filesystem MCP server

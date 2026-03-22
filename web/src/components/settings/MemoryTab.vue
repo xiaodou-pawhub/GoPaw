@@ -197,6 +197,8 @@ import {
 } from '@/api/memory'
 import type { MemoryEntry, MemoryStats, ArchiveFileInfo } from '@/api/memory'
 
+const props = withDefaults(defineProps<{ namespace?: string }>(), { namespace: undefined })
+
 const selectedView = ref<string>('all')
 const stats = ref<MemoryStats | null>(null)
 
@@ -239,7 +241,7 @@ async function loadMemories() {
   memLoading.value = true
   try {
     const cat = isStructuredView.value && selectedView.value !== 'all' ? selectedView.value : undefined
-    const res = await listMemories({ category: cat, q: searchQuery.value || undefined })
+    const res = await listMemories({ category: cat, q: searchQuery.value || undefined, namespace: props.namespace })
     memories.value = res.memories || []
   } catch { toast.error('加载失败') }
   finally { memLoading.value = false }
@@ -255,6 +257,11 @@ async function loadStats() {
 
 watch(selectedView, (v) => {
   if (['all', 'core', 'daily', 'conversation'].includes(v)) loadMemories()
+})
+
+watch(() => props.namespace, () => {
+  loadMemories()
+  loadStats()
 })
 
 // ===== Create/Edit memory =====

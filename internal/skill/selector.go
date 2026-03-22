@@ -6,7 +6,6 @@ package skill
 
 import (
 	"math"
-	"strings"
 	"sync"
 	"time"
 
@@ -17,7 +16,7 @@ import (
 type SkillScore struct {
 	Entry     *Entry
 	Score     float64 // 0.0 - 1.0
-	MatchType string  // "always", "keyword", "semantic", "frequency"
+	MatchType string  // "frequency" | "default"
 }
 
 // SmartSelector provides intelligent skill selection based on user input.
@@ -81,7 +80,6 @@ func (s *SmartSelector) loadFromStore() error {
 // Options control the selection behavior.
 func (s *SmartSelector) SelectSkills(input string, opts SelectionOptions) []SkillScore {
 	start := time.Now()
-	lowerInput := strings.ToLower(input)
 
 	var scores []SkillScore
 
@@ -90,7 +88,7 @@ func (s *SmartSelector) SelectSkills(input string, opts SelectionOptions) []Skil
 			continue
 		}
 
-		score := s.calculateScore(entry, lowerInput, opts)
+		score := s.calculateScore(entry, input, opts)
 		if score.Score > 0 {
 			scores = append(scores, score)
 		}
@@ -136,50 +134,19 @@ func DefaultSelectionOptions() SelectionOptions {
 }
 
 // calculateScore calculates the relevance score for a skill.
-func (s *SmartSelector) calculateScore(entry *Entry, lowerInput string, opts SelectionOptions) SkillScore {
+// All enabled L1 (prompt) skills are included; frequency boosts ordering.
+// The AI decides when to use L2 (code) skills via tool-use, so they are not scored here.
+func (s *SmartSelector) calculateScore(entry *Entry, _ string, opts SelectionOptions) SkillScore {
 	score := SkillScore{Entry: entry}
 
-	// Always included skills get maximum priority
-	if entry.Manifest.Activation.Always {
-		score.Score = 1.0
-		score.MatchType = "always"
-		return score
-	}
-
-	var keywordScore float64
-	var matchedKeyword bool
-
-	// Keyword matching with TF-IDF-like scoring
-	for _, kw := range entry.Manifest.Activation.Keywords {
-		kwLower := strings.ToLower(kw)
-		if strings.Contains(lowerInput, kwLower) {
-			// Exact match gets higher score
-			keywordScore += 1.0
-			matchedKeyword = true
-		} else if opts.UseSemantic {
-			// Partial match (e.g., "code" matches "coding")
-			if strings.Contains(lowerInput, kwLower[:min(len(kwLower), 4)]) {
-				keywordScore += 0.5
-				matchedKeyword = true
-			}
-		}
-	}
-
-	if matchedKeyword {
-		// Normalize by number of keywords
-		score.Score = keywordScore / float64(len(entry.Manifest.Activation.Keywords))
-		score.MatchType = "keyword"
-	}
+	// Base score: all enabled prompt skills are included
+	score.Score = opts.MinScore + 0.01 // Just above threshold
+	score.MatchType = "default"
 
 	// Boost by usage frequency
 	if opts.UseFrequency {
 		freqBoost := s.getFrequencyBoost(entry.Manifest.Name)
-		score.Score = score.Score*(1-freqBoost) + freqBoost
-	}
-
-	// Apply minimum score threshold
-	if score.Score < opts.MinScore {
-		score.Score = 0
+		score.Score += freqBoost
 	}
 
 	return score

@@ -5,12 +5,11 @@ package plugin
 type SkillLevel int
 
 const (
-	// SkillLevelPrompt is a pure prompt-injection skill (no code required).
+	// SkillLevelPrompt is a pure prompt-injection skill (manifest.yaml + prompt.md, no code).
 	SkillLevelPrompt SkillLevel = 1
-	// SkillLevelConfig is a YAML-workflow skill (low-code).
-	SkillLevelConfig SkillLevel = 2
-	// SkillLevelCode is a full Go-code skill (complete control).
-	SkillLevelCode SkillLevel = 3
+	// SkillLevelCode is a script/code skill executed via subprocess (manifest.yaml + script file).
+	// Note: Level 3 (compiled Go) from older versions is treated as Level 2 for simplicity.
+	SkillLevelCode SkillLevel = 2
 )
 
 // SkillManifest describes the metadata parsed from a skill's manifest.yaml.
@@ -26,11 +25,11 @@ type SkillManifest struct {
 	ConfigSchema  map[string]interface{} `yaml:"config_schema"`
 }
 
-// SkillActivation controls when and how the skill is injected into the system prompt.
+// SkillActivation is kept for backwards compatibility with existing manifest.yaml files,
+// but is no longer used for selection logic — the AI decides when to use skills.
+// Deprecated: activation keywords and always-flag are ignored.
 type SkillActivation struct {
-	// Always means the skill prompt is always included regardless of user input.
 	Always   bool     `yaml:"always"`
-	// Keywords are hint words shown to users to trigger the skill.
 	Keywords []string `yaml:"keywords"`
 }
 

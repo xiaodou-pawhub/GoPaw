@@ -74,6 +74,23 @@
 
     <!-- 主聊天区 -->
     <div class="chat-main">
+
+      <!-- 无数字员工引导态 -->
+      <div v-if="!agentStore.loading && agentStore.agents.length === 0" class="no-agent-state">
+        <div class="no-agent-content">
+          <div class="no-agent-emoji">🤖</div>
+          <h2 class="no-agent-title">还没有数字员工</h2>
+          <p class="no-agent-desc">数字员工可以拥有记忆、知识库和技能，让每次对话更智能高效。</p>
+          <button class="no-agent-btn" @click="router.push('/agents')">
+            <PlusIcon :size="16" />
+            创建我的第一个数字员工
+          </button>
+          <p class="no-agent-hint">创建后即可在此开始对话</p>
+        </div>
+      </div>
+
+      <!-- Chat 界面（有 agent 时显示） -->
+      <template v-else>
       <!-- Chat 顶栏 -->
       <div class="chat-header">
         <h3 class="chat-title">{{ currentSessionName || '聊天' }}</h3>
@@ -275,6 +292,7 @@
         </div>
         <p class="input-footer">GoPaw AI 助手可能会产生错误，请核实重要信息。</p>
       </div>
+      </template>
     </div>
 
     <!-- 重命名对话框 -->
@@ -1606,6 +1624,67 @@ onUnmounted(() => {
 
 .btn-primary:hover {
   background: var(--accent-hover);
+}
+
+/* ===== 无 Agent 引导态 ===== */
+.no-agent-state {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.no-agent-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 400px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.no-agent-emoji {
+  font-size: 56px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.no-agent-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.no-agent-desc {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.no-agent-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px 24px;
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.no-agent-btn:hover { opacity: 0.9; }
+
+.no-agent-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 0;
 }
 
 /* ===== 响应式布局 ===== */

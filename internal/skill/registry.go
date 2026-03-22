@@ -3,7 +3,6 @@ package skill
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/gopaw/gopaw/pkg/plugin"
@@ -12,10 +11,8 @@ import (
 // Entry holds a loaded skill and its associated metadata.
 type Entry struct {
 	Manifest *plugin.SkillManifest
-	// Prompt is the text fragment injected into the system prompt.
+	// Prompt is the text fragment injected into the system prompt (Level 1 skills).
 	Prompt string
-	// CodeSkill is non-nil for Level-3 skills.
-	CodeSkill plugin.Skill
 	// Enabled indicates whether this skill is active.
 	Enabled bool
 }
@@ -64,32 +61,6 @@ func (r *Registry) All() []*Entry {
 	return out
 }
 
-// ActivePromptFragmentsForInput returns prompt fragments for skills that match the user input.
-// Rules:
-//   - always:true  → always included
-//   - always:false → included only when the input contains at least one keyword (case-insensitive)
-func (r *Registry) ActivePromptFragmentsForInput(input string) string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	lowerInput := strings.ToLower(input)
-	var combined string
-	for _, e := range r.entries {
-		if !e.Enabled || e.Prompt == "" {
-			continue
-		}
-		if e.Manifest.Activation.Always {
-			combined += "\n\n" + e.Prompt
-			continue
-		}
-		for _, kw := range e.Manifest.Activation.Keywords {
-			if strings.Contains(lowerInput, strings.ToLower(kw)) {
-				combined += "\n\n" + e.Prompt
-				break
-			}
-		}
-	}
-	return combined
-}
 
 // Clear removes all registered skills.
 func (r *Registry) Clear() {

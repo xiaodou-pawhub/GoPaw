@@ -11,7 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Loader discovers and loads skills from the filesystem using the three-level system.
+// Loader discovers and loads skills from the filesystem.
 type Loader struct {
 	skillsDir string
 	registry  *Registry
@@ -81,29 +81,20 @@ func (l *Loader) loadSkill(dir string) (*Entry, error) {
 		return nil, fmt.Errorf("manifest.name is required")
 	}
 
-	// --- prompt.md (required for Level 1 & 2, optional for Level 3) ---
+	// --- prompt.md (required for Level 1 prompt skills, optional for Level 2 code skills) ---
 	promptPath := filepath.Join(dir, "prompt.md")
-	promptData, _ := os.ReadFile(promptPath) // ignore error; prompt is optional for L3
+	promptData, _ := os.ReadFile(promptPath)
 
 	entry := &Entry{
 		Manifest: &manifest,
 		Prompt:   string(promptData),
 	}
 
-	// Level 2: workflow.yaml — parsed but execution engine is a TODO for v0.2.
-	if manifest.Level >= plugin.SkillLevelConfig {
-		wfPath := filepath.Join(dir, "workflow.yaml")
-		if _, err := os.Stat(wfPath); err == nil {
-			l.logger.Debug("workflow.yaml found (Level 2 skill)", zap.String("skill", manifest.Name))
-			// Workflow execution is deferred to v0.2.
-		}
-	}
-
-	// Level 3: skill.go — compiled-in code skills must be registered via init().
-	// The loader simply marks the manifest; the code skill itself must call Register() during startup.
-	if manifest.Level == plugin.SkillLevelCode {
-		l.logger.Debug("level-3 skill detected; code must be compiled in", zap.String("skill", manifest.Name))
-	}
+	l.logger.Debug("skill parsed",
+		zap.String("name", manifest.Name),
+		zap.Int("level", int(manifest.Level)),
+		zap.Bool("has_prompt", len(promptData) > 0),
+	)
 
 	return entry, nil
 }

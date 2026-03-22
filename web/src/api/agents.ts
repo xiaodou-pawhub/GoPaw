@@ -12,10 +12,23 @@ export interface Agent {
   is_default: boolean
   created_at: number
   updated_at: number
+  last_active_at?: number  // millisecond timestamp of latest session activity
   config?: AgentConfig
 }
 
+export interface AgentChannelConfig {
+  type: string        // feishu | dingtalk | webhook | email
+  enabled: boolean
+  config: Record<string, string>
+}
+
 export interface AgentConfig {
+  emoji: string
+  description: string
+  provider_ids: string[]
+  mcp_servers: string[]
+  knowledge_bases: string[]
+  channels: AgentChannelConfig[]
   llm: LLMConfig
   system_prompt: string
   tools: ToolsConfig
@@ -126,6 +139,10 @@ export async function updateAgentConfig(id: string, config: AgentConfig): Promis
 
 export function getDefaultConfig(): AgentConfig {
   return {
+    emoji: '🤖',
+    description: '',
+    provider_ids: [],
+    mcp_servers: [],
     llm: {
       model: 'gpt-4',
       temperature: 0.7,
@@ -134,6 +151,8 @@ export function getDefaultConfig(): AgentConfig {
       presence_penalty: 0,
       frequency_penalty: 0
     },
+    knowledge_bases: [],
+    channels: [],
     system_prompt: 'You are a helpful AI assistant.',
     tools: {
       enabled: [],

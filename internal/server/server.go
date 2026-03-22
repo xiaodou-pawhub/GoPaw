@@ -256,8 +256,10 @@ func (s *Server) registerRoutes(
 	skillsG := api.Group("/skills")
 	{
 		skillsG.GET("", skillsH.List)
+		skillsG.GET("/market", skillsH.MarketList)
 		skillsG.POST("/reload", skillsH.Reload)
 		skillsG.POST("/install", skillsH.Install)
+		skillsG.POST("/import", skillsH.ImportZip)
 		skillsG.PUT("/:name/enabled", skillsH.SetEnabled)
 	}
 
@@ -329,6 +331,7 @@ func (s *Server) registerRoutes(
 			mcpG.POST("/servers/:id/active", mcpH.SetActive)
 			mcpG.GET("/servers/:id/tools", mcpH.GetTools)
 			mcpG.GET("/tools", mcpH.GetAllTools)
+			mcpG.POST("/test", mcpH.TestServer)
 		}
 	}
 
