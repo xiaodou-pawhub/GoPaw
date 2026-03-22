@@ -33,20 +33,18 @@
 <script setup lang="ts">
 import { ref, computed, defineAsyncComponent } from 'vue'
 import {
-  ClockIcon, ScrollTextIcon
+  ScrollTextIcon
 } from 'lucide-vue-next'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 
 const tabs = [
-  { key: 'cron', label: '定时任务', icon: ClockIcon },
   { key: 'logs', label: '系统日志', icon: ScrollTextIcon },
 ]
 
-const activeTab = ref('cron')
+const activeTab = ref('logs')
 
 // 懒加载 Tab 组件（代码分割）
 const tabComponents: Record<string, any> = {
-  cron: defineAsyncComponent(() => import('@/components/settings/CronTab.vue')),
   logs: defineAsyncComponent(() => import('@/components/settings/LogsTab.vue')),
 }
 

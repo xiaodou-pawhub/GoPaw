@@ -150,10 +150,89 @@ func (s *CronService) GetRuns(jobID string) []CronRun {
 	if !ok {
 		return []CronRun{}
 	}
-	
+
 	result := make([]CronRun, len(runs))
 	copy(result, runs)
 	return result
+}
+
+func (s *CronService) UpdateJob(id, name, schedule, task, targetID string, enabled *bool) (*CronJob, error) {
+	parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	if _, err := parser.Parse(schedule); err != nil {
+		return nil, fmt.Errorf("invalid cron schedule: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx := -1
+	for i := range s.store.Jobs {
+		if s.store.Jobs[i].ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return nil, fmt.Errorf("job not found: %s", id)
+	}
+
+	job := &s.store.Jobs[idx]
+
+	// Remove old cron entry before rescheduling
+	if job.EntryID != 0 {
+		s.cron.Remove(cron.EntryID(job.EntryID))
+		job.EntryID = 0
+	}
+
+	job.Name = name
+	job.Schedule = schedule
+	job.CronExpr = schedule
+	job.Task = task
+	job.Prompt = task
+	job.TargetID = targetID
+	if enabled != nil {
+		job.Enabled = *enabled
+	}
+
+	if job.Enabled {
+		if err := s.scheduleJob(job); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := s.saveStore(); err != nil {
+		return nil, err
+	}
+
+	result := *job
+	return &result, nil
+}
+
+func (s *CronService) TriggerJob(id string) (*CronRun, error) {
+	s.mu.RLock()
+	var found bool
+	for _, job := range s.store.Jobs {
+		if job.ID == id {
+			found = true
+			break
+		}
+	}
+	s.mu.RUnlock()
+
+	if !found {
+		return nil, fmt.Errorf("job not found: %s", id)
+	}
+
+	run := &CronRun{
+		ID:          uuid.New().String(),
+		JobID:       id,
+		TriggeredAt: time.Now(),
+		Status:      "running",
+	}
+
+	go s.runJobWrapper(id)
+
+	return run, nil
 }
 
 // Internal helpers

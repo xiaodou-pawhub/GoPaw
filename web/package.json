@@ -17,6 +17,7 @@
     "@vue-flow/core": "^1.48.2",
     "@vue-flow/minimap": "^1.5.4",
     "axios": "^1.13.6",
+    "cronstrue": "^3.14.0",
     "github-markdown-css": "^5.9.0",
     "highlight.js": "^11.11.1",
     "lucide-vue-next": "^0.577.0",

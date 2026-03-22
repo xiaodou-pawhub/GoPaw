@@ -145,6 +145,7 @@ import {
   ChevronRightIcon,
   ShieldCheckIcon,
   Brain as BrainIcon,
+  Clock,
 } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 
@@ -166,6 +167,7 @@ const coreItems = [
 
 // 自动化
 const automationItems = [
+  { to: '/cron', label: '定时任务', icon: Clock },
   { to: '/workflows', label: '工作流', icon: GitBranch },
   { to: '/orchestrations', label: '编排器', icon: Network },
   { to: '/triggers', label: '触发器', icon: Zap },

@@ -22,10 +22,20 @@ func NewCronHandler(s *cron.CronService, logger *zap.Logger) *CronHandler {
 
 type createJobRequest struct {
 	Name     string `json:"name" binding:"required"`
-	Schedule string `json:"schedule" binding:"required"` // renamed from cron_expr to match service
-	Task     string `json:"task" binding:"required"`     // renamed from prompt
+	Schedule string `json:"schedule" binding:"required"`
+	Task     string `json:"task" binding:"required"`
 	Channel  string `json:"channel"`
-	TargetID string `json:"target_id"`                   // renamed from session_id
+	TargetID string `json:"target_id"`
+	AgentID  string `json:"agent_id"` // alias for target_id
+}
+
+type updateJobRequest struct {
+	Name     string `json:"name" binding:"required"`
+	Schedule string `json:"schedule" binding:"required"`
+	Task     string `json:"task" binding:"required"`
+	TargetID string `json:"target_id"`
+	AgentID  string `json:"agent_id"`
+	Enabled  *bool  `json:"enabled"`
 }
 
 // List handles GET /api/cron.
@@ -42,7 +52,11 @@ func (h *CronHandler) Create(c *gin.Context) {
 		return
 	}
 
-	job, err := h.service.AddJob(req.Name, req.Schedule, req.Task, req.Channel, req.TargetID)
+	targetID := req.TargetID
+	if targetID == "" {
+		targetID = req.AgentID
+	}
+	job, err := h.service.AddJob(req.Name, req.Schedule, req.Task, req.Channel, targetID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -64,15 +78,42 @@ func (h *CronHandler) Delete(c *gin.Context) {
 }
 
 // Update handles PUT /api/cron/:id.
-// Currently not supported by CronService v1.
 func (h *CronHandler) Update(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "update not supported yet"})
+	id := c.Param("id")
+
+	var req updateJobRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	targetID := req.TargetID
+	if targetID == "" {
+		targetID = req.AgentID
+	}
+
+	job, err := h.service.UpdateJob(id, req.Name, req.Schedule, req.Task, targetID, req.Enabled)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.logger.Info("cron job updated", zap.String("id", id), zap.String("name", req.Name))
+	c.JSON(http.StatusOK, job)
 }
 
 // Trigger handles POST /api/cron/:id/trigger.
-// Currently not supported by CronService v1.
 func (h *CronHandler) Trigger(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "trigger not supported yet"})
+	id := c.Param("id")
+
+	run, err := h.service.TriggerJob(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.logger.Info("cron job triggered", zap.String("id", id))
+	c.JSON(http.StatusOK, run)
 }
 
 // ListRuns handles GET /api/cron/:id/runs.

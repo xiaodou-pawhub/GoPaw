@@ -245,28 +245,27 @@ export interface ChannelStatus {
 export interface CronJob {
   id: string
   name: string
-  description: string
-  cron_expr: string
+  schedule: string   // cron 表达式（6位，含秒）
+  cron_expr: string  // schedule 的别名（后端兼容字段）
+  task: string       // 触发提示词
+  prompt: string     // task 的别名（后端兼容字段）
   channel: string
-  session_id: string
-  prompt: string
+  target_id: string  // 关联的 Agent ID
   enabled: boolean
-  active_from?: string | null // "HH:MM"
-  active_until?: string | null // "HH:MM"
-  last_run?: number
-  next_run?: number
-  created_at?: number
+  created_at?: string
+  last_run_at?: string | null
+  last_result?: string
 }
 
 // 定时任务执行历史
 export interface CronRun {
   id: string
   job_id: string
-  triggered_at: number
-  finished_at: number | null
+  triggered_at: string
+  finished_at: string | null
   status: 'success' | 'error' | 'running'
   output: string
-  error_msg: string
+  error: string
 }
 
 // 聊天消息

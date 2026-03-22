@@ -107,6 +107,11 @@ const routes: RouteRecordRaw[] = [
         path: 'memory',
         name: 'Memory',
         component: () => import('@/pages/Memory.vue')
+      },
+      {
+        path: 'cron',
+        name: 'Cron',
+        component: () => import('@/pages/Cron.vue')
       }
     ]
   }

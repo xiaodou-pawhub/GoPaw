@@ -281,6 +281,7 @@ const dialog = reactive({
   show: false,
   isEdit: false,
   data: {
+    id: '' as string,
     name: '',
     description: '',
     mode: 'vector' as 'vector' | 'inject',
@@ -339,7 +340,7 @@ async function loadStats(kbId: string) {
 
 function openCreateDialog() {
   dialog.isEdit = false
-  dialog.data = { name: '', description: '', mode: 'vector' }
+  dialog.data = { id: '', name: '', description: '', mode: 'vector' }
   dialog.show = true
 }
 
@@ -358,13 +359,12 @@ function openEditDialog() {
 async function saveKnowledgeBase() {
   try {
     if (dialog.isEdit) {
-      await knowledgeApi.updateBase(dialog.data.id, { 
-        name: dialog.data.name, 
+      await knowledgeApi.updateBase(dialog.data.id, {
+        name: dialog.data.name,
         description: dialog.data.description,
-        mode: dialog.data.mode 
       })
     } else {
-      await knowledgeApi.createBase(dialog.data)
+      await knowledgeApi.createBase({ id: dialog.data.id, name: dialog.data.name, description: dialog.data.description })
     }
     dialog.show = false
     loadKnowledgeBases()
