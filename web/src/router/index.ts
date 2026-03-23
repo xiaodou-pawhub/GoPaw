@@ -55,8 +55,16 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'workflows',
-        name: 'Workflows',
-        component: () => import('@/pages/Workflows.vue')
+        redirect: '/flows'
+      },
+      {
+        path: 'orchestrations',
+        redirect: '/flows'
+      },
+      {
+        path: 'flows',
+        name: 'Flows',
+        component: () => import('@/pages/Flows.vue')
       },
       {
         path: 'queue',
@@ -72,11 +80,6 @@ const routes: RouteRecordRaw[] = [
         path: 'knowledge',
         name: 'Knowledge',
         component: () => import('@/pages/Knowledge.vue')
-      },
-      {
-        path: 'orchestrations',
-        name: 'Orchestrations',
-        component: () => import('@/pages/Orchestrations.vue')
       },
       {
         path: 'users',

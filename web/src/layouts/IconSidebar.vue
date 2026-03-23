@@ -164,8 +164,8 @@ const coreItems = [
 
 // 自动化
 const automationItems = [
+  { to: '/flows', label: '流程管理', icon: Network },
   { to: '/cron', label: '定时任务', icon: Clock },
-  { to: '/orchestrations', label: '流程编排', icon: Network },
 ]
 
 // 数据与监控

@@ -1,0 +1,320 @@
+// Copyright (C) 2026 luoxiaodou
+// This file is part of GoPaw, licensed under the AGPL-3.0 License.
+// See the LICENSE file in the project root for full license terms.
+
+package flow
+
+import (
+	"database/sql"
+	"encoding/json"
+	"time"
+)
+
+// FlowType 流程类型
+type FlowType string
+
+const (
+	FlowTypeConversation FlowType = "conversation" // 对话流：支持人工介入、状态保持
+	FlowTypeTask         FlowType = "task"         // 任务流：自动化执行、支持触发器
+)
+
+// FlowStatus 流程状态
+type FlowStatus string
+
+const (
+	FlowStatusDraft    FlowStatus = "draft"
+	FlowStatusActive   FlowStatus = "active"
+	FlowStatusDisabled FlowStatus = "disabled"
+)
+
+// ExecutionStatus 执行状态
+type ExecutionStatus string
+
+const (
+	ExecutionStatusPending   ExecutionStatus = "pending"
+	ExecutionStatusRunning   ExecutionStatus = "running"
+	ExecutionStatusWaiting   ExecutionStatus = "waiting" // 等待人工输入
+	ExecutionStatusCompleted ExecutionStatus = "completed"
+	ExecutionStatusFailed    ExecutionStatus = "failed"
+	ExecutionStatusCancelled ExecutionStatus = "cancelled"
+)
+
+// NodeType 节点类型
+type NodeType string
+
+const (
+	NodeTypeStart     NodeType = "start"     // 开始节点
+	NodeTypeAgent     NodeType = "agent"     // Agent 节点
+	NodeTypeHuman     NodeType = "human"     // 人工节点
+	NodeTypeCondition NodeType = "condition" // 条件分支
+	NodeTypeParallel  NodeType = "parallel"  // 并行执行
+	NodeTypeLoop      NodeType = "loop"      // 循环执行
+	NodeTypeSubFlow   NodeType = "subflow"   // 子流程
+	NodeTypeWebhook   NodeType = "webhook"   // Webhook 等待
+	NodeTypeEnd       NodeType = "end"       // 结束节点
+)
+
+// Flow 流程定义
+type Flow struct {
+	ID          string         `json:"id" db:"id"`
+	Name        string         `json:"name" db:"name"`
+	Description string         `json:"description" db:"description"`
+	Type        FlowType       `json:"type" db:"type"`                   // conversation/task
+	Definition  FlowDefinition `json:"definition" db:"definition"`       // 流程定义
+	Trigger     *TriggerConfig `json:"trigger,omitempty" db:"trigger"`   // 触发配置
+	Status      FlowStatus     `json:"status" db:"status"`               // draft/active/disabled
+	CreatedAt   time.Time      `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at" db:"updated_at"`
+}
+
+// FlowDefinition 流程定义结构
+type FlowDefinition struct {
+	Nodes       []FlowNode           `json:"nodes"`
+	Edges       []FlowEdge           `json:"edges"`
+	Variables   map[string]Variable  `json:"variables,omitempty"`   // 全局变量
+	StartNodeID string               `json:"start_node_id"`         // 起始节点 ID
+}
+
+// Value 实现 driver.Valuer
+func (d FlowDefinition) Value() (interface{}, error) {
+	return json.Marshal(d)
+}
+
+// Scan 实现 sql.Scanner
+func (d *FlowDefinition) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	switch v := value.(type) {
+	case []byte:
+		return json.Unmarshal(v, d)
+	case string:
+		return json.Unmarshal([]byte(v), d)
+	default:
+		return nil
+	}
+}
+
+// FlowNode 流程节点
+type FlowNode struct {
+	ID       string                 `json:"id"`
+	Type     NodeType               `json:"type"`
+	Name     string                 `json:"name"`
+	AgentID  string                 `json:"agent_id,omitempty"`  // Agent 节点引用
+	Role     string                 `json:"role,omitempty"`      // 角色描述
+	Prompt   string                 `json:"prompt,omitempty"`    // Prompt 模板
+	Config   map[string]interface{} `json:"config,omitempty"`    // 节点配置
+	Position Position               `json:"position"`            // 画布位置
+}
+
+// Position 画布位置
+type Position struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// FlowEdge 流程连线
+type FlowEdge struct {
+	ID         string         `json:"id"`
+	Source     string         `json:"source"`               // 源节点 ID
+	Target     string         `json:"target"`               // 目标节点 ID
+	Label      string         `json:"label,omitempty"`      // 显示标签
+	Condition  *EdgeCondition `json:"condition,omitempty"`  // 条件配置
+	Transform  *Transform     `json:"transform,omitempty"`  // 消息转换
+	SourceType string         `json:"source_type,omitempty"` // 源端口（条件节点多出口）
+}
+
+// EdgeCondition 连线条件
+type EdgeCondition struct {
+	Type       string `json:"type"`                  // expression/intent/llm/always
+	Expression string `json:"expression,omitempty"`  // 表达式
+	Intent     string `json:"intent,omitempty"`      // 意图匹配
+	LLMQuery   string `json:"llm_query,omitempty"`   // LLM 判断提示
+}
+
+// Transform 消息转换
+type Transform struct {
+	Template string `json:"template,omitempty"` // 输出模板
+}
+
+// Variable 变量定义
+type Variable struct {
+	Name        string      `json:"name"`
+	Type        string      `json:"type"`        // string/number/boolean/object/array
+	Required    bool        `json:"required"`
+	Default     interface{} `json:"default,omitempty"`
+	Description string      `json:"description,omitempty"`
+}
+
+// TriggerConfig 触发配置
+type TriggerConfig struct {
+	Type   string                 `json:"type"`             // manual/cron/webhook/event
+	Config map[string]interface{} `json:"config,omitempty"` // 触发器配置
+}
+
+// Value 实现 driver.Valuer
+func (t TriggerConfig) Value() (interface{}, error) {
+	return json.Marshal(t)
+}
+
+// Scan 实现 sql.Scanner
+func (t *TriggerConfig) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	switch v := value.(type) {
+	case []byte:
+		return json.Unmarshal(v, t)
+	case string:
+		return json.Unmarshal([]byte(v), t)
+	default:
+		return nil
+	}
+}
+
+// Execution 流程执行实例
+type Execution struct {
+	ID           string                 `json:"id" db:"id"`
+	FlowID       string                 `json:"flow_id" db:"flow_id"`
+	Status       ExecutionStatus        `json:"status" db:"status"`
+	Input        string                 `json:"input" db:"input"`
+	Output       string                 `json:"output" db:"output"`
+	Variables    map[string]interface{} `json:"variables" db:"variables"`
+	CurrentNode  string                 `json:"current_node" db:"current_node"`
+	Context      map[string]interface{} `json:"context" db:"context"`      // 执行上下文
+	History      []ExecutionStep        `json:"history" db:"history"`      // 执行历史
+	StartedAt    time.Time              `json:"started_at" db:"started_at"`
+	CompletedAt  *time.Time             `json:"completed_at" db:"completed_at"`
+	Error        string                 `json:"error,omitempty" db:"error"`
+}
+
+// ExecutionStep 执行步骤记录
+type ExecutionStep struct {
+	NodeID    string                 `json:"node_id"`
+	NodeType  NodeType               `json:"node_type"`
+	Status    ExecutionStatus        `json:"status"`
+	Input     map[string]interface{} `json:"input,omitempty"`
+	Output    map[string]interface{} `json:"output,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+	StartedAt time.Time              `json:"started_at"`
+	EndedAt   *time.Time             `json:"ended_at,omitempty"`
+}
+
+// CreateFlowRequest 创建流程请求
+type CreateFlowRequest struct {
+	ID          string         `json:"id" binding:"required"`
+	Name        string         `json:"name" binding:"required"`
+	Description string         `json:"description"`
+	Type        FlowType       `json:"type"`                    // 默认 conversation
+	Definition  FlowDefinition `json:"definition"`
+	Trigger     *TriggerConfig `json:"trigger,omitempty"`
+}
+
+// UpdateFlowRequest 更新流程请求
+type UpdateFlowRequest struct {
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Type        FlowType       `json:"type,omitempty"`
+	Definition  FlowDefinition `json:"definition,omitempty"`
+	Trigger     *TriggerConfig `json:"trigger,omitempty"`
+	Status      FlowStatus     `json:"status,omitempty"`
+}
+
+// ExecuteRequest 执行请求
+type ExecuteRequest struct {
+	Input     string                 `json:"input"`
+	Variables map[string]interface{} `json:"variables,omitempty"`
+	Context   map[string]interface{} `json:"context,omitempty"` // 额外上下文
+}
+
+// ExecuteResponse 执行响应
+type ExecuteResponse struct {
+	ExecutionID string `json:"execution_id"`
+	Status      string `json:"status"`
+	Output      string `json:"output,omitempty"`
+	WaitingFor  string `json:"waiting_for,omitempty"` // 等待人工输入的节点 ID
+}
+
+// NodeTypeInfo 节点类型信息（用于前端展示）
+type NodeTypeInfo struct {
+	Type        NodeType `json:"type"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Color       string   `json:"color"`
+	Icon        string   `json:"icon"`
+	Category    string   `json:"category"` // basic/control/advanced
+}
+
+// GetNodeTypes 返回所有节点类型信息
+func GetNodeTypes() []NodeTypeInfo {
+	return []NodeTypeInfo{
+		{NodeTypeStart, "开始", "流程的起点", "#22c55e", "play", "basic"},
+		{NodeTypeAgent, "Agent", "调用数字员工执行任务", "#3b82f6", "bot", "basic"},
+		{NodeTypeHuman, "人工", "等待人工输入或确认", "#f59e0b", "user", "basic"},
+		{NodeTypeCondition, "条件", "根据条件分支执行", "#4facfe", "git-branch", "control"},
+		{NodeTypeParallel, "并行", "同时执行多个分支", "#8b5cf6", "git-merge", "control"},
+		{NodeTypeLoop, "循环", "重复执行直到条件满足", "#ec4899", "repeat", "control"},
+		{NodeTypeSubFlow, "子流程", "嵌套执行另一个流程", "#06b6d4", "folder", "advanced"},
+		{NodeTypeWebhook, "Webhook", "等待外部事件触发", "#64748b", "webhook", "advanced"},
+		{NodeTypeEnd, "结束", "流程的终点", "#ef4444", "square", "basic"},
+	}
+}
+
+// InitSchema 初始化数据库表
+func InitSchema(db *sql.DB) error {
+	// 流程定义表
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS flows (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT,
+			type TEXT DEFAULT 'conversation',
+			definition TEXT,
+			trigger TEXT,
+			status TEXT DEFAULT 'draft',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// 执行记录表
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS flow_executions (
+			id TEXT PRIMARY KEY,
+			flow_id TEXT NOT NULL,
+			status TEXT DEFAULT 'pending',
+			input TEXT,
+			output TEXT,
+			variables TEXT,
+			current_node TEXT,
+			context TEXT,
+			history TEXT,
+			started_at DATETIME,
+			completed_at DATETIME,
+			error TEXT,
+			FOREIGN KEY (flow_id) REFERENCES flows(id) ON DELETE CASCADE
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// 创建索引
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_flows_type ON flows(type)`,
+		`CREATE INDEX IF NOT EXISTS idx_flows_status ON flows(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_exec_flow ON flow_executions(flow_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_exec_status ON flow_executions(status)`,
+	}
+
+	for _, idx := range indexes {
+		if _, err := db.Exec(idx); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
