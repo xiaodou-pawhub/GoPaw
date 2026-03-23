@@ -53,7 +53,7 @@
         <LoaderIcon :size="24" class="spin" />
         <span>加载中...</span>
       </div>
-      <div v-else-if="flows.length === 0" class="empty-state">
+      <div v-else-if="!flows || flows.length === 0" class="empty-state">
         <GitBranchIcon :size="48" />
         <p>暂无流程</p>
         <button class="btn-primary" @click="openCreateDialog">创建第一个流程</button>
@@ -335,6 +335,7 @@ const templates: FlowTemplate[] = [
 ]
 
 const filteredFlows = computed(() => {
+  if (!flows.value) return []
   if (!typeFilter.value) return flows.value
   return flows.value.filter(f => f.type === typeFilter.value)
 })
@@ -381,10 +382,12 @@ async function loadFlows() {
   try {
     const res = await fetch('/api/flows')
     if (res.ok) {
-      flows.value = await res.json()
+      const data = await res.json()
+      flows.value = Array.isArray(data) ? data : []
     }
   } catch (e) {
     console.error('Failed to load flows:', e)
+    flows.value = []
   } finally {
     loading.value = false
   }
@@ -394,10 +397,12 @@ async function loadAgents() {
   try {
     const res = await fetch('/api/agents')
     if (res.ok) {
-      agents.value = await res.json()
+      const data = await res.json()
+      agents.value = Array.isArray(data) ? data : []
     }
   } catch (e) {
     console.error('Failed to load agents:', e)
+    agents.value = []
   }
 }
 
