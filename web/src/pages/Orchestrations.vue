@@ -140,31 +140,48 @@
 
     <!-- 创建/编辑对话框 -->
     <div v-if="dialog.show" class="modal-overlay" @click.self="dialog.show = false">
-      <div class="modal modal-lg">
-        <div class="modal-header">
-          <h3>{{ dialog.isEdit ? '编辑编排' : '新建编排' }}</h3>
-          <button class="btn-icon" @click="dialog.show = false"><XIcon :size="16" /></button>
+      <div class="modal-fullscreen">
+        <div class="modal-fheader">
+          <h2 class="modal-title">{{ dialog.isEdit ? '编辑编排' : '新建编排' }}</h2>
+          <button class="btn-icon-close" @click="dialog.show = false"><XIcon :size="20" /></button>
         </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>ID <span class="required">*</span></label>
-            <input v-model="dialog.data.id" type="text" :disabled="dialog.isEdit" placeholder="唯一标识符" />
+        <div class="modal-fbody">
+          <!-- 左：基本信息 -->
+          <div class="modal-sidebar">
+            <div class="form-group">
+              <label>ID</label>
+              <input v-model="dialog.data.id" type="text" disabled class="input-mono" />
+            </div>
+            <div class="form-group">
+              <label>名称 <span class="required">*</span></label>
+              <input v-model="dialog.data.name" type="text" placeholder="编排名称" />
+            </div>
+            <div class="form-group">
+              <label>描述</label>
+              <textarea v-model="dialog.data.description" rows="3" placeholder="可选描述" />
+            </div>
           </div>
-          <div class="form-group">
-            <label>名称 <span class="required">*</span></label>
-            <input v-model="dialog.data.name" type="text" placeholder="编排名称" />
-          </div>
-          <div class="form-group">
-            <label>描述</label>
-            <textarea v-model="dialog.data.description" rows="2" placeholder="可选描述" />
-          </div>
-          <div class="form-group">
-            <label>编排定义 (JSON) <span class="required">*</span></label>
-            <textarea v-model="dialog.definitionText" rows="15" class="code-textarea" spellcheck="false" />
-            <span v-if="dialog.jsonError" class="field-error">{{ dialog.jsonError }}</span>
+          <!-- 右：设计器/JSON -->
+          <div class="modal-main">
+            <div class="tab-bar">
+              <button class="tab-btn" :class="{ active: dialog.activeTab === 'designer' }" @click="switchTab('designer')">设计器</button>
+              <button class="tab-btn" :class="{ active: dialog.activeTab === 'json' }" @click="switchTab('json')">JSON</button>
+            </div>
+            <div v-if="dialog.activeTab === 'designer'" class="designer-wrap">
+              <OrchestrationDesigner
+                :definition="dialog.data.definition"
+                :agents="availableAgents"
+                @save="onDesignerSave"
+                @validate="onDesignerValidate"
+              />
+            </div>
+            <div v-if="dialog.activeTab === 'json'" class="json-wrap">
+              <textarea v-model="dialog.definitionText" class="json-editor" spellcheck="false" />
+              <span v-if="dialog.jsonError" class="field-error">{{ dialog.jsonError }}</span>
+            </div>
           </div>
         </div>
-        <div class="modal-footer">
+        <div class="modal-ffooter">
           <button class="btn-ghost" @click="dialog.show = false">取消</button>
           <button class="btn-primary" @click="saveOrchestration">保存</button>
         </div>
@@ -233,10 +250,12 @@ const dialog = reactive({
   show: false,
   isEdit: false,
   jsonError: '',
+  activeTab: 'designer' as 'designer' | 'json',
   data: {
     id: '',
     name: '',
     description: '',
+    definition: { nodes: [], edges: [], start_node_id: '' } as any,
   },
   definitionText: '',
 })
@@ -291,15 +310,26 @@ async function loadExecutions(orchId: string) {
   }
 }
 
+function generateOrchestrationId() {
+  return 'orch-' + Math.random().toString(36).slice(2, 9) + '-' + Date.now().toString(36)
+}
+
 function openCreateDialog() {
   dialog.isEdit = false
   dialog.jsonError = ''
-  dialog.data = { id: '', name: '', description: '' }
-  dialog.definitionText = JSON.stringify({
+  dialog.activeTab = 'designer'
+  const defaultDefinition = {
     nodes: [{ id: 'agent_1', type: 'agent', agent_id: 'default', name: 'Agent', position: { x: 100, y: 100 } }],
     edges: [],
     start_node_id: 'agent_1',
-  }, null, 2)
+  }
+  dialog.data = {
+    id: generateOrchestrationId(),
+    name: '',
+    description: '',
+    definition: defaultDefinition,
+  }
+  dialog.definitionText = JSON.stringify(defaultDefinition, null, 2)
   dialog.show = true
 }
 
@@ -307,13 +337,41 @@ function openEditDialog() {
   if (!selectedOrch.value) return
   dialog.isEdit = true
   dialog.jsonError = ''
+  dialog.activeTab = 'designer'
   dialog.data = {
     id: selectedOrch.value.id,
     name: selectedOrch.value.name,
     description: selectedOrch.value.description,
+    definition: selectedOrch.value.definition,
   }
   dialog.definitionText = JSON.stringify(selectedOrch.value.definition, null, 2)
   dialog.show = true
+}
+
+function switchTab(tab: 'designer' | 'json') {
+  if (tab === 'designer') {
+    try {
+      dialog.data.definition = JSON.parse(dialog.definitionText)
+    } catch {
+      toast.error('JSON 格式无效，无法切换到设计器')
+      return
+    }
+  } else {
+    dialog.definitionText = JSON.stringify(dialog.data.definition, null, 2)
+  }
+  dialog.activeTab = tab
+}
+
+function onDesignerSave(definition: any) {
+  dialog.data.definition = definition
+  dialog.definitionText = JSON.stringify(definition, null, 2)
+  toast.success('编排定义已更新')
+}
+
+function onDesignerValidate(definition: any) {
+  dialog.data.definition = definition
+  dialog.definitionText = JSON.stringify(definition, null, 2)
+  toast.success('编排定义已验证')
 }
 
 async function saveOrchestration() {
@@ -322,13 +380,18 @@ async function saveOrchestration() {
     toast.error('ID 和名称不能为空')
     return
   }
-  let definition: any
-  try {
-    definition = JSON.parse(dialog.definitionText)
-  } catch (e: any) {
-    dialog.jsonError = 'JSON 格式错误: ' + e.message
-    return
+
+  // 如果当前在 JSON tab，需要解析 JSON
+  let definition = dialog.data.definition
+  if (dialog.activeTab === 'json') {
+    try {
+      definition = JSON.parse(dialog.definitionText)
+    } catch (e: any) {
+      dialog.jsonError = 'JSON 格式错误: ' + e.message
+      return
+    }
   }
+
   if (!Array.isArray(definition.nodes) || !Array.isArray(definition.edges)) {
     dialog.jsonError = '编排定义必须包含 nodes 和 edges 数组'
     return
@@ -387,26 +450,6 @@ function viewExecution(exec: ExecutionContext) {
   console.log('View execution:', exec)
 }
 
-async function onDesignerSave(definition: any) {
-  if (!selectedOrch.value) return
-  try {
-    await orchestrationApi.update(selectedOrch.value.id, { definition })
-    selectedOrch.value = await orchestrationApi.get(selectedOrch.value.id)
-    toast.success('编排已保存')
-  } catch (error: any) {
-    toast.error('保存失败: ' + (error.response?.data?.error || error.message || '未知错误'))
-  }
-}
-
-async function onDesignerValidate(definition: any) {
-  try {
-    await orchestrationApi.validate(definition)
-    toast.success('编排定义有效')
-  } catch (error: any) {
-    toast.error('验证失败: ' + (error.response?.data?.error || error.message || '未知错误'))
-  }
-}
-
 function formatDate(date: string) {
   return new Date(date).toLocaleString('zh-CN')
 }
@@ -414,10 +457,11 @@ function formatDate(date: string) {
 
 <style scoped>
 .orchestrations-page {
-  padding: 24px;
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  padding: 24px;
   height: 100%;
   box-sizing: border-box;
   overflow: hidden;
@@ -765,4 +809,108 @@ function formatDate(date: string) {
 
 .required { color: #ef4444; }
 .field-error { font-size: 12px; color: #ef4444; }
+
+/* 全屏模态框 */
+.modal-fullscreen {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: 95vw;
+  max-width: 1200px;
+  height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-fheader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-fheader .modal-title { font-size: 16px; font-weight: 600; color: var(--text-primary); margin: 0; }
+.btn-icon-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-radius: 6px;
+}
+.btn-icon-close:hover { background: var(--bg-overlay); }
+.modal-fbody {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+.modal-sidebar {
+  width: 260px;
+  padding: 16px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.modal-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-ffooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.tab-bar {
+  display: flex;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.tab-bar .tab-btn {
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.1s;
+  margin-bottom: -1px;
+}
+.tab-bar .tab-btn:hover { color: var(--text-primary); }
+.tab-bar .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+
+.designer-wrap {
+  flex: 1;
+  overflow: hidden;
+}
+.json-wrap {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.json-editor {
+  flex: 1;
+  width: 100%;
+  padding: 12px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: monospace;
+  resize: none;
+}
+.input-mono { font-family: monospace; font-size: 12px; }
 </style>

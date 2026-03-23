@@ -7,7 +7,7 @@
       </button>
     </div>
 
-    <!-- 概览卡片 -->
+    <div class="metrics-content">
     <div class="stat-cards">
       <div class="stat-card stat-primary">
         <div class="stat-label">Agent 调用</div>
@@ -109,6 +109,7 @@
     <div class="update-time">
       更新时间: {{ formatTime(dashboard?.updated_at) }}
     </div>
+    </div>
   </div>
 </template>
 
@@ -181,8 +182,16 @@ onUnmounted(() => {
 
 <style scoped>
 .metrics-page {
-  padding: 24px 32px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
   height: 100%;
+  overflow: hidden;
+}
+
+.metrics-content {
+  flex: 1;
   overflow-y: auto;
 }
 

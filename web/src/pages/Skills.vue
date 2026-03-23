@@ -438,7 +438,11 @@ onMounted(loadSkills)
 }
 
 .view-tab:hover { color: var(--text-primary); }
-.view-tab.active { background: var(--bg-panel); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.view-tab.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 600;
+}
 
 .hidden-input { display: none; }
 

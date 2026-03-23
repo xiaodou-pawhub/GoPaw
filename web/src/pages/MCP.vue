@@ -436,7 +436,11 @@ onMounted(loadAll)
   cursor: pointer;
   transition: all 0.15s;
 }
-.toggle-btn.active { background: var(--bg-elevated); color: var(--text-primary); }
+.toggle-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 600;
+}
 
 /* Content */
 .view-content {

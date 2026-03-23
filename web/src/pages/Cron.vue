@@ -386,13 +386,13 @@ onMounted(() => {
 
 <style scoped>
 .page-root {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 20px;
   padding: 24px;
-  max-width: 1100px;
-  margin: 0 auto;
-  width: 100%;
+  height: 100%;
+  overflow: hidden;
   box-sizing: border-box;
 }
 
