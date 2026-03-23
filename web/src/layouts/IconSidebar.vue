@@ -134,7 +134,6 @@ import {
   BookOpen,
   Layers,
   BarChart3,
-  Activity,
   Server,
   Users as UsersIcon,
   ChevronLeftIcon,
@@ -174,7 +173,6 @@ const automationItems = [
 // 数据与监控
 const dataItems = [
   { to: '/knowledge', label: '知识库', icon: BookOpen },
-  { to: '/traces', label: '执行轨迹', icon: Activity },
   { to: '/queue', label: '消息队列', icon: Layers },
   { to: '/metrics', label: '监控面板', icon: BarChart3 },
 ]

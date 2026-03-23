@@ -4,7 +4,7 @@
     <div class="page-header">
       <div class="header-left">
         <h1 class="page-title">执行历史</h1>
-        <p class="page-desc">查看流程执行记录和详细日志</p>
+        <p class="page-desc">查看流程执行记录、详细日志和追踪信息</p>
       </div>
       <div class="header-right">
         <select v-model="statusFilter" class="filter-select" @change="loadExecutions">
@@ -76,93 +76,166 @@
               >
                 去处理
               </button>
-              <button class="btn-secondary" @click="viewTrace">
-                <SearchIcon :size="14" /> 查看追踪
-              </button>
               <button class="btn-secondary" @click="retryExecution" :disabled="selectedExecution.status === 'running'">
                 <RotateCcwIcon :size="14" /> 重新执行
               </button>
             </div>
           </div>
 
-          <!-- 基本信息 -->
-          <div class="detail-section">
-            <h3>基本信息</h3>
-            <div class="info-grid">
-              <div class="info-item">
-                <span class="info-label">执行 ID</span>
-                <span class="info-value">{{ selectedExecution.id }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">流程 ID</span>
-                <span class="info-value">{{ selectedExecution.flow_id }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">开始时间</span>
-                <span class="info-value">{{ formatDateTime(selectedExecution.started_at) }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">结束时间</span>
-                <span class="info-value">{{ selectedExecution.completed_at ? formatDateTime(selectedExecution.completed_at) : '-' }}</span>
-              </div>
-            </div>
+          <!-- 标签页切换 -->
+          <div class="detail-tabs">
+            <button
+              class="tab-btn"
+              :class="{ active: activeTab === 'info' }"
+              @click="activeTab = 'info'"
+            >
+              基本信息
+            </button>
+            <button
+              class="tab-btn"
+              :class="{ active: activeTab === 'trace' }"
+              @click="activeTab = 'trace'; loadTraceData()"
+            >
+              执行追踪
+            </button>
           </div>
 
-          <!-- 输入输出 -->
-          <div class="detail-section">
-            <h3>输入</h3>
-            <div class="code-block">
-              <pre>{{ selectedExecution.input || '(无输入)' }}</pre>
-            </div>
-          </div>
-
-          <div class="detail-section" v-if="selectedExecution.output">
-            <h3>输出</h3>
-            <div class="code-block">
-              <pre>{{ selectedExecution.output }}</pre>
-            </div>
-          </div>
-
-          <div class="detail-section" v-if="selectedExecution.error">
-            <h3>错误信息</h3>
-            <div class="code-block error">
-              <pre>{{ selectedExecution.error }}</pre>
-            </div>
-          </div>
-
-          <!-- 执行步骤 -->
-          <div class="detail-section">
-            <h3>执行步骤</h3>
-            <div v-if="!selectedExecution.history || selectedExecution.history.length === 0" class="no-steps">
-              暂无执行记录
-            </div>
-            <div v-else class="step-list">
-              <div
-                v-for="(step, index) in selectedExecution.history"
-                :key="index"
-                class="step-item"
-                :class="step.status"
-              >
-                <div class="step-indicator">
-                  <span class="step-index">{{ index + 1 }}</span>
-                  <div class="step-line" v-if="index < selectedExecution.history.length - 1" />
+          <!-- 基本信息 Tab -->
+          <div v-show="activeTab === 'info'">
+            <!-- 基本信息 -->
+            <div class="detail-section">
+              <h3>基本信息</h3>
+              <div class="info-grid">
+                <div class="info-item">
+                  <span class="info-label">执行 ID</span>
+                  <span class="info-value">{{ selectedExecution.id }}</span>
                 </div>
-                <div class="step-content">
-                  <div class="step-header">
-                    <span class="step-name">{{ step.node_id }}</span>
-                    <span class="step-type">{{ step.node_type }}</span>
-                    <span class="step-status" :class="step.status">
-                      {{ getStatusLabel(step.status) }}
-                    </span>
-                    <span class="step-time" v-if="step.started_at">
-                      {{ getDuration(step.started_at, step.ended_at) }}
-                    </span>
+                <div class="info-item">
+                  <span class="info-label">流程 ID</span>
+                  <span class="info-value">{{ selectedExecution.flow_id }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">开始时间</span>
+                  <span class="info-value">{{ formatDateTime(selectedExecution.started_at) }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">结束时间</span>
+                  <span class="info-value">{{ selectedExecution.completed_at ? formatDateTime(selectedExecution.completed_at) : '-' }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 输入输出 -->
+            <div class="detail-section">
+              <h3>输入</h3>
+              <div class="code-block">
+                <pre>{{ selectedExecution.input || '(无输入)' }}</pre>
+              </div>
+            </div>
+
+            <div class="detail-section" v-if="selectedExecution.output">
+              <h3>输出</h3>
+              <div class="code-block">
+                <pre>{{ selectedExecution.output }}</pre>
+              </div>
+            </div>
+
+            <div class="detail-section" v-if="selectedExecution.error">
+              <h3>错误信息</h3>
+              <div class="code-block error">
+                <pre>{{ selectedExecution.error }}</pre>
+              </div>
+            </div>
+
+            <!-- 执行步骤 -->
+            <div class="detail-section">
+              <h3>执行步骤</h3>
+              <div v-if="!selectedExecution.history || selectedExecution.history.length === 0" class="no-steps">
+                暂无执行记录
+              </div>
+              <div v-else class="step-list">
+                <div
+                  v-for="(step, index) in selectedExecution.history"
+                  :key="index"
+                  class="step-item"
+                  :class="step.status"
+                >
+                  <div class="step-indicator">
+                    <span class="step-index">{{ index + 1 }}</span>
+                    <div class="step-line" v-if="index < selectedExecution.history.length - 1" />
                   </div>
-                  <div class="step-output" v-if="step.output">
-                    <pre>{{ JSON.stringify(step.output, null, 2) }}</pre>
+                  <div class="step-content">
+                    <div class="step-header">
+                      <span class="step-name">{{ step.node_id }}</span>
+                      <span class="step-type">{{ step.node_type }}</span>
+                      <span class="step-status" :class="step.status">
+                        {{ getStatusLabel(step.status) }}
+                      </span>
+                      <span class="step-time" v-if="step.started_at">
+                        {{ getDuration(step.started_at, step.ended_at) }}
+                      </span>
+                    </div>
+                    <div class="step-output" v-if="step.output">
+                      <pre>{{ JSON.stringify(step.output, null, 2) }}</pre>
+                    </div>
+                    <div class="step-error" v-if="step.error">
+                      <span>{{ step.error }}</span>
+                    </div>
                   </div>
-                  <div class="step-error" v-if="step.error">
-                    <span>{{ step.error }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 执行追踪 Tab -->
+          <div v-show="activeTab === 'trace'" class="trace-tab">
+            <div v-if="traceLoading" class="trace-loading">
+              <LoaderIcon :size="24" class="spin" />
+              <span>加载追踪数据...</span>
+            </div>
+            <div v-else-if="!traceData" class="trace-empty">
+              <ActivityIcon :size="32" />
+              <p>暂无追踪数据</p>
+              <span>执行追踪将在流程运行时自动记录</span>
+            </div>
+            <div v-else class="trace-content">
+              <!-- 追踪统计 -->
+              <div class="trace-stats">
+                <div class="stat-item">
+                  <span class="stat-label">总耗时</span>
+                  <span class="stat-value">{{ formatDuration(traceData.duration_ms) }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">步骤数</span>
+                  <span class="stat-value">{{ traceData.steps?.length || 0 }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">状态</span>
+                  <span class="stat-value" :class="traceData.status">{{ getTraceStatusLabel(traceData.status) }}</span>
+                </div>
+              </div>
+
+              <!-- 追踪步骤 -->
+              <div class="trace-steps" v-if="traceData.steps && traceData.steps.length > 0">
+                <h4>执行步骤详情</h4>
+                <div
+                  v-for="(step, index) in traceData.steps"
+                  :key="index"
+                  class="trace-step-item"
+                >
+                  <div class="trace-step-header">
+                    <span class="trace-step-type">{{ getStepTypeLabel(step.step_type) }}</span>
+                    <span class="trace-step-duration">{{ formatDuration(step.duration_ms) }}</span>
+                  </div>
+                  <div class="trace-step-detail" v-if="step.input || step.output">
+                    <div v-if="step.input" class="trace-io">
+                      <span class="io-label">输入:</span>
+                      <pre>{{ formatJSON(step.input) }}</pre>
+                    </div>
+                    <div v-if="step.output" class="trace-io">
+                      <span class="io-label">输出:</span>
+                      <pre>{{ formatJSON(step.output) }}</pre>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -178,7 +251,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  RefreshCwIcon, LoaderIcon, HistoryIcon, FileSearchIcon, RotateCcwIcon, SearchIcon
+  RefreshCwIcon, LoaderIcon, HistoryIcon, FileSearchIcon, RotateCcwIcon, ActivityIcon
 } from 'lucide-vue-next'
 
 interface ExecutionStep {
@@ -205,11 +278,36 @@ interface Execution {
   context?: Record<string, any>
 }
 
+interface TraceStep {
+  step_number: number
+  step_type: string
+  started_at: number
+  ended_at?: number
+  duration_ms: number
+  input?: any
+  output?: any
+  metadata?: any
+}
+
+interface TraceData {
+  id: string
+  session_id: string
+  started_at: number
+  ended_at?: number
+  status: string
+  duration_ms: number
+  step_count: number
+  steps?: TraceStep[]
+}
+
 const router = useRouter()
 const loading = ref(true)
 const executions = ref<Execution[]>([])
 const selectedExecution = ref<Execution | null>(null)
 const statusFilter = ref('')
+const activeTab = ref('info')
+const traceLoading = ref(false)
+const traceData = ref<TraceData | null>(null)
 
 let refreshInterval: number | null = null
 
@@ -233,6 +331,24 @@ async function loadExecutions() {
 
 function selectExecution(exec: Execution) {
   selectedExecution.value = exec
+  activeTab.value = 'info'
+  traceData.value = null
+}
+
+async function loadTraceData() {
+  if (!selectedExecution.value || traceData.value) return
+
+  traceLoading.value = true
+  try {
+    const res = await fetch(`/api/flows/executions/${selectedExecution.value.id}/trace`)
+    if (res.ok) {
+      traceData.value = await res.json()
+    }
+  } catch (e) {
+    console.error('Failed to load trace:', e)
+  } finally {
+    traceLoading.value = false
+  }
 }
 
 function getStatusLabel(status: string): string {
@@ -244,6 +360,44 @@ function getStatusLabel(status: string): string {
     pending: '等待'
   }
   return labels[status] || status
+}
+
+function getTraceStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    running: '运行中',
+    completed: '已完成',
+    error: '错误'
+  }
+  return labels[status] || status
+}
+
+function getStepTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    'context_build': '上下文构建',
+    'llm_call': 'LLM 调用',
+    'tool_execution': '工具执行',
+    'hook_execution': '钩子执行',
+    'final_answer': '最终回答'
+  }
+  return labels[type] || type
+}
+
+function formatDuration(ms: number): string {
+  if (!ms) return '-'
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+  const minutes = Math.floor(ms / 60000)
+  const seconds = Math.floor((ms % 60000) / 1000)
+  return `${minutes}m${seconds}s`
+}
+
+function formatJSON(data: any): string {
+  if (!data) return ''
+  try {
+    return JSON.stringify(data, null, 2)
+  } catch {
+    return String(data)
+  }
 }
 
 function formatTime(dateStr: string): string {
@@ -278,11 +432,6 @@ function getDuration(start: string, end?: string): string {
 
 function goToPendingTasks() {
   router.push('/pending-tasks')
-}
-
-function viewTrace() {
-  if (!selectedExecution.value) return
-  router.push(`/executions/${selectedExecution.value.id}/trace`)
 }
 
 async function retryExecution() {
@@ -724,5 +873,163 @@ onUnmounted(() => {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* 标签页样式 */
+.detail-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  padding: 4px;
+  background: var(--bg-app);
+  border-radius: 8px;
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.tab-btn.active {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* 追踪 Tab 样式 */
+.trace-tab {
+  min-height: 200px;
+}
+
+.trace-loading,
+.trace-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  gap: 12px;
+}
+
+.trace-empty p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.trace-empty span {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.trace-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.stat-item {
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+}
+
+.stat-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stat-value.completed { color: var(--green); }
+.stat-value.error { color: var(--red); }
+.stat-value.running { color: var(--yellow); }
+
+.trace-steps h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
+}
+
+.trace-step-item {
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.trace-step-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.trace-step-type {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.trace-step-duration {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.trace-step-detail {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+
+.trace-io {
+  margin-bottom: 8px;
+}
+
+.trace-io:last-child {
+  margin-bottom: 0;
+}
+
+.io-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.trace-io pre {
+  margin: 0;
+  padding: 8px;
+  background: var(--bg-panel);
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow: auto;
 }
 </style>

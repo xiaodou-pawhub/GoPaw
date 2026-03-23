@@ -39,11 +39,6 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/Skills.vue')
       },
       {
-        path: 'traces',
-        name: 'Traces',
-        component: () => import('@/pages/Traces.vue')
-      },
-      {
         path: 'performance',
         name: 'PerformanceAnalysis',
         component: () => import('@/pages/PerformanceAnalysis.vue')
