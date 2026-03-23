@@ -1,55 +1,78 @@
 import api from './index'
 
-export type MessageStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'delayed'
+// 任务状态
+export type TaskStatus = 'pending' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retry'
 
-export interface Message {
+// 任务优先级
+export type TaskPriority = 1 | 5 | 10 | 20  // low, normal, high, urgent
+
+// 任务
+export interface Task {
   id: string
-  queue: string
   type: string
+  priority: TaskPriority
+  status: TaskStatus
   payload: Record<string, any>
-  priority: number
-  status: MessageStatus
-  attempts: number
+  result?: Record<string, any>
+  error?: string
+  retry_count: number
   max_retries: number
-  delay_until?: string
-  processed_by?: string
+  scheduled_at?: string
+  started_at?: string
+  completed_at?: string
   created_at: string
   updated_at: string
-  processed_at?: string
-  completed_at?: string
-  error?: string
+  timeout: number
+  worker_id?: string
+  metadata?: Record<string, string>
 }
 
+// 队列统计
 export interface QueueStats {
-  queue: string
-  pending_count: number
-  processing_count: number
-  completed_count: number
-  failed_count: number
-  delayed_count: number
-  total_count: number
-  updated_at: string
+  pending: number      // 等待中的任务
+  delayed: number      // 延迟任务
+  workers: number      // Worker 总数
+  busy_workers: number // 忙碌的 Worker
 }
 
-export interface QueueInfo {
-  name: string
-  pending_count: number
-  processing_count: number
-  completed_count: number
-  failed_count: number
-  delayed_count: number
-  total_count: number
-}
-
-export interface PublishMessageRequest {
+// 入队请求
+export interface EnqueueTaskRequest {
   type: string
-  payload: Record<string, any>
+  payload?: Record<string, any>
   priority?: number
+  delay?: number       // 延迟秒数
   max_retries?: number
-  delay_seconds?: number
+  timeout?: number
 }
 
-export const queueApi = {
+// 任务类型
+export const TaskTypes = {
+  FLOW_EXECUTE: 'flow_execute',
+  WEBHOOK_CALLBACK: 'webhook_callback',
+  SUBFLOW_EXECUTE: 'subflow_execute',
+  RETRY_EXECUTION: 'retry_execution',
+} as const
+
+// 优先级标签
+export const PriorityLabels: Record<number, { label: string; color: string }> = {
+  1: { label: '低', color: 'neutral' },
+  5: { label: '普通', color: 'info' },
+  10: { label: '高', color: 'warning' },
+  20: { label: '紧急', color: 'error' },
+}
+
+// 状态标签
+export const StatusLabels: Record<TaskStatus, { label: string; color: string }> = {
+  pending: { label: '等待中', color: 'neutral' },
+  queued: { label: '已入队', color: 'info' },
+  running: { label: '执行中', color: 'primary' },
+  completed: { label: '已完成', color: 'success' },
+  failed: { label: '失败', color: 'error' },
+  cancelled: { label: '已取消', color: 'neutral' },
+  retry: { label: '重试中', color: 'warning' },
+}
+
+export const taskQueueApi = {
   // 解析标准响应格式
   parseData<T>(res: any): T {
     if (res && res.data !== undefined) {
@@ -58,63 +81,40 @@ export const queueApi = {
     return res as T
   },
 
-  // List all queues with stats
-  listQueues: async () => {
-    const res = await api.get('/queues')
-    return queueApi.parseData<QueueInfo[]>(res)
+  // 获取队列统计
+  getStats: async () => {
+    const res = await api.get('/flows/queue/stats')
+    return taskQueueApi.parseData<QueueStats>(res)
   },
 
-  // Get queue statistics
-  getStats: async (queueName: string) => {
-    const res = await api.get(`/queues/${queueName}/stats`)
-    return queueApi.parseData<QueueStats>(res)
+  // 列出任务
+  listTasks: async (status?: TaskStatus, limit?: number) => {
+    const res = await api.get('/flows/queue/tasks', { params: { status, limit } })
+    return taskQueueApi.parseData<Task[]>(res)
   },
 
-  // List messages in a queue
-  listMessages: async (queueName: string, status?: MessageStatus, limit?: number) => {
-    const res = await api.get(`/queues/${queueName}/messages`, { params: { status, limit } })
-    return queueApi.parseData<Message[]>(res)
+  // 获取任务
+  getTask: async (taskId: string) => {
+    const res = await api.get(`/flows/queue/tasks/${taskId}`)
+    return taskQueueApi.parseData<Task>(res)
   },
 
-  // Publish a message
-  publishMessage: async (queueName: string, data: PublishMessageRequest) => {
-    const res = await api.post(`/queues/${queueName}/messages`, data)
-    return queueApi.parseData<Message>(res)
+  // 入队任务
+  enqueue: async (data: EnqueueTaskRequest) => {
+    const res = await api.post('/flows/queue/tasks', data)
+    return taskQueueApi.parseData<Task>(res)
   },
 
-  // Get a message by ID
-  getMessage: async (id: string) => {
-    const res = await api.get(`/messages/${id}`)
-    return queueApi.parseData<Message>(res)
-  },
-
-  // Retry a failed message
-  retryMessage: async (id: string) => {
-    const res = await api.post(`/messages/${id}/retry`, {})
-    return queueApi.parseData<any>(res)
-  },
-
-  // Delete a message
-  deleteMessage: async (id: string) => {
-    const res = await api.delete(`/messages/${id}`)
-    return queueApi.parseData<any>(res)
-  },
-
-  // Pause a queue
-  pauseQueue: async (queueName: string) => {
-    const res = await api.post(`/queues/${queueName}/pause`, {})
-    return queueApi.parseData<any>(res)
-  },
-
-  // Resume a queue
-  resumeQueue: async (queueName: string) => {
-    const res = await api.post(`/queues/${queueName}/resume`, {})
-    return queueApi.parseData<any>(res)
-  },
-
-  // Cleanup a queue
-  cleanupQueue: async (queueName: string, status: MessageStatus) => {
-    const res = await api.post(`/queues/${queueName}/cleanup`, {}, { params: { status } })
-    return queueApi.parseData<any>(res)
+  // 取消任务
+  cancel: async (taskId: string) => {
+    const res = await api.delete(`/flows/queue/tasks/${taskId}`)
+    return taskQueueApi.parseData<{ status: string; message: string }>(res)
   },
 }
+
+// 兼容旧 API 名称
+export const queueApi = taskQueueApi
+
+// 兼容旧类型
+export type Message = Task
+export type MessageStatus = TaskStatus

@@ -46,9 +46,12 @@ func (h *FlowHandler) RegisterRoutes(r *gin.RouterGroup) {
 		flows.GET("", h.ListFlows)
 		flows.POST("", h.CreateFlow)
 		flows.GET("/node-types", h.GetNodeTypes)
+		flows.POST("/import", h.ImportFlow)
 		flows.GET("/:id", h.GetFlow)
 		flows.PUT("/:id", h.UpdateFlow)
 		flows.DELETE("/:id", h.DeleteFlow)
+		flows.POST("/:id/duplicate", h.DuplicateFlow)
+		flows.GET("/:id/export", h.ExportFlow)
 		flows.POST("/:id/execute", h.ExecuteFlow)
 		flows.POST("/:id/activate", h.ActivateFlow)
 		flows.POST("/:id/deactivate", h.DeactivateFlow)
@@ -59,6 +62,7 @@ func (h *FlowHandler) RegisterRoutes(r *gin.RouterGroup) {
 		flows.GET("/:id/versions/:version", h.GetVersion)
 		flows.POST("/:id/versions/:version/rollback", h.RollbackVersion)
 		flows.DELETE("/:id/versions/:version", h.DeleteVersion)
+		flows.GET("/:id/versions/compare", h.CompareVersions)
 
 		// 模板管理
 		flows.GET("/templates", h.ListTemplates)
@@ -82,6 +86,9 @@ func (h *FlowHandler) RegisterRoutes(r *gin.RouterGroup) {
 		flows.GET("/executions/:execId/spans", h.GetTraceSpans)
 		flows.GET("/traces", h.ListTraces)
 		flows.GET("/traces/stats", h.GetTraceStats)
+		flows.GET("/traces/analysis", h.GetPerformanceAnalysis)
+		flows.GET("/traces/daily", h.GetDailyStats)
+		flows.GET("/traces/cost", h.GetCostReport)
 
 		// 任务队列
 		flows.GET("/queue/stats", h.GetQueueStats)
@@ -89,6 +96,13 @@ func (h *FlowHandler) RegisterRoutes(r *gin.RouterGroup) {
 		flows.GET("/queue/tasks/:taskId", h.GetQueueTask)
 		flows.POST("/queue/tasks", h.EnqueueTask)
 		flows.DELETE("/queue/tasks/:taskId", h.CancelQueueTask)
+
+		// 死信队列
+		flows.GET("/queue/dead-letters", h.ListDeadLetters)
+		flows.GET("/queue/dead-letters/:taskId", h.GetDeadLetter)
+		flows.POST("/queue/dead-letters/:taskId/retry", h.RetryDeadLetter)
+		flows.DELETE("/queue/dead-letters/:taskId", h.DeleteDeadLetter)
+		flows.DELETE("/queue/dead-letters", h.PurgeDeadLetters)
 	}
 
 	// Webhook 触发流程执行（不需要认证）
@@ -224,6 +238,71 @@ func (h *FlowHandler) DeactivateFlow(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, f)
+}
+
+// ExportFlow 导出流程
+func (h *FlowHandler) ExportFlow(c *gin.Context) {
+	id := c.Param("id")
+
+	export, err := h.service.ExportFlow(id)
+	if err != nil {
+		h.logger.Error("failed to export flow", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 设置下载头
+	filename := fmt.Sprintf("%s-%s.json", export.Name, time.Now().Format("20060102"))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	c.Header("Content-Type", "application/json")
+	c.JSON(http.StatusOK, export)
+}
+
+// ImportFlow 导入流程
+func (h *FlowHandler) ImportFlow(c *gin.Context) {
+	var importData flow.FlowImport
+	if err := c.ShouldBindJSON(&importData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	f, err := h.service.ImportFlow(&importData)
+	if err != nil {
+		h.logger.Error("failed to import flow", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, f)
+}
+
+// DuplicateFlow 复制流程
+func (h *FlowHandler) DuplicateFlow(c *gin.Context) {
+	id := c.Param("id")
+
+	// 获取原流程
+	original, err := h.service.GetFlow(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "flow not found"})
+		return
+	}
+
+	// 创建副本请求
+	req := flow.CreateFlowRequest{
+		Name:        original.Name + " (副本)",
+		Description: original.Description,
+		Type:        original.Type,
+		Definition:  original.Definition,
+		Trigger:     original.Trigger,
+	}
+
+	created, err := h.service.CreateFlow(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, created)
 }
 
 // ListExecutions 列出执行记录
@@ -576,6 +655,42 @@ func (h *FlowHandler) DeleteVersion(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "version deleted"})
 }
 
+// CompareVersions 对比两个版本
+func (h *FlowHandler) CompareVersions(c *gin.Context) {
+	flowID := c.Param("id")
+
+	fromStr := c.Query("from")
+	toStr := c.Query("to")
+
+	if fromStr == "" || toStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "from and to version are required"})
+		return
+	}
+
+	var fromVersion, toVersion int
+	if _, err := fmt.Sscanf(fromStr, "%d", &fromVersion); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid from version"})
+		return
+	}
+	if _, err := fmt.Sscanf(toStr, "%d", &toVersion); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid to version"})
+		return
+	}
+
+	diff, err := h.service.CompareVersions(flowID, fromVersion, toVersion)
+	if err != nil {
+		h.logger.Error("failed to compare versions",
+			zap.String("flow_id", flowID),
+			zap.Int("from", fromVersion),
+			zap.Int("to", toVersion),
+			zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, diff)
+}
+
 // ========== 模板管理 API ==========
 
 // ListTemplates 列出模板
@@ -765,6 +880,68 @@ func (h *FlowHandler) GetTraceStats(c *gin.Context) {
 	c.JSON(http.StatusOK, stats)
 }
 
+// GetPerformanceAnalysis 获取性能分析
+func (h *FlowHandler) GetPerformanceAnalysis(c *gin.Context) {
+	flowID := c.Query("flow_id")
+	days := 7
+
+	traceService := h.service.GetTraceService()
+	if traceService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "trace service not available"})
+		return
+	}
+
+	analysis, err := traceService.GetPerformanceAnalysis(flowID, days)
+	if err != nil {
+		h.logger.Error("failed to get performance analysis", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, analysis)
+}
+
+// GetDailyStats 获取每日统计
+func (h *FlowHandler) GetDailyStats(c *gin.Context) {
+	flowID := c.Query("flow_id")
+	days := 7
+
+	traceService := h.service.GetTraceService()
+	if traceService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "trace service not available"})
+		return
+	}
+
+	stats, err := traceService.GetDailyStats(flowID, days)
+	if err != nil {
+		h.logger.Error("failed to get daily stats", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// GetCostReport 获取成本报表
+func (h *FlowHandler) GetCostReport(c *gin.Context) {
+	days := 7
+
+	traceService := h.service.GetTraceService()
+	if traceService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "trace service not available"})
+		return
+	}
+
+	report, err := traceService.GetCostReport(days)
+	if err != nil {
+		h.logger.Error("failed to get cost report", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, report)
+}
+
 // ========== 任务队列 API ==========
 
 // GetQueueStats 获取队列统计
@@ -852,4 +1029,101 @@ func (h *FlowHandler) CancelQueueTask(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "task cancelled"})
+}
+
+// ========== 死信队列 API ==========
+
+// ListDeadLetters 列出死信任务
+func (h *FlowHandler) ListDeadLetters(c *gin.Context) {
+	taskQueue := h.service.GetTaskQueue()
+	if taskQueue == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "task queue not available"})
+		return
+	}
+
+	limit := 100
+	tasks, err := taskQueue.ListDeadLetters(limit)
+	if err != nil {
+		h.logger.Error("failed to list dead letters", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, tasks)
+}
+
+// GetDeadLetter 获取死信任务
+func (h *FlowHandler) GetDeadLetter(c *gin.Context) {
+	taskID := c.Param("taskId")
+
+	taskQueue := h.service.GetTaskQueue()
+	if taskQueue == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "task queue not available"})
+		return
+	}
+
+	task, err := taskQueue.GetDeadLetter(taskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, task)
+}
+
+// RetryDeadLetter 重试死信任务
+func (h *FlowHandler) RetryDeadLetter(c *gin.Context) {
+	taskID := c.Param("taskId")
+
+	taskQueue := h.service.GetTaskQueue()
+	if taskQueue == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "task queue not available"})
+		return
+	}
+
+	task, err := taskQueue.RetryDeadLetter(taskID)
+	if err != nil {
+		h.logger.Error("failed to retry dead letter", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, task)
+}
+
+// DeleteDeadLetter 删除死信任务
+func (h *FlowHandler) DeleteDeadLetter(c *gin.Context) {
+	taskID := c.Param("taskId")
+
+	taskQueue := h.service.GetTaskQueue()
+	if taskQueue == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "task queue not available"})
+		return
+	}
+
+	if err := taskQueue.DeleteDeadLetter(taskID); err != nil {
+		h.logger.Error("failed to delete dead letter", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "dead letter deleted"})
+}
+
+// PurgeDeadLetters 清空死信队列
+func (h *FlowHandler) PurgeDeadLetters(c *gin.Context) {
+	taskQueue := h.service.GetTaskQueue()
+	if taskQueue == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "task queue not available"})
+		return
+	}
+
+	count, err := taskQueue.PurgeDeadLetters()
+	if err != nil {
+		h.logger.Error("failed to purge dead letters", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "deleted_count": count})
 }

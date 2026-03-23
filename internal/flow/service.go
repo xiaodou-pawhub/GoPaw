@@ -474,6 +474,11 @@ func (s *Service) DeleteVersion(flowID string, version int) error {
 	return s.versionService.DeleteVersion(flowID, version)
 }
 
+// CompareVersions 对比两个版本
+func (s *Service) CompareVersions(flowID string, fromVersion, toVersion int) (*VersionDiff, error) {
+	return s.versionService.CompareVersions(flowID, fromVersion, toVersion)
+}
+
 // ========== 模板管理方法 ==========
 
 // ListTemplates 列出模板
@@ -568,4 +573,84 @@ func (s *Service) CancelQueueTask(taskID string) error {
 		return fmt.Errorf("task queue not initialized")
 	}
 	return s.taskQueue.CancelTask(taskID)
+}
+
+// ========== 导入导出方法 ==========
+
+// FlowExport 流程导出数据结构
+type FlowExport struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Type        FlowType       `json:"type"`
+	Definition  FlowDefinition `json:"definition"`
+	Trigger     *TriggerConfig `json:"trigger,omitempty"`
+	ExportedAt  string         `json:"exported_at"`
+	Version     string         `json:"version"` // 导出版本
+}
+
+// FlowImport 流程导入数据结构
+type FlowImport struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Type        FlowType       `json:"type"`
+	Definition  FlowDefinition `json:"definition"`
+	Trigger     *TriggerConfig `json:"trigger,omitempty"`
+	// 导入选项
+	Overwrite bool `json:"overwrite,omitempty"` // 是否覆盖同名流程
+}
+
+// ExportFlow 导出流程
+func (s *Service) ExportFlow(id string) (*FlowExport, error) {
+	f, err := s.GetFlow(id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get flow: %w", err)
+	}
+
+	export := &FlowExport{
+		Name:        f.Name,
+		Description: f.Description,
+		Type:        f.Type,
+		Definition:  f.Definition,
+		Trigger:     f.Trigger,
+		ExportedAt:  time.Now().Format(time.RFC3339),
+		Version:     "1.0",
+	}
+
+	return export, nil
+}
+
+// ImportFlow 导入流程
+func (s *Service) ImportFlow(data *FlowImport) (*Flow, error) {
+	// 检查是否存在同名流程
+	var existingID string
+	err := s.db.QueryRow("SELECT id FROM flows WHERE name = ?", data.Name).Scan(&existingID)
+	if err == nil {
+		// 存在同名流程
+		if data.Overwrite {
+			// 删除旧流程
+			_, err = s.db.Exec("DELETE FROM flows WHERE id = ?", existingID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to delete existing flow: %w", err)
+			}
+		} else {
+			// 重命名
+			data.Name = data.Name + " (导入)"
+		}
+	}
+
+	// 创建新流程
+	req := CreateFlowRequest{
+		Name:        data.Name,
+		Description: data.Description,
+		Type:        data.Type,
+		Definition:  data.Definition,
+		Trigger:     data.Trigger,
+	}
+
+	created, err := s.CreateFlow(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create flow: %w", err)
+	}
+
+	return created, nil
 }

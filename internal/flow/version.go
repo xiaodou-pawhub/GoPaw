@@ -293,3 +293,237 @@ func (s *VersionService) AutoSaveVersion(flowID string, createdBy string) (*Flow
 		Description: "流程更新时自动创建",
 	}, createdBy)
 }
+
+// ========== 版本对比 ==========
+
+// VersionDiff 版本差异
+type VersionDiff struct {
+	FlowID      string        `json:"flow_id"`
+	VersionFrom int           `json:"version_from"`
+	VersionTo   int           `json:"version_to"`
+	FromName    string        `json:"from_name"`
+	ToName      string        `json:"to_name"`
+	NodeChanges []NodeChange  `json:"node_changes"`
+	EdgeChanges []EdgeChange  `json:"edge_changes"`
+	VarChanges  []VarChange   `json:"var_changes"`
+	TriggerDiff *TriggerDiff  `json:"trigger_diff,omitempty"`
+	Summary     DiffSummary   `json:"summary"`
+}
+
+// NodeChange 节点变更
+type NodeChange struct {
+	Type       string      `json:"type"` // added, removed, modified, moved
+	NodeID     string      `json:"node_id"`
+	NodeName   string      `json:"node_name"`
+	NodeType   string      `json:"node_type"`
+	OldValue   interface{} `json:"old_value,omitempty"`
+	NewValue   interface{} `json:"new_value,omitempty"`
+	Changes    []string    `json:"changes,omitempty"` // 具体变更的字段
+}
+
+// EdgeChange 连线变更
+type EdgeChange struct {
+	Type     string `json:"type"` // added, removed, modified
+	EdgeID   string `json:"edge_id"`
+	OldValue string `json:"old_value,omitempty"`
+	NewValue string `json:"new_value,omitempty"`
+}
+
+// VarChange 变量变更
+type VarChange struct {
+	Type     string `json:"type"` // added, removed, modified
+	VarName  string `json:"var_name"`
+	OldValue string `json:"old_value,omitempty"`
+	NewValue string `json:"new_value,omitempty"`
+}
+
+// TriggerDiff 触发器变更
+type TriggerDiff struct {
+	TypeChanged bool   `json:"type_changed,omitempty"`
+	OldType     string `json:"old_type,omitempty"`
+	NewType     string `json:"new_type,omitempty"`
+	ConfigDiff  string `json:"config_diff,omitempty"`
+}
+
+// DiffSummary 差异摘要
+type DiffSummary struct {
+	NodesAdded    int `json:"nodes_added"`
+	NodesRemoved  int `json:"nodes_removed"`
+	NodesModified int `json:"nodes_modified"`
+	EdgesAdded    int `json:"edges_added"`
+	EdgesRemoved  int `json:"edges_removed"`
+	VarsChanged   int `json:"vars_changed"`
+	TriggerChanged bool `json:"trigger_changed"`
+}
+
+// CompareVersions 对比两个版本
+func (s *VersionService) CompareVersions(flowID string, versionFrom, versionTo int) (*VersionDiff, error) {
+	// 获取两个版本
+	from, err := s.GetVersion(flowID, versionFrom)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get version %d: %w", versionFrom, err)
+	}
+
+	to, err := s.GetVersion(flowID, versionTo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get version %d: %w", versionTo, err)
+	}
+
+	diff := &VersionDiff{
+		FlowID:      flowID,
+		VersionFrom: versionFrom,
+		VersionTo:   versionTo,
+		FromName:    from.Name,
+		ToName:      to.Name,
+		NodeChanges: make([]NodeChange, 0),
+		EdgeChanges: make([]EdgeChange, 0),
+		VarChanges:  make([]VarChange, 0),
+	}
+
+	// 对比节点
+	fromNodes := make(map[string]FlowNode)
+	toNodes := make(map[string]FlowNode)
+	for _, n := range from.Definition.Nodes {
+		fromNodes[n.ID] = n
+	}
+	for _, n := range to.Definition.Nodes {
+		toNodes[n.ID] = n
+	}
+
+	// 检查新增和修改的节点
+	for id, toNode := range toNodes {
+		if fromNode, exists := fromNodes[id]; exists {
+			// 检查是否修改
+			changes := s.compareNodeValues(fromNode, toNode)
+			if len(changes) > 0 {
+				diff.NodeChanges = append(diff.NodeChanges, NodeChange{
+					Type:     "modified",
+					NodeID:   id,
+					NodeName: toNode.Name,
+					NodeType: string(toNode.Type),
+					Changes:  changes,
+				})
+				diff.Summary.NodesModified++
+			}
+		} else {
+			// 新增节点
+			diff.NodeChanges = append(diff.NodeChanges, NodeChange{
+				Type:     "added",
+				NodeID:   id,
+				NodeName: toNode.Name,
+				NodeType: string(toNode.Type),
+				NewValue: toNode,
+			})
+			diff.Summary.NodesAdded++
+		}
+	}
+
+	// 检查删除的节点
+	for id, fromNode := range fromNodes {
+		if _, exists := toNodes[id]; !exists {
+			diff.NodeChanges = append(diff.NodeChanges, NodeChange{
+				Type:     "removed",
+				NodeID:   id,
+				NodeName: fromNode.Name,
+				NodeType: string(fromNode.Type),
+				OldValue: fromNode,
+			})
+			diff.Summary.NodesRemoved++
+		}
+	}
+
+	// 对比连线
+	fromEdges := make(map[string]FlowEdge)
+	toEdges := make(map[string]FlowEdge)
+	for _, e := range from.Definition.Edges {
+		fromEdges[e.ID] = e
+	}
+	for _, e := range to.Definition.Edges {
+		toEdges[e.ID] = e
+	}
+
+	for id, toEdge := range toEdges {
+		if _, exists := fromEdges[id]; !exists {
+			diff.EdgeChanges = append(diff.EdgeChanges, EdgeChange{
+				Type:     "added",
+				EdgeID:   id,
+				NewValue: fmt.Sprintf("%s -> %s", toEdge.Source, toEdge.Target),
+			})
+			diff.Summary.EdgesAdded++
+		}
+	}
+
+	for id, fromEdge := range fromEdges {
+		if _, exists := toEdges[id]; !exists {
+			diff.EdgeChanges = append(diff.EdgeChanges, EdgeChange{
+				Type:     "removed",
+				EdgeID:   id,
+				OldValue: fmt.Sprintf("%s -> %s", fromEdge.Source, fromEdge.Target),
+			})
+			diff.Summary.EdgesRemoved++
+		}
+	}
+
+	// 对比触发器
+	if from.Trigger != nil || to.Trigger != nil {
+		if from.Trigger == nil && to.Trigger != nil {
+			diff.TriggerDiff = &TriggerDiff{
+				TypeChanged: true,
+				NewType:     string(to.Trigger.Type),
+			}
+			diff.Summary.TriggerChanged = true
+		} else if from.Trigger != nil && to.Trigger == nil {
+			diff.TriggerDiff = &TriggerDiff{
+				TypeChanged: true,
+				OldType:     string(from.Trigger.Type),
+			}
+			diff.Summary.TriggerChanged = true
+		} else if from.Trigger != nil && to.Trigger != nil && from.Trigger.Type != to.Trigger.Type {
+			diff.TriggerDiff = &TriggerDiff{
+				TypeChanged: true,
+				OldType:     string(from.Trigger.Type),
+				NewType:     string(to.Trigger.Type),
+			}
+			diff.Summary.TriggerChanged = true
+		}
+	}
+
+	return diff, nil
+}
+
+// compareNodeValues 对比节点值
+func (s *VersionService) compareNodeValues(from, to FlowNode) []string {
+	changes := make([]string, 0)
+
+	if from.Name != to.Name {
+		changes = append(changes, fmt.Sprintf("名称: %s → %s", from.Name, to.Name))
+	}
+	if from.Type != to.Type {
+		changes = append(changes, fmt.Sprintf("类型: %s → %s", from.Type, to.Type))
+	}
+	if from.AgentID != to.AgentID {
+		changes = append(changes, fmt.Sprintf("Agent: %s → %s", from.AgentID, to.AgentID))
+	}
+	if from.Prompt != to.Prompt {
+		changes = append(changes, "Prompt 已修改")
+	}
+	if from.Role != to.Role {
+		changes = append(changes, fmt.Sprintf("角色: %s → %s", from.Role, to.Role))
+	}
+	if from.Position.X != to.Position.X || from.Position.Y != to.Position.Y {
+		changes = append(changes, "位置已移动")
+	}
+	if from.RetryConfig != nil || to.RetryConfig != nil {
+		if from.RetryConfig == nil && to.RetryConfig != nil {
+			changes = append(changes, "添加了重试配置")
+		} else if from.RetryConfig != nil && to.RetryConfig == nil {
+			changes = append(changes, "移除了重试配置")
+		} else if from.RetryConfig != nil && to.RetryConfig != nil {
+			if from.RetryConfig.MaxRetries != to.RetryConfig.MaxRetries {
+				changes = append(changes, fmt.Sprintf("重试次数: %d → %d", from.RetryConfig.MaxRetries, to.RetryConfig.MaxRetries))
+			}
+		}
+	}
+
+	return changes
+}

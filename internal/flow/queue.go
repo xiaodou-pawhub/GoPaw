@@ -231,12 +231,42 @@ func InitQueueSchema(db *sql.DB) error {
 		return err
 	}
 
+	// 创建死信队列表
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS dead_letter_queue (
+			id TEXT PRIMARY KEY,
+			type TEXT NOT NULL,
+			priority INTEGER DEFAULT 5,
+			status TEXT DEFAULT 'failed',
+			payload TEXT,
+			result TEXT,
+			error TEXT,
+			retry_count INTEGER DEFAULT 0,
+			max_retries INTEGER DEFAULT 3,
+			scheduled_at DATETIME,
+			started_at DATETIME,
+			completed_at DATETIME,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			timeout INTEGER DEFAULT 300,
+			worker_id TEXT,
+			metadata TEXT,
+			moved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			move_reason TEXT
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
 	// 创建索引
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_task_status ON task_queue(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_task_priority ON task_queue(priority DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_task_scheduled ON task_queue(scheduled_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_task_type ON task_queue(type)`,
+		`CREATE INDEX IF NOT EXISTS idx_dead_letter_moved ON dead_letter_queue(moved_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_dead_letter_type ON dead_letter_queue(type)`,
 	}
 
 	for _, idx := range indexes {
@@ -478,17 +508,26 @@ func (q *TaskQueue) handleResult(result *TaskResult) {
 				zap.Int("retry_count", task.RetryCount),
 				zap.Int("max_retries", task.MaxRetries))
 		} else {
+			// 超过最大重试次数，移入死信队列
 			task.Status = TaskStatusFailed
-			q.logger.Warn("task failed after max retries",
+			q.updateTask(task)
+			
+			// 移入死信队列
+			if err := q.MoveToDeadLetter(task, "max_retries_exceeded"); err != nil {
+				q.logger.Error("failed to move task to dead letter queue",
+					zap.String("task_id", task.ID),
+					zap.Error(err))
+			}
+			
+			q.logger.Warn("task moved to dead letter queue after max retries",
 				zap.String("task_id", task.ID),
 				zap.Int("retries", task.RetryCount))
 		}
 	} else {
 		task.Status = TaskStatusCompleted
 		task.Result = result.Result
+		q.updateTask(task)
 	}
-
-	q.updateTask(task)
 }
 
 // ========== 公共 API ==========
@@ -800,4 +839,220 @@ func (q *TaskQueue) scanTasks(rows *sql.Rows) ([]*Task, error) {
 	}
 
 	return tasks, nil
+}
+
+// ========== 死信队列 ==========
+
+// DeadLetterTask 死信任务
+type DeadLetterTask struct {
+	Task
+	MovedAt     time.Time `json:"moved_at" db:"moved_at"`         // 移入死信队列的时间
+	MoveReason  string    `json:"move_reason" db:"move_reason"`   // 移入原因
+	RetryFromID string    `json:"retry_from_id" db:"retry_from_id"` // 原任务 ID（如果是从重试创建的）
+}
+
+// MoveToDeadLetter 将失败任务移入死信队列
+func (q *TaskQueue) MoveToDeadLetter(task *Task, reason string) error {
+	now := time.Now()
+
+	// 创建死信任务记录
+	_, err := q.db.Exec(`
+		INSERT INTO dead_letter_queue (id, type, priority, status, payload, result, error, retry_count, max_retries, scheduled_at, started_at, completed_at, created_at, updated_at, timeout, worker_id, metadata, moved_at, move_reason)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, task.ID, task.Type, task.Priority, task.Status, toJSON(task.Payload), toJSON(task.Result), task.Error, task.RetryCount, task.MaxRetries, task.ScheduledAt, task.StartedAt, task.CompletedAt, task.CreatedAt, task.UpdatedAt, task.Timeout, task.WorkerID, toJSON(task.Metadata), now, reason)
+	if err != nil {
+		return fmt.Errorf("failed to insert dead letter: %w", err)
+	}
+
+	// 从原队列删除
+	_, err = q.db.Exec("DELETE FROM task_queue WHERE id = ?", task.ID)
+	if err != nil {
+		return fmt.Errorf("failed to delete from queue: %w", err)
+	}
+
+	q.logger.Info("task moved to dead letter queue",
+		zap.String("task_id", task.ID),
+		zap.String("reason", reason))
+
+	return nil
+}
+
+// ListDeadLetters 列出死信任务
+func (q *TaskQueue) ListDeadLetters(limit int) ([]*DeadLetterTask, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := q.db.Query(`
+		SELECT id, type, priority, status, payload, result, error, retry_count, max_retries, scheduled_at, started_at, completed_at, created_at, updated_at, timeout, worker_id, metadata, moved_at, move_reason
+		FROM dead_letter_queue
+		ORDER BY moved_at DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tasks []*DeadLetterTask
+	for rows.Next() {
+		task := &DeadLetterTask{}
+		var payloadJSON, resultJSON, metadataJSON sql.NullString
+		var scheduledAt, startedAt, completedAt sql.NullTime
+		var workerID sql.NullString
+
+		err := rows.Scan(&task.ID, &task.Type, &task.Priority, &task.Status, &payloadJSON, &resultJSON, &task.Error, &task.RetryCount, &task.MaxRetries, &scheduledAt, &startedAt, &completedAt, &task.CreatedAt, &task.UpdatedAt, &task.Timeout, &workerID, &metadataJSON, &task.MovedAt, &task.MoveReason)
+		if err != nil {
+			continue
+		}
+
+		if payloadJSON.Valid {
+			json.Unmarshal([]byte(payloadJSON.String), &task.Payload)
+		}
+		if resultJSON.Valid {
+			json.Unmarshal([]byte(resultJSON.String), &task.Result)
+		}
+		if metadataJSON.Valid {
+			json.Unmarshal([]byte(metadataJSON.String), &task.Metadata)
+		}
+		if scheduledAt.Valid {
+			task.ScheduledAt = &scheduledAt.Time
+		}
+		if startedAt.Valid {
+			task.StartedAt = &startedAt.Time
+		}
+		if completedAt.Valid {
+			task.CompletedAt = &completedAt.Time
+		}
+		if workerID.Valid {
+			task.WorkerID = workerID.String
+		}
+
+		tasks = append(tasks, task)
+	}
+
+	return tasks, nil
+}
+
+// GetDeadLetter 获取死信任务
+func (q *TaskQueue) GetDeadLetter(taskID string) (*DeadLetterTask, error) {
+	task := &DeadLetterTask{}
+	var payloadJSON, resultJSON, metadataJSON sql.NullString
+	var scheduledAt, startedAt, completedAt sql.NullTime
+	var workerID sql.NullString
+
+	err := q.db.QueryRow(`
+		SELECT id, type, priority, status, payload, result, error, retry_count, max_retries, scheduled_at, started_at, completed_at, created_at, updated_at, timeout, worker_id, metadata, moved_at, move_reason
+		FROM dead_letter_queue WHERE id = ?
+	`, taskID).Scan(&task.ID, &task.Type, &task.Priority, &task.Status, &payloadJSON, &resultJSON, &task.Error, &task.RetryCount, &task.MaxRetries, &scheduledAt, &startedAt, &completedAt, &task.CreatedAt, &task.UpdatedAt, &task.Timeout, &workerID, &metadataJSON, &task.MovedAt, &task.MoveReason)
+	if err != nil {
+		return nil, fmt.Errorf("dead letter not found: %s", taskID)
+	}
+
+	if payloadJSON.Valid {
+		json.Unmarshal([]byte(payloadJSON.String), &task.Payload)
+	}
+	if resultJSON.Valid {
+		json.Unmarshal([]byte(resultJSON.String), &task.Result)
+	}
+	if metadataJSON.Valid {
+		json.Unmarshal([]byte(metadataJSON.String), &task.Metadata)
+	}
+	if scheduledAt.Valid {
+		task.ScheduledAt = &scheduledAt.Time
+	}
+	if startedAt.Valid {
+		task.StartedAt = &startedAt.Time
+	}
+	if completedAt.Valid {
+		task.CompletedAt = &completedAt.Time
+	}
+	if workerID.Valid {
+		task.WorkerID = workerID.String
+	}
+
+	return task, nil
+}
+
+// RetryDeadLetter 重试死信任务
+func (q *TaskQueue) RetryDeadLetter(taskID string) (*Task, error) {
+	// 获取死信任务
+	dlTask, err := q.GetDeadLetter(taskID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 创建新任务
+	newTask, err := q.Enqueue(dlTask.Type, dlTask.Payload, 
+		WithPriority(dlTask.Priority),
+		WithMaxRetries(dlTask.MaxRetries),
+		WithTimeout(dlTask.Timeout))
+	if err != nil {
+		return nil, fmt.Errorf("failed to enqueue task: %w", err)
+	}
+
+	// 从死信队列删除
+	_, err = q.db.Exec("DELETE FROM dead_letter_queue WHERE id = ?", taskID)
+	if err != nil {
+		q.logger.Warn("failed to delete from dead letter queue", zap.Error(err))
+	}
+
+	q.logger.Info("dead letter task retried",
+		zap.String("old_id", taskID),
+		zap.String("new_id", newTask.ID))
+
+	return newTask, nil
+}
+
+// DeleteDeadLetter 删除死信任务
+func (q *TaskQueue) DeleteDeadLetter(taskID string) error {
+	_, err := q.db.Exec("DELETE FROM dead_letter_queue WHERE id = ?", taskID)
+	return err
+}
+
+// PurgeDeadLetters 清空死信队列
+func (q *TaskQueue) PurgeDeadLetters() (int64, error) {
+	result, err := q.db.Exec("DELETE FROM dead_letter_queue")
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// GetDeadLetterStats 获取死信队列统计
+func (q *TaskQueue) GetDeadLetterStats() (map[string]int, error) {
+	stats := make(map[string]int)
+
+	// 总数
+	var total int
+	err := q.db.QueryRow("SELECT COUNT(*) FROM dead_letter_queue").Scan(&total)
+	if err != nil {
+		return nil, err
+	}
+	stats["total"] = total
+
+	// 按类型统计
+	rows, err := q.db.Query("SELECT type, COUNT(*) FROM dead_letter_queue GROUP BY type")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var taskType string
+		var count int
+		if err := rows.Scan(&taskType, &count); err == nil {
+			stats["type_"+taskType] = count
+		}
+	}
+
+	return stats, nil
+}
+
+func toJSON(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
 }

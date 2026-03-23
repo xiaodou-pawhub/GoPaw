@@ -805,3 +805,453 @@ type TraceStats struct {
 	TotalTokens     int     `json:"total_tokens"`
 	TotalCost       float64 `json:"total_cost"`
 }
+
+// NodePerformanceStats 节点性能统计
+type NodePerformanceStats struct {
+	NodeID          string  `json:"node_id"`
+	NodeName        string  `json:"node_name"`
+	NodeType        string  `json:"node_type"`
+	ExecutionCount  int     `json:"execution_count"`
+	SuccessCount    int     `json:"success_count"`
+	FailedCount     int     `json:"failed_count"`
+	AvgDuration     float64 `json:"avg_duration"`
+	MaxDuration     int64   `json:"max_duration"`
+	MinDuration     int64   `json:"min_duration"`
+	TotalDuration   int64   `json:"total_duration"`
+	TotalTokensIn   int     `json:"total_tokens_in"`
+	TotalTokensOut  int     `json:"total_tokens_out"`
+	TotalCost       float64 `json:"total_cost"`
+	SuccessRate     float64 `json:"success_rate"`
+	IsBottleneck    bool    `json:"is_bottleneck"`
+}
+
+// PerformanceAnalysis 性能分析结果
+type PerformanceAnalysis struct {
+	FlowID          string                  `json:"flow_id"`
+	FlowName        string                  `json:"flow_name"`
+	TotalTraces     int                     `json:"total_traces"`
+	AvgDuration     float64                 `json:"avg_duration"`
+	TotalDuration   int64                   `json:"total_duration"`
+	NodeStats       []*NodePerformanceStats `json:"node_stats"`
+	Bottlenecks     []*NodePerformanceStats `json:"bottlenecks"`
+	SlowestNodes    []*NodePerformanceStats `json:"slowest_nodes"`
+	ErrorProneNodes []*NodePerformanceStats `json:"error_prone_nodes"`
+	Recommendations []string                `json:"recommendations"`
+}
+
+// GetPerformanceAnalysis 获取性能分析
+func (s *TraceService) GetPerformanceAnalysis(flowID string, days int) (*PerformanceAnalysis, error) {
+	analysis := &PerformanceAnalysis{
+		FlowID:          flowID,
+		NodeStats:       make([]*NodePerformanceStats, 0),
+		Bottlenecks:     make([]*NodePerformanceStats, 0),
+		SlowestNodes:    make([]*NodePerformanceStats, 0),
+		ErrorProneNodes: make([]*NodePerformanceStats, 0),
+		Recommendations: make([]string, 0),
+	}
+
+	// 获取流程名称
+	if flowID != "" {
+		s.db.QueryRow("SELECT name FROM flows WHERE id = ?", flowID).Scan(&analysis.FlowName)
+	}
+
+	// 获取总体统计
+	query := `
+		SELECT COUNT(*), COALESCE(AVG(duration), 0), COALESCE(SUM(duration), 0)
+		FROM flow_traces
+		WHERE started_at >= datetime('now', '-' || ? || ' days')
+	`
+	args := []interface{}{days}
+	if flowID != "" {
+		query += " AND flow_id = ?"
+		args = append(args, flowID)
+	}
+
+	s.db.QueryRow(query, args...).Scan(&analysis.TotalTraces, &analysis.AvgDuration, &analysis.TotalDuration)
+
+	// 获取节点性能统计
+	nodeQuery := `
+		SELECT 
+			node_id,
+			node_name,
+			node_type,
+			COUNT(*) as exec_count,
+			SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as success_count,
+			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_count,
+			COALESCE(AVG(duration), 0) as avg_duration,
+			COALESCE(MAX(duration), 0) as max_duration,
+			COALESCE(MIN(duration), 0) as min_duration,
+			COALESCE(SUM(duration), 0) as total_duration,
+			COALESCE(SUM(tokens_in), 0) as total_tokens_in,
+			COALESCE(SUM(tokens_out), 0) as total_tokens_out,
+			COALESCE(SUM(cost), 0) as total_cost
+		FROM flow_spans
+		WHERE trace_id IN (
+			SELECT id FROM flow_traces 
+			WHERE started_at >= datetime('now', '-' || ? || ' days')
+	`
+	nodeArgs := []interface{}{days}
+	if flowID != "" {
+		nodeQuery += " AND flow_id = ?"
+		nodeArgs = append(nodeArgs, flowID)
+	}
+	nodeQuery += `)
+		GROUP BY node_id, node_name, node_type
+		ORDER BY total_duration DESC
+	`
+
+	rows, err := s.db.Query(nodeQuery, nodeArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node stats: %w", err)
+	}
+	defer rows.Close()
+
+	var totalNodeDuration int64 = 0
+	for rows.Next() {
+		stat := &NodePerformanceStats{}
+		var nodeName, nodeType sql.NullString
+
+		err := rows.Scan(
+			&stat.NodeID, &nodeName, &nodeType,
+			&stat.ExecutionCount, &stat.SuccessCount, &stat.FailedCount,
+			&stat.AvgDuration, &stat.MaxDuration, &stat.MinDuration, &stat.TotalDuration,
+			&stat.TotalTokensIn, &stat.TotalTokensOut, &stat.TotalCost,
+		)
+		if err != nil {
+			continue
+		}
+
+		if nodeName.Valid {
+			stat.NodeName = nodeName.String
+		}
+		if nodeType.Valid {
+			stat.NodeType = nodeType.String
+		}
+
+		// 计算成功率
+		if stat.ExecutionCount > 0 {
+			stat.SuccessRate = float64(stat.SuccessCount) / float64(stat.ExecutionCount) * 100
+		}
+
+		analysis.NodeStats = append(analysis.NodeStats, stat)
+		totalNodeDuration += stat.TotalDuration
+	}
+
+	// 识别瓶颈（耗时占比超过 20% 的节点）
+	for _, stat := range analysis.NodeStats {
+		if totalNodeDuration > 0 && float64(stat.TotalDuration)/float64(totalNodeDuration) > 0.2 {
+			stat.IsBottleneck = true
+			analysis.Bottlenecks = append(analysis.Bottlenecks, stat)
+		}
+	}
+
+	// 找出最慢的节点（按平均耗时）
+	if len(analysis.NodeStats) > 0 {
+		sortedByAvg := make([]*NodePerformanceStats, len(analysis.NodeStats))
+		copy(sortedByAvg, analysis.NodeStats)
+		for i := 0; i < len(sortedByAvg)-1; i++ {
+			for j := i + 1; j < len(sortedByAvg); j++ {
+				if sortedByAvg[i].AvgDuration < sortedByAvg[j].AvgDuration {
+					sortedByAvg[i], sortedByAvg[j] = sortedByAvg[j], sortedByAvg[i]
+				}
+			}
+		}
+		// 取前 5 个
+		for i := 0; i < 5 && i < len(sortedByAvg); i++ {
+			analysis.SlowestNodes = append(analysis.SlowestNodes, sortedByAvg[i])
+		}
+	}
+
+	// 找出错误率最高的节点
+	for _, stat := range analysis.NodeStats {
+		if stat.FailedCount > 0 && stat.SuccessRate < 80 {
+			analysis.ErrorProneNodes = append(analysis.ErrorProneNodes, stat)
+		}
+	}
+
+	// 生成建议
+	analysis.Recommendations = s.generateRecommendations(analysis)
+
+	return analysis, nil
+}
+
+// generateRecommendations 生成优化建议
+func (s *TraceService) generateRecommendations(analysis *PerformanceAnalysis) []string {
+	recommendations := make([]string, 0)
+
+	// 瓶颈建议
+	for _, b := range analysis.Bottlenecks {
+		if b.NodeType == "agent" {
+			recommendations = append(recommendations, 
+				fmt.Sprintf("节点 [%s] 是性能瓶颈，考虑优化 Agent 提示词或使用更快的模型", b.NodeName))
+		} else if b.NodeType == "condition" {
+			recommendations = append(recommendations,
+				fmt.Sprintf("节点 [%s] 条件判断耗时较长，考虑简化条件逻辑", b.NodeName))
+		} else if b.NodeType == "loop" {
+			recommendations = append(recommendations,
+				fmt.Sprintf("节点 [%s] 循环执行耗时较长，考虑减少循环次数或优化循环体", b.NodeName))
+		} else {
+			recommendations = append(recommendations,
+				fmt.Sprintf("节点 [%s] 是性能瓶颈，占总耗时 %.1f%%", b.NodeName, 
+					float64(b.TotalDuration)/float64(analysis.TotalDuration)*100))
+		}
+	}
+
+	// 错误率建议
+	for _, e := range analysis.ErrorProneNodes {
+		recommendations = append(recommendations,
+			fmt.Sprintf("节点 [%s] 错误率较高 (%.1f%%)，建议检查配置或添加重试机制", 
+				e.NodeName, 100-e.SuccessRate))
+	}
+
+	// 总体建议
+	if analysis.AvgDuration > 10000 { // 超过 10 秒
+		recommendations = append(recommendations, 
+			"流程平均执行时间较长，建议考虑并行执行或拆分子流程")
+	}
+
+	if len(analysis.NodeStats) > 10 {
+		recommendations = append(recommendations,
+			"流程节点较多，建议评估是否可以简化流程结构")
+	}
+
+	return recommendations
+}
+
+// GetDailyStats 获取每日统计
+func (s *TraceService) GetDailyStats(flowID string, days int) ([]*DailyStats, error) {
+	query := `
+		SELECT 
+			date(started_at) as date,
+			COUNT(*) as total,
+			SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+			AVG(duration) as avg_duration,
+			SUM(total_tokens) as total_tokens,
+			SUM(total_cost) as total_cost
+		FROM flow_traces
+		WHERE started_at >= datetime('now', '-' || ? || ' days')
+	`
+	args := []interface{}{days}
+
+	if flowID != "" {
+		query += " AND flow_id = ?"
+		args = append(args, flowID)
+	}
+
+	query += " GROUP BY date(started_at) ORDER BY date"
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var stats []*DailyStats
+	for rows.Next() {
+		ds := &DailyStats{}
+		err := rows.Scan(&ds.Date, &ds.Total, &ds.Completed, &ds.Failed, 
+			&ds.AvgDuration, &ds.TotalTokens, &ds.TotalCost)
+		if err != nil {
+			continue
+		}
+		stats = append(stats, ds)
+	}
+
+	return stats, nil
+}
+
+// DailyStats 每日统计
+type DailyStats struct {
+	Date        string  `json:"date"`
+	Total       int     `json:"total"`
+	Completed   int     `json:"completed"`
+	Failed      int     `json:"failed"`
+	AvgDuration float64 `json:"avg_duration"`
+	TotalTokens int     `json:"total_tokens"`
+	TotalCost   float64 `json:"total_cost"`
+}
+
+// CostReport 成本报表
+type CostReport struct {
+	Period       string         `json:"period"`
+	TotalCost    float64        `json:"total_cost"`
+	TotalTokens  int            `json:"total_tokens"`
+	TokensIn     int            `json:"tokens_in"`
+	TokensOut    int            `json:"tokens_out"`
+	Executions   int            `json:"executions"`
+	AvgCostPerRun float64       `json:"avg_cost_per_run"`
+	ByFlow       []*FlowCost    `json:"by_flow"`
+	ByModel      []*ModelCost   `json:"by_model"`
+	ByNode       []*NodeCost    `json:"by_node"`
+	DailyTrend   []*DailyStats  `json:"daily_trend"`
+}
+
+// FlowCost 流程成本
+type FlowCost struct {
+	FlowID       string  `json:"flow_id"`
+	FlowName     string  `json:"flow_name"`
+	Executions   int     `json:"executions"`
+	TotalCost    float64 `json:"total_cost"`
+	TotalTokens  int     `json:"total_tokens"`
+	AvgCostPerRun float64 `json:"avg_cost_per_run"`
+}
+
+// ModelCost 模型成本
+type ModelCost struct {
+	Model       string  `json:"model"`
+	Calls       int     `json:"calls"`
+	TotalCost   float64 `json:"total_cost"`
+	TokensIn    int     `json:"tokens_in"`
+	TokensOut   int     `json:"tokens_out"`
+	AvgCostPerCall float64 `json:"avg_cost_per_call"`
+}
+
+// NodeCost 节点成本
+type NodeCost struct {
+	NodeType    string  `json:"node_type"`
+	Executions  int     `json:"executions"`
+	TotalCost   float64 `json:"total_cost"`
+	TotalTokens int     `json:"total_tokens"`
+}
+
+// GetCostReport 获取成本报表
+func (s *TraceService) GetCostReport(days int) (*CostReport, error) {
+	report := &CostReport{
+		Period:     fmt.Sprintf("最近 %d 天", days),
+		ByFlow:     make([]*FlowCost, 0),
+		ByModel:    make([]*ModelCost, 0),
+		ByNode:     make([]*NodeCost, 0),
+		DailyTrend: make([]*DailyStats, 0),
+	}
+
+	// 总体统计
+	err := s.db.QueryRow(`
+		SELECT 
+			COALESCE(SUM(total_cost), 0),
+			COALESCE(SUM(total_tokens), 0),
+			COUNT(*)
+		FROM flow_traces
+		WHERE started_at >= datetime('now', '-' || ? || ' days')
+	`, days).Scan(&report.TotalCost, &report.TotalTokens, &report.Executions)
+	if err != nil {
+		return nil, err
+	}
+
+	if report.Executions > 0 {
+		report.AvgCostPerRun = report.TotalCost / float64(report.Executions)
+	}
+
+	// Token 统计
+	s.db.QueryRow(`
+		SELECT 
+			COALESCE(SUM(tokens_in), 0),
+			COALESCE(SUM(tokens_out), 0)
+		FROM flow_spans
+		WHERE trace_id IN (
+			SELECT id FROM flow_traces 
+			WHERE started_at >= datetime('now', '-' || ? || ' days')
+		)
+	`, days).Scan(&report.TokensIn, &report.TokensOut)
+
+	// 按流程统计
+	flowRows, err := s.db.Query(`
+		SELECT 
+			t.flow_id,
+			f.name as flow_name,
+			COUNT(*) as executions,
+			COALESCE(SUM(t.total_cost), 0) as total_cost,
+			COALESCE(SUM(t.total_tokens), 0) as total_tokens
+		FROM flow_traces t
+		LEFT JOIN flows f ON t.flow_id = f.id
+		WHERE t.started_at >= datetime('now', '-' || ? || ' days')
+		GROUP BY t.flow_id
+		ORDER BY total_cost DESC
+		LIMIT 20
+	`, days)
+	if err == nil {
+		defer flowRows.Close()
+		for flowRows.Next() {
+			fc := &FlowCost{}
+			var flowName sql.NullString
+			err := flowRows.Scan(&fc.FlowID, &flowName, &fc.Executions, &fc.TotalCost, &fc.TotalTokens)
+			if err != nil {
+				continue
+			}
+			if flowName.Valid {
+				fc.FlowName = flowName.String
+			}
+			if fc.Executions > 0 {
+				fc.AvgCostPerRun = fc.TotalCost / float64(fc.Executions)
+			}
+			report.ByFlow = append(report.ByFlow, fc)
+		}
+	}
+
+	// 按模型统计
+	modelRows, err := s.db.Query(`
+		SELECT 
+			model,
+			COUNT(*) as calls,
+			COALESCE(SUM(cost), 0) as total_cost,
+			COALESCE(SUM(tokens_in), 0) as tokens_in,
+			COALESCE(SUM(tokens_out), 0) as tokens_out
+		FROM flow_spans
+		WHERE trace_id IN (
+			SELECT id FROM flow_traces 
+			WHERE started_at >= datetime('now', '-' || ? || ' days')
+		) AND model != '' AND model IS NOT NULL
+		GROUP BY model
+		ORDER BY total_cost DESC
+		LIMIT 20
+	`, days)
+	if err == nil {
+		defer modelRows.Close()
+		for modelRows.Next() {
+			mc := &ModelCost{}
+			err := modelRows.Scan(&mc.Model, &mc.Calls, &mc.TotalCost, &mc.TokensIn, &mc.TokensOut)
+			if err != nil {
+				continue
+			}
+			if mc.Calls > 0 {
+				mc.AvgCostPerCall = mc.TotalCost / float64(mc.Calls)
+			}
+			report.ByModel = append(report.ByModel, mc)
+		}
+	}
+
+	// 按节点类型统计
+	nodeRows, err := s.db.Query(`
+		SELECT 
+			node_type,
+			COUNT(*) as executions,
+			COALESCE(SUM(cost), 0) as total_cost,
+			COALESCE(SUM(tokens_in) + SUM(tokens_out), 0) as total_tokens
+		FROM flow_spans
+		WHERE trace_id IN (
+			SELECT id FROM flow_traces 
+			WHERE started_at >= datetime('now', '-' || ? || ' days')
+		)
+		GROUP BY node_type
+		ORDER BY total_cost DESC
+	`, days)
+	if err == nil {
+		defer nodeRows.Close()
+		for nodeRows.Next() {
+			nc := &NodeCost{}
+			err := nodeRows.Scan(&nc.NodeType, &nc.Executions, &nc.TotalCost, &nc.TotalTokens)
+			if err != nil {
+				continue
+			}
+			report.ByNode = append(report.ByNode, nc)
+		}
+	}
+
+	// 每日趋势
+	dailyStats, err := s.GetDailyStats("", days)
+	if err == nil {
+		report.DailyTrend = dailyStats
+	}
+
+	return report, nil
+}

@@ -345,33 +345,146 @@
           <div v-else-if="versionDialog.versions.length === 0" class="empty-versions">
             暂无历史版本
           </div>
-          <div v-else class="versions">
-            <div
-              v-for="v in versionDialog.versions"
-              :key="v.id"
-              class="version-item"
-            >
-              <div class="version-info">
-                <div class="version-header">
-                  <span class="version-badge">v{{ v.version }}</span>
-                  <span class="version-name">{{ v.name || '未命名版本' }}</span>
+          <div v-else>
+            <!-- 版本对比选择 -->
+            <div class="compare-select" v-if="versionDialog.versions.length >= 2">
+              <span>对比版本：</span>
+              <select v-model="versionDialog.compareFrom" class="version-select">
+                <option :value="null">选择版本</option>
+                <option v-for="v in versionDialog.versions" :key="v.id" :value="v.version">
+                  v{{ v.version }} {{ v.name || '' }}
+                </option>
+              </select>
+              <span>→</span>
+              <select v-model="versionDialog.compareTo" class="version-select">
+                <option :value="null">选择版本</option>
+                <option v-for="v in versionDialog.versions" :key="v.id" :value="v.version">
+                  v{{ v.version }} {{ v.name || '' }}
+                </option>
+              </select>
+              <button
+                class="btn-small"
+                :disabled="!versionDialog.compareFrom || !versionDialog.compareTo || versionDialog.compareFrom === versionDialog.compareTo"
+                @click="compareVersions"
+              >
+                对比
+              </button>
+            </div>
+
+            <div class="versions">
+              <div
+                v-for="v in versionDialog.versions"
+                :key="v.id"
+                class="version-item"
+              >
+                <div class="version-info">
+                  <div class="version-header">
+                    <span class="version-badge">v{{ v.version }}</span>
+                    <span class="version-name">{{ v.name || '未命名版本' }}</span>
+                  </div>
+                  <div class="version-meta">
+                    <span>{{ formatDate(v.created_at) }}</span>
+                    <span v-if="v.created_by"> · {{ v.created_by }}</span>
+                  </div>
+                  <div v-if="v.description" class="version-desc">{{ v.description }}</div>
                 </div>
-                <div class="version-meta">
-                  <span>{{ formatDate(v.created_at) }}</span>
-                  <span v-if="v.created_by"> · {{ v.created_by }}</span>
+                <div class="version-actions">
+                  <button class="btn-small" @click="rollbackVersion(v.version)" title="回滚到此版本">
+                    回滚
+                  </button>
+                  <button class="btn-small danger" @click="deleteVersion(v.version)" title="删除此版本">
+                    删除
+                  </button>
                 </div>
-                <div v-if="v.description" class="version-desc">{{ v.description }}</div>
-              </div>
-              <div class="version-actions">
-                <button class="btn-small" @click="rollbackVersion(v.version)" title="回滚到此版本">
-                  回滚
-                </button>
-                <button class="btn-small danger" @click="deleteVersion(v.version)" title="删除此版本">
-                  删除
-                </button>
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 版本对比对话框 -->
+  <div v-if="versionDiffDialog.show" class="modal-overlay" @click.self="versionDiffDialog.show = false">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h3>版本对比</h3>
+        <button class="btn-icon" @click="versionDiffDialog.show = false"><XIcon :size="16" /></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="diff-header">
+          <div class="diff-version">
+            <span class="diff-label">v{{ versionDiffDialog.fromVersion }}</span>
+            <span class="diff-name">{{ versionDiffDialog.fromName }}</span>
+          </div>
+          <span class="diff-arrow">→</span>
+          <div class="diff-version">
+            <span class="diff-label">v{{ versionDiffDialog.toVersion }}</span>
+            <span class="diff-name">{{ versionDiffDialog.toName }}</span>
+          </div>
+        </div>
+
+        <div class="diff-summary">
+          <span v-if="versionDiffDialog.summary.nodes_added" class="summary-item added">
+            +{{ versionDiffDialog.summary.nodes_added }} 节点
+          </span>
+          <span v-if="versionDiffDialog.summary.nodes_removed" class="summary-item removed">
+            -{{ versionDiffDialog.summary.nodes_removed }} 节点
+          </span>
+          <span v-if="versionDiffDialog.summary.nodes_modified" class="summary-item modified">
+            ~{{ versionDiffDialog.summary.nodes_modified }} 节点修改
+          </span>
+          <span v-if="versionDiffDialog.summary.edges_added" class="summary-item added">
+            +{{ versionDiffDialog.summary.edges_added }} 连线
+          </span>
+          <span v-if="versionDiffDialog.summary.edges_removed" class="summary-item removed">
+            -{{ versionDiffDialog.summary.edges_removed }} 连线
+          </span>
+          <span v-if="versionDiffDialog.summary.trigger_changed" class="summary-item modified">
+            触发器已修改
+          </span>
+        </div>
+
+        <div class="diff-section" v-if="versionDiffDialog.nodeChanges?.length">
+          <h4>节点变更</h4>
+          <div class="change-list">
+            <div
+              v-for="change in versionDiffDialog.nodeChanges"
+              :key="change.node_id"
+              class="change-item"
+              :class="change.type"
+            >
+              <div class="change-header">
+                <span class="change-type">{{ getChangeTypeLabel(change.type) }}</span>
+                <span class="change-node">{{ change.node_name }}</span>
+                <span class="change-node-type badge">{{ change.node_type }}</span>
+              </div>
+              <div v-if="change.changes?.length" class="change-details">
+                <span v-for="(c, i) in change.changes" :key="i" class="change-detail">{{ c }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="diff-section" v-if="versionDiffDialog.edgeChanges?.length">
+          <h4>连线变更</h4>
+          <div class="change-list">
+            <div
+              v-for="change in versionDiffDialog.edgeChanges"
+              :key="change.edge_id"
+              class="change-item"
+              :class="change.type"
+            >
+              <span class="change-type">{{ getChangeTypeLabel(change.type) }}</span>
+              <span class="change-value">{{ change.new_value || change.old_value }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="!versionDiffDialog.nodeChanges?.length && !versionDiffDialog.edgeChanges?.length" class="no-changes">
+          <CheckCircleIcon :size="24" />
+          <span>两个版本完全相同</span>
         </div>
       </div>
     </div>
@@ -385,6 +498,7 @@ import {
   LoaderIcon, GitBranchIcon, XIcon, FileTextIcon, ChevronDownIcon,
   UploadIcon, DownloadIcon, HistoryIcon
 } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import FlowDesigner from '@/components/flow/FlowDesigner.vue'
 import FlowExecutionPanel from '@/components/flow/FlowExecutionPanel.vue'
 
@@ -428,7 +542,42 @@ const versionDialog = ref({
   loading: false,
   creating: false,
   newVersionName: '',
-  newVersionDesc: ''
+  newVersionDesc: '',
+  compareFrom: null as number | null,
+  compareTo: null as number | null
+})
+
+// 版本对比对话框
+interface NodeChange {
+  type: string
+  node_id: string
+  node_name: string
+  node_type: string
+  changes?: string[]
+}
+interface EdgeChange {
+  type: string
+  edge_id: string
+  old_value?: string
+  new_value?: string
+}
+interface DiffSummary {
+  nodes_added: number
+  nodes_removed: number
+  nodes_modified: number
+  edges_added: number
+  edges_removed: number
+  trigger_changed: boolean
+}
+const versionDiffDialog = ref({
+  show: false,
+  fromVersion: 0,
+  toVersion: 0,
+  fromName: '',
+  toName: '',
+  nodeChanges: [] as NodeChange[],
+  edgeChanges: [] as EdgeChange[],
+  summary: {} as DiffSummary
 })
 
 // 预置模板
@@ -802,65 +951,58 @@ async function handleImport(event: Event) {
 
     // 验证导入的数据结构
     if (!data.name || !data.definition || !data.definition.nodes) {
-      alert('无效的流程文件格式')
+      toast.error('无效的流程文件格式')
       return
     }
 
-    // 创建新流程
-    const newFlow = {
-      id: generateId(),
-      name: data.name + ' (导入)',
-      description: data.description || '',
-      type: data.type || 'conversation',
-      definition: data.definition,
-      trigger: data.trigger,
-      status: 'draft'
-    }
-
-    const res = await fetch('/api/flows', {
+    // 调用后端导入 API
+    const res = await fetch('/api/flows/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newFlow)
+      body: JSON.stringify(data)
     })
 
     if (res.ok) {
       await loadFlows()
-      alert('流程导入成功')
+      toast.success('流程导入成功')
     } else {
       const err = await res.json()
-      alert(err.error || '导入失败')
+      toast.error(err.error || '导入失败')
     }
   } catch (e) {
     console.error('Import failed:', e)
-    alert('导入失败：文件格式错误')
+    toast.error('导入失败：文件格式错误')
   }
 
   // 清空 input 以便再次选择同一文件
   input.value = ''
 }
 
-function exportFlow(flow: Flow) {
-  // 构建导出数据
-  const exportData = {
-    name: flow.name,
-    description: flow.description,
-    type: flow.type,
-    definition: flow.definition,
-    trigger: (flow as any).trigger,
-    exported_at: new Date().toISOString(),
-    version: '1.0'
-  }
+async function exportFlow(flow: Flow) {
+  try {
+    // 调用后端导出 API
+    const res = await fetch(`/api/flows/${flow.id}/export`)
+    if (!res.ok) {
+      toast.error('导出失败')
+      return
+    }
 
-  // 创建下载
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${flow.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}_flow.json`
-  document.body.appendChild(a)
+    const exportData = await res.json()
+
+    // 创建下载
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${flow.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')}_flow.json`
+    document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+  } catch (e) {
+    console.error('Export failed:', e)
+    toast.error('导出失败')
+  }
 }
 
 // ========== 版本管理 ==========
@@ -874,7 +1016,9 @@ async function openVersionDialog(flow: Flow) {
     loading: true,
     creating: false,
     newVersionName: '',
-    newVersionDesc: ''
+    newVersionDesc: '',
+    compareFrom: null,
+    compareTo: null
   }
   await loadVersions()
 }
@@ -962,6 +1106,45 @@ async function deleteVersion(version: number) {
     console.error('Failed to delete version:', e)
     alert('删除失败')
   }
+}
+
+async function compareVersions() {
+  if (!versionDialog.value.compareFrom || !versionDialog.value.compareTo) return
+
+  try {
+    const res = await fetch(
+      `/api/flows/${versionDialog.value.flowId}/versions/compare?from=${versionDialog.value.compareFrom}&to=${versionDialog.value.compareTo}`
+    )
+
+    if (res.ok) {
+      const diff = await res.json()
+      versionDiffDialog.value = {
+        show: true,
+        fromVersion: diff.version_from,
+        toVersion: diff.version_to,
+        fromName: diff.from_name || `v${diff.version_from}`,
+        toName: diff.to_name || `v${diff.version_to}`,
+        nodeChanges: diff.node_changes || [],
+        edgeChanges: diff.edge_changes || [],
+        summary: diff.summary || {}
+      }
+    } else {
+      const err = await res.json()
+      toast.error(err.error || '对比失败')
+    }
+  } catch (e) {
+    console.error('Failed to compare versions:', e)
+    toast.error('对比失败')
+  }
+}
+
+function getChangeTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    added: '新增',
+    removed: '删除',
+    modified: '修改'
+  }
+  return labels[type] || type
 }
 
 // 触发器相关函数
@@ -1445,6 +1628,187 @@ function getNextCronTime(schedule: string): string {
 }
 .btn-small.danger:hover {
   background: #fee2e2;
+}
+
+/* 版本对比选择 */
+.compare-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-overlay);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.version-select {
+  padding: 6px 10px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  min-width: 150px;
+}
+
+/* 版本对比对话框 */
+.diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 16px;
+  background: var(--bg-overlay);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.diff-version {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.diff-label {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.diff-name {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.diff-arrow {
+  font-size: 20px;
+  color: var(--text-tertiary);
+}
+
+.diff-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.summary-item {
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.summary-item.added {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+}
+
+.summary-item.removed {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.summary-item.modified {
+  background: rgba(234, 179, 8, 0.15);
+  color: #ca8a04;
+}
+
+.diff-section {
+  margin-bottom: 20px;
+}
+
+.diff-section h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 10px;
+}
+
+.change-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.change-item {
+  padding: 10px 12px;
+  background: var(--bg-app);
+  border-radius: 6px;
+  border-left: 3px solid var(--border);
+}
+
+.change-item.added {
+  border-left-color: #16a34a;
+  background: rgba(34, 197, 94, 0.05);
+}
+
+.change-item.removed {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.change-item.modified {
+  border-left-color: #ca8a04;
+  background: rgba(234, 179, 8, 0.05);
+}
+
+.change-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.change-type {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--bg-overlay);
+}
+
+.change-item.added .change-type { color: #16a34a; }
+.change-item.removed .change-type { color: #ef4444; }
+.change-item.modified .change-type { color: #ca8a04; }
+
+.change-node {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.change-node-type {
+  font-size: 10px;
+  padding: 1px 4px;
+  background: var(--bg-overlay);
+}
+
+.change-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-left: 8px;
+}
+
+.change-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.change-value {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.no-changes {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px;
+  color: var(--text-tertiary);
 }
 
 .execution-panel-wrap { width: 560px; max-width: 95vw; max-height: 90vh; overflow: hidden; border-radius: 10px; }
