@@ -1,6 +1,6 @@
 BINARY  := gopaw
 VERSION := 0.2.0
-LDFLAGS := -ldflags "-X main.appVersion=$(VERSION)"
+LDFLAGS := -ldflags "-X main.appVersion=$(VERSION) -s -w"
 GO      := go
 
 # ─── Colors ─────────────────────────────────────────────────────────────────
@@ -9,7 +9,8 @@ GREEN := \033[32m
 YELLOW:= \033[33m
 RESET := \033[0m
 
-.PHONY: build build-desktop build-linux build-go \
+.PHONY: build build-desktop build-linux build-windows build-all \
+        package-linux package-windows package-all \
         dev dev-go dev-embedded \
         run run-solo run-team run-tray \
         web-install web-build web-dev \
@@ -36,6 +37,47 @@ build-go:
 build-linux: web-build
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BINARY)-linux ./cmd/gopaw
 	@printf "$(GREEN)✓ Built ./$(BINARY)-linux (linux/amd64)$(RESET)\n"
+
+## build-windows: 交叉编译 Windows amd64 服务器二进制（纯 Go，无 CGo）
+build-windows: web-build
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BINARY).exe ./cmd/gopaw
+	@printf "$(GREEN)✓ Built ./$(BINARY).exe (windows/amd64)$(RESET)\n"
+
+## build-all: 交叉编译所有平台（Linux + Windows）
+build-all: build-linux build-windows
+	@printf "$(GREEN)✓ Built all platforms$(RESET)\n"
+
+# ─── Package releases ───────────────────────────────────────────────────────
+
+## package-linux: 打包 Linux amd64 发布包
+package-linux: build-linux
+	@rm -rf dist/gopaw-$(VERSION)-linux-amd64
+	@mkdir -p dist/gopaw-$(VERSION)-linux-amd64
+	@cp $(BINARY)-linux dist/gopaw-$(VERSION)-linux-amd64/gopaw
+	@cp config.yaml.example dist/gopaw-$(VERSION)-linux-amd64/config.yaml.example
+	@cp README.md dist/gopaw-$(VERSION)-linux-amd64/README.md
+	@cp LICENSE dist/gopaw-$(VERSION)-linux-amd64/LICENSE
+	@cp scripts/start-linux.sh dist/gopaw-$(VERSION)-linux-amd64/start.sh
+	@chmod +x dist/gopaw-$(VERSION)-linux-amd64/gopaw
+	@chmod +x dist/gopaw-$(VERSION)-linux-amd64/start.sh
+	@cd dist && tar -czvf gopaw-$(VERSION)-linux-amd64.tar.gz gopaw-$(VERSION)-linux-amd64
+	@printf "$(GREEN)✓ Packaged dist/gopaw-$(VERSION)-linux-amd64.tar.gz$(RESET)\n"
+
+## package-windows: 打包 Windows amd64 发布包
+package-windows: build-windows
+	@rm -rf dist/gopaw-$(VERSION)-windows-amd64
+	@mkdir -p dist/gopaw-$(VERSION)-windows-amd64
+	@cp $(BINARY).exe dist/gopaw-$(VERSION)-windows-amd64/gopaw.exe
+	@cp config.yaml.example dist/gopaw-$(VERSION)-windows-amd64/config.yaml.example
+	@cp README.md dist/gopaw-$(VERSION)-windows-amd64/README.md
+	@cp LICENSE dist/gopaw-$(VERSION)-windows-amd64/LICENSE
+	@cp scripts/start-windows.bat dist/gopaw-$(VERSION)-windows-amd64/start.bat
+	@cd dist && zip -r gopaw-$(VERSION)-windows-amd64.zip gopaw-$(VERSION)-windows-amd64
+	@printf "$(GREEN)✓ Packaged dist/gopaw-$(VERSION)-windows-amd64.zip$(RESET)\n"
+
+## package-all: 打包所有平台发布包
+package-all: package-linux package-windows
+	@printf "$(GREEN)✓ All packages ready in dist/$(RESET)\n"
 
 # ─── Development ─────────────────────────────────────────────────────────────
 
@@ -129,9 +171,9 @@ docker-push:
 
 ## clean: 清理构建产物
 clean:
-	rm -f $(BINARY) $(BINARY)-linux
+	rm -f $(BINARY) $(BINARY)-linux $(BINARY).exe
+	rm -rf web/dist dist
 	rm -f coverage.html
-	rm -rf web/dist
 
 ## help: 显示所有 make 目标
 help:
