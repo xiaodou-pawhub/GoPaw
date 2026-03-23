@@ -109,17 +109,17 @@ type FlowEdge struct {
 
 ### 3.2 节点类型
 
-| 节点类型 | 说明 | 分类 | 使用场景 |
-|----------|------|------|----------|
-| **Start** | 流程起点 | 基础 | 流程开始时执行 |
-| **Agent** | 调用数字员工 | 基础 | 需要 AI 处理、工具调用、决策时 |
-| **Human** | 等待人工输入 | 基础 | 需要人工审核、选择、补充信息时 |
-| **Condition** | 条件分支 | 控制 | 意图识别、结果判断、状态检查 |
-| **Parallel** | 并行执行 | 控制 | 多个独立任务需要并行处理 |
-| **Loop** | 循环执行 | 控制 | 需要迭代处理、重试机制 |
-| **SubFlow** | 子流程 | 高级 | 复用已有流程、模块化设计 |
-| **Webhook** | 等待外部事件 | 高级 | 需要外部系统回调、异步等待 |
-| **End** | 流程终点 | 基础 | 流程结束时执行 |
+| 节点类型 | 说明 | 分类 | 图标 | 使用场景 |
+|----------|------|------|------|----------|
+| **Start** | 流程起点 | 基础 | `PlayIcon` | 流程开始时执行 |
+| **Agent** | 调用数字员工 | 基础 | `BotIcon` | 需要 AI 处理、工具调用、决策时 |
+| **Human** | 等待人工输入 | 基础 | `UserIcon` | 需要人工审核、选择、补充信息时 |
+| **Condition** | 条件分支 | 控制 | `GitBranchIcon` | 意图识别、结果判断、状态检查 |
+| **Parallel** | 并行执行 | 控制 | `GitMergeIcon` | 多个独立任务需要并行处理 |
+| **Loop** | 循环执行 | 控制 | `RepeatIcon` | 需要迭代处理、重试机制 |
+| **SubFlow** | 子流程 | 高级 | `FolderIcon` | 复用已有流程、模块化设计 |
+| **Webhook** | 等待外部事件 | 高级 | `WebhookIcon` | 需要外部系统回调、异步等待 |
+| **End** | 流程终点 | 基础 | `SquareIcon` | 流程结束时执行 |
 
 ### 3.3 条件类型
 
@@ -129,9 +129,355 @@ type FlowEdge struct {
 | **intent** | 意图匹配 | 用户输入包含"查询"、"订单" |
 | **llm** | LLM 判断 | 让 LLM 根据上下文判断分支 |
 
-## 四、使用指南
+## 四、节点执行引擎
 
-### 4.1 典型场景
+### 4.1 执行引擎架构
+
+执行引擎负责流程的实际运行，核心代码位于 `internal/flow/engine.go`。
+
+```go
+type Engine struct {
+    db          *sql.DB
+    agentMgr    *agent.Manager
+    agentRouter *agent.Router
+    msgMgr      *message.Manager
+    logger      *zap.Logger
+    running     map[string]*Execution  // 正在执行的实例
+    mu          sync.RWMutex
+}
+```
+
+### 4.2 节点执行实现
+
+#### Start 节点
+
+```go
+func (e *Engine) executeStartNode(node *FlowNode, exec *Execution) {
+    // 开始节点，直接返回输入
+    return map[string]interface{}{"input": exec.Input}
+}
+```
+
+#### Agent 节点
+
+```go
+func (e *Engine) executeAgentNode(node *FlowNode, exec *Execution) {
+    // 1. 获取 Agent 实例
+    agentInstance, _ := router.GetOrCreateAgent(node.AgentID)
+    
+    // 2. 构建输入（支持 Prompt 模板变量替换）
+    input := e.buildInput(node, exec)
+    
+    // 3. 执行 Agent
+    resp, _ := agentInstance.Process(ctx, &types.Request{
+        Content:   input,
+        SessionID: exec.ID,
+    })
+    
+    // 4. 更新上下文
+    exec.Context[node.ID+"_output"] = resp.Content
+}
+```
+
+#### Human 节点
+
+```go
+func (e *Engine) executeHumanNode(node *FlowNode, exec *Execution) {
+    // 设置等待状态，暂停执行
+    exec.Status = ExecutionStatusWaiting
+    exec.Context["waiting_for"] = node.ID
+    e.saveExecution(exec)
+    
+    // 等待外部调用 Continue() 恢复执行
+}
+```
+
+#### Condition 节点
+
+支持三种条件判断方式：
+
+```go
+func (e *Engine) evaluateCondition(cond *EdgeCondition, exec *Execution) bool {
+    switch cond.Type {
+    case "expression":
+        // 表达式判断：{{score}} > 80
+        return e.evaluateExpression(cond.Expression, exec)
+        
+    case "intent":
+        // 意图匹配：检查用户输入是否包含关键词
+        return e.evaluateIntent(cond.Intent, exec)
+        
+    case "llm":
+        // LLM 判断：调用 Agent 进行智能判断
+        return e.evaluateLLM(cond.LLMQuery, exec)
+    }
+}
+```
+
+**LLM 条件判断实现：**
+
+```go
+func (e *Engine) evaluateLLM(query string, exec *Execution) bool {
+    // 构建评估 prompt
+    prompt := fmt.Sprintf(`你是一个条件判断助手。请根据以下信息判断条件是否满足。
+
+用户输入: %s
+判断问题: %s
+
+请只回答 "是" 或 "否"，不要有其他内容。`, input, query)
+
+    // 调用 Agent 进行判断
+    resp, _ := agentInstance.Process(ctx, &types.Request{Content: prompt})
+    
+    // 解析结果
+    result := strings.TrimSpace(strings.ToLower(resp.Content))
+    return result == "是" || result == "yes" || result == "true"
+}
+```
+
+#### Parallel 节点
+
+```go
+func (e *Engine) executeParallelNode(node *FlowNode, exec *Execution) {
+    // 设置并行执行信息
+    maxConcurrent := node.Config["max_concurrent"]  // 0 表示不限制
+    exec.Context[node.ID+"_parallel"] = true
+    exec.Context[node.ID+"_max_concurrent"] = maxConcurrent
+}
+```
+
+#### Loop 节点
+
+```go
+func (e *Engine) executeLoopNode(node *FlowNode, exec *Execution) {
+    // 获取循环计数
+    count := exec.Context[node.ID+"_loop_count"]
+    maxLoop := node.Config["max_loop"]  // 默认 10
+    
+    // 评估循环条件
+    shouldContinue := e.evaluateExpression(node.Config["condition"], exec)
+    
+    // 检查是否结束循环
+    if count >= maxLoop || !shouldContinue {
+        delete(exec.Context, node.ID+"_loop_count")
+        return map[string]interface{}{"loop_completed": true}
+    }
+    
+    // 更新计数，继续循环
+    exec.Context[node.ID+"_loop_count"] = count + 1
+}
+```
+
+#### Webhook 节点
+
+```go
+func (e *Engine) executeWebhookNode(node *FlowNode, exec *Execution) {
+    // 生成 webhook URL
+    webhookID := fmt.Sprintf("%s_%s", exec.ID, node.ID)
+    webhookURL := fmt.Sprintf("/api/webhooks/%s", webhookID)
+    
+    // 设置等待状态
+    exec.Status = ExecutionStatusWaiting
+    exec.Context["webhook_url"] = webhookURL
+    exec.Context["webhook_timeout"] = timeout
+    
+    e.saveExecution(exec)
+}
+
+// Webhook 回调处理
+func (e *Engine) WebhookCallback(webhookID string, payload map[string]interface{}) {
+    // 解析 webhook ID，恢复执行
+    exec := e.getExecution(executionID)
+    exec.Context["webhook_payload"] = payload
+    exec.Status = ExecutionStatusRunning
+    go e.runFlow(flow, exec)
+}
+```
+
+#### SubFlow 节点
+
+```go
+func (e *Engine) executeSubFlowNode(node *FlowNode, exec *Execution) {
+    // 获取子流程定义
+    subFlow := e.getFlow(node.Config["flow_id"])
+    
+    // 执行子流程
+    resp, _ := e.Execute(subFlow, ExecuteRequest{
+        Input:     e.buildInput(node, exec),
+        Variables: exec.Variables,
+        Context:   exec.Context,
+    })
+    
+    // 等待子流程完成
+    for {
+        subExec := e.GetExecution(resp.ExecutionID)
+        if subExec.Status == ExecutionStatusCompleted {
+            return subExec.Output
+        }
+        time.Sleep(100 * time.Millisecond)
+    }
+}
+```
+
+### 4.3 执行流程图
+
+```
+┌─────────────┐
+│  Execute()  │ ← 创建执行实例
+└──────┬──────┘
+       ↓
+┌─────────────┐
+│  runFlow()  │ ← 执行循环
+└──────┬──────┘
+       ↓
+┌─────────────┐
+│ executeNode │ ← 执行当前节点
+└──────┬──────┘
+       ↓
+   ┌───┴───┐
+   │ 节点类型?
+   └───┬───┘
+       │
+   ┌───┼───────────────────────────────┐
+   ↓   ↓           ↓                   ↓
+Agent Human    Condition            Parallel
+   │   │           │                   │
+   │   ↓           │                   │
+   │ 等待人工输入   │               并行执行
+   │   │           │                   │
+   └───┴───────────┴───────────────────┘
+       ↓
+┌─────────────┐
+│ selectNext  │ ← 选择下一个节点
+└──────┬──────┘
+       ↓
+   ┌───┴───┐
+   │ 有下一个? │
+   └───┬───┘
+       │
+   ┌───┼───┐
+   ↓       ↓
+  是      否
+   │       │
+   │       ↓
+   │   ┌─────────────┐
+   │   │  Completed  │
+   │   └─────────────┘
+   │
+   └──→ 继续执行循环
+```
+
+## 五、前端实现
+
+### 5.1 目录结构
+
+```
+web/src/components/flow/
+├── FlowDesigner.vue       # 可视化设计器
+├── nodes/                 # 节点组件
+│   ├── StartNode.vue
+│   ├── AgentNode.vue
+│   ├── HumanNode.vue
+│   ├── ConditionNode.vue
+│   ├── ParallelNode.vue
+│   ├── LoopNode.vue
+│   ├── SubFlowNode.vue
+│   ├── WebhookNode.vue
+│   └── EndNode.vue
+└── properties/            # 属性面板
+    └── NodeProperties.vue
+
+web/src/components/common/
+└── Combobox.vue           # 通用下拉框组件
+```
+
+### 5.2 可视化设计器
+
+基于 `vue-flow` 实现，支持：
+- 拖拽节点到画布
+- 连线创建流程
+- 节点属性编辑
+- 流程验证
+
+**节点库图标统一：**
+
+```typescript
+const nodeTypes = [
+  { type: 'start',     name: '开始', icon: PlayIcon,      color: '#22c55e' },
+  { type: 'agent',     name: 'Agent', icon: BotIcon,      color: '#3b82f6' },
+  { type: 'human',     name: '人工',  icon: UserIcon,     color: '#f59e0b' },
+  { type: 'condition', name: '条件',  icon: GitBranchIcon, color: '#4facfe' },
+  { type: 'parallel',  name: '并行',  icon: GitMergeIcon,  color: '#8b5cf6' },
+  { type: 'loop',      name: '循环',  icon: RepeatIcon,    color: '#ec4899' },
+  { type: 'subflow',   name: '子流程', icon: FolderIcon,   color: '#06b6d4' },
+  { type: 'webhook',   name: 'Webhook', icon: WebhookIcon, color: '#64748b' },
+  { type: 'end',       name: '结束',  icon: SquareIcon,    color: '#ef4444' },
+]
+```
+
+### 5.3 Combobox 组件
+
+自定义下拉框组件，替代原生 `<select>`，提供更好的用户体验：
+
+```vue
+<Combobox
+  v-model="selectedAgent"
+  :options="agentOptions"
+  placeholder="请选择 Agent..."
+  searchable
+  @change="onAgentChange"
+/>
+```
+
+**特性：**
+- 支持搜索过滤
+- 键盘导航（↑↓ Enter Escape）
+- 智能定位（自动向上/向下展开）
+- Teleport 渲染，解决层级问题
+- 统一的 UI 风格
+
+## 六、API 接口
+
+### 6.1 流程管理
+
+```
+GET    /api/flows              # 列出流程
+POST   /api/flows              # 创建流程
+GET    /api/flows/:id          # 获取流程
+PUT    /api/flows/:id          # 更新流程
+DELETE /api/flows/:id          # 删除流程
+POST   /api/flows/:id/execute  # 执行流程
+POST   /api/flows/:id/activate # 激活流程
+POST   /api/flows/:id/deactivate # 停用流程
+
+GET    /api/flows/node-types   # 获取节点类型列表
+```
+
+### 6.2 执行记录
+
+```
+GET    /api/flows/:id/executions      # 列出执行记录
+GET    /api/flows/executions/:execId  # 获取执行记录
+POST   /api/flows/executions/:execId/continue # 继续执行（人工节点后）
+```
+
+### 6.3 Webhook 回调
+
+```
+POST   /api/webhooks/:webhookId  # Webhook 回调接口
+```
+
+**请求示例：**
+
+```bash
+curl -X POST http://localhost:8080/api/webhooks/exec123_node456 \
+  -H "Content-Type: application/json" \
+  -d '{"status": "approved", "data": {...}}'
+```
+
+## 七、使用指南
+
+### 7.1 典型场景
 
 #### 场景一：客服对话流程
 
@@ -197,7 +543,7 @@ type FlowEdge struct {
 
 **适用：** 需要重试机制的任务
 
-### 4.2 节点配置说明
+### 7.2 节点配置说明
 
 #### Agent 节点
 
@@ -233,112 +579,24 @@ Prompt 模板: 请分析以下用户输入的意图：{{input}}
 最大循环次数: 3
 ```
 
-## 五、技术实现
+#### Webhook 节点
 
-### 5.1 目录结构
-
-```
-internal/flow/
-├── models.go      # 数据模型定义
-├── service.go     # 服务层（CRUD）
-├── engine.go      # 执行引擎
-└── (未来扩展)
-    ├── triggers/  # 触发器实现
-    └── validators/ # 流程验证器
-
-web/src/components/flow/
-├── FlowDesigner.vue       # 可视化设计器
-├── nodes/                 # 节点组件
-│   ├── StartNode.vue
-│   ├── AgentNode.vue
-│   ├── HumanNode.vue
-│   ├── ConditionNode.vue
-│   ├── ParallelNode.vue
-│   ├── LoopNode.vue
-│   ├── SubFlowNode.vue
-│   ├── WebhookNode.vue
-│   └── EndNode.vue
-└── properties/            # 属性面板
-    └── NodeProperties.vue
+```yaml
+节点名称: 等待外部回调
+Webhook 路径: /payment/callback
+超时: 86400 秒
 ```
 
-### 5.2 API 接口
+## 八、迁移指南
 
-```
-GET    /api/flows              # 列出流程
-POST   /api/flows              # 创建流程
-GET    /api/flows/:id          # 获取流程
-PUT    /api/flows/:id          # 更新流程
-DELETE /api/flows/:id          # 删除流程
-POST   /api/flows/:id/execute  # 执行流程
-POST   /api/flows/:id/activate # 激活流程
-POST   /api/flows/:id/deactivate # 停用流程
-
-GET    /api/flows/:id/executions      # 列出执行记录
-GET    /api/flows/executions/:execId  # 获取执行记录
-POST   /api/flows/executions/:execId/continue # 继续执行（人工节点后）
-
-GET    /api/flows/node-types    # 获取节点类型列表
-```
-
-### 5.3 执行流程
-
-```
-┌─────────────┐
-│  Execute()  │ ← 创建执行实例
-└──────┬──────┘
-       ↓
-┌─────────────┐
-│  runFlow()  │ ← 执行循环
-└──────┬──────┘
-       ↓
-┌─────────────┐
-│ executeNode │ ← 执行当前节点
-└──────┬──────┘
-       ↓
-   ┌───┴───┐
-   │ 节点类型?
-   └───┬───┘
-       │
-   ┌───┼───────────────────────────────┐
-   ↓   ↓           ↓                   ↓
-Agent Human    Condition            Parallel
-   │   │           │                   │
-   │   ↓           │                   │
-   │ 等待人工输入   │               并行执行
-   │   │           │                   │
-   └───┴───────────┴───────────────────┘
-       ↓
-┌─────────────┐
-│ selectNext  │ ← 选择下一个节点
-└──────┬──────┘
-       ↓
-   ┌───┴───┐
-   │ 有下一个? │
-   └───┬───┘
-       │
-   ┌───┼───┐
-   ↓       ↓
-  是      否
-   │       │
-   │       ↓
-   │   ┌─────────────┐
-   │   │  Completed  │
-   │   └─────────────┘
-   │
-   └──→ 继续执行循环
-```
-
-## 六、迁移指南
-
-### 6.1 数据迁移
+### 8.1 数据迁移
 
 原有数据可通过以下方式迁移：
 
 ```sql
 -- Workflow → Flow
 INSERT INTO flows (id, name, description, type, definition, status)
-SELECT 
+SELECT
     id,
     name,
     description,
@@ -354,7 +612,7 @@ FROM workflows;
 
 -- Orchestration → Flow
 INSERT INTO flows (id, name, description, type, definition, status)
-SELECT 
+SELECT
     id,
     name,
     description,
@@ -364,7 +622,7 @@ SELECT
 FROM orchestrations;
 ```
 
-### 6.2 API 兼容
+### 8.2 API 兼容
 
 原有 API 保持兼容，通过重定向实现：
 
@@ -380,23 +638,23 @@ FROM orchestrations;
 }
 ```
 
-## 七、未来规划
+## 九、未来规划
 
-### 7.1 短期计划
+### 9.1 短期计划
 
 - [ ] 流程版本管理
 - [ ] 流程导入/导出
 - [ ] 更多触发器类型（事件触发）
 - [ ] 流程执行监控面板
 
-### 7.2 长期计划
+### 9.2 长期计划
 
 - [ ] 流程调试器（断点、单步执行）
 - [ ] 流程性能分析
 - [ ] AI 辅助流程设计
 - [ ] 流程市场（分享和复用）
 
-## 八、总结
+## 十、总结
 
 本次合并实现了以下目标：
 
@@ -405,8 +663,14 @@ FROM orchestrations;
 3. **易于使用**：可视化设计器 + 预置模板
 4. **便于扩展**：节点类型可插拔，触发器可扩展
 
+**v1.1 更新内容：**
+- 完善节点执行引擎（Parallel、Loop、Condition LLM 判断、Webhook 回调）
+- 统一节点库图标（使用 lucide 图标）
+- 新增 Combobox 通用下拉框组件
+- 新增 Webhook 回调 API
+
 ---
 
-**文档版本：** v1.0  
+**文档版本：** v1.1  
 **更新日期：** 2026-03-23  
 **作者：** GoPaw Team
