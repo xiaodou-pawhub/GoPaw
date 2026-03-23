@@ -238,6 +238,8 @@ interface FlowDefinition {
   nodes: FlowNode[]
   edges: FlowEdge[]
   variables?: Record<string, unknown>
+  input_vars?: Record<string, { type?: string; required?: boolean; default?: any; description?: string }>
+  output_vars?: Record<string, { type?: string; default?: any; description?: string }>
   start_node_id?: string
 }
 
@@ -583,7 +585,7 @@ function getDefinition(): FlowDefinition {
   }
 
   // 构建输入变量 map
-  const inputVarsMap: Record<string, unknown> = {}
+  const inputVarsMap: Record<string, { type?: string; required?: boolean; default?: any; description?: string }> = {}
   for (const v of inputVariables.value) {
     if (v.name) {
       inputVarsMap[v.name] = {
@@ -596,7 +598,7 @@ function getDefinition(): FlowDefinition {
   }
 
   // 构建输出变量 map
-  const outputVarsMap: Record<string, unknown> = {}
+  const outputVarsMap: Record<string, { type?: string; default?: any; description?: string }> = {}
   for (const v of outputVariables.value) {
     if (v.name) {
       outputVarsMap[v.name] = {
@@ -649,10 +651,11 @@ function getNodeExecStatus(nodeId: string): string {
 
 // 更新节点执行状态
 function updateNodeExecutionStatus() {
-  elements.value = elements.value.map(el => {
+  for (let i = 0; i < elements.value.length; i++) {
+    const el = elements.value[i]
     if ('position' in el) {
-      const node = el as Node
-      return {
+      const node = el as any
+      elements.value[i] = {
         ...node,
         data: {
           ...node.data,
@@ -661,17 +664,7 @@ function updateNodeExecutionStatus() {
         }
       }
     }
-    return el
-  })
-}
-
-// 兼容旧版本
-function addVariable() {
-  addInputVariable()
-}
-
-function removeVariable(index: number) {
-  removeInputVariable(index)
+  }
 }
 
 function saveFlow() {

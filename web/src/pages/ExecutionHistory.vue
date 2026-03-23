@@ -15,7 +15,7 @@
           <option value="failed">失败</option>
         </select>
         <button class="btn-secondary" @click="loadExecutions">
-          <RefreshIcon :size="16" /> 刷新
+          <RefreshCwIcon :size="16" /> 刷新
         </button>
       </div>
     </div>
@@ -75,6 +75,9 @@
                 @click="goToPendingTasks"
               >
                 去处理
+              </button>
+              <button class="btn-secondary" @click="viewTrace">
+                <SearchIcon :size="14" /> 查看追踪
               </button>
               <button class="btn-secondary" @click="retryExecution" :disabled="selectedExecution.status === 'running'">
                 <RotateCcwIcon :size="14" /> 重新执行
@@ -175,7 +178,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  RefreshIcon, LoaderIcon, HistoryIcon, FileSearchIcon, RotateCcwIcon
+  RefreshCwIcon, LoaderIcon, HistoryIcon, FileSearchIcon, RotateCcwIcon, SearchIcon
 } from 'lucide-vue-next'
 
 interface ExecutionStep {
@@ -275,6 +278,11 @@ function getDuration(start: string, end?: string): string {
 
 function goToPendingTasks() {
   router.push('/pending-tasks')
+}
+
+function viewTrace() {
+  if (!selectedExecution.value) return
+  router.push(`/executions/${selectedExecution.value.id}/trace`)
 }
 
 async function retryExecution() {

@@ -964,17 +964,6 @@ async function deleteVersion(version: number) {
   }
 }
 
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr)
-  return d.toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
 // 触发器相关函数
 function getWebhookUrl(flowId: string): string {
   const baseUrl = window.location.origin
@@ -997,7 +986,7 @@ function getNextCronTime(schedule: string): string {
     const parts = schedule.split(' ')
     if (parts.length !== 6) return '格式错误'
 
-    const [sec, min, hour, day, month, weekday] = parts
+    const [_sec, min, hour, _day, _month, _weekday] = parts
 
     // 简单示例：每天固定时间
     if (min !== '*' && hour !== '*') {

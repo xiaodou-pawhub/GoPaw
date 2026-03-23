@@ -69,6 +69,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/ExecutionHistory.vue')
       },
       {
+        path: 'executions/:execId/trace',
+        name: 'TraceView',
+        component: () => import('@/pages/TraceView.vue')
+      },
+      {
         path: 'queue',
         name: 'Queue',
         component: () => import('@/pages/Queue.vue')

@@ -5,6 +5,7 @@
 package flow
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -27,6 +28,7 @@ type Service struct {
 	versionService  *VersionService
 	templateService *TemplateService
 	wsHub           *WebSocketHub
+	taskQueue       *TaskQueue
 	logger          *zap.Logger
 }
 
@@ -61,6 +63,9 @@ func NewService(db *sql.DB, agentMgr *agent.Manager, msgMgr *message.Manager, lo
 		s.logger.Warn("failed to seed default templates", zap.Error(err))
 	}
 
+	// 创建任务队列（默认 10 个 Worker）
+	s.taskQueue = NewTaskQueue(db, 10, logger)
+
 	return s, nil
 }
 
@@ -85,6 +90,55 @@ func (s *Service) SetAgentRouter(router *agent.Router) {
 	if s.engine != nil {
 		s.engine.SetAgentRouter(router)
 	}
+}
+
+// StartTaskQueue 启动任务队列
+func (s *Service) StartTaskQueue() error {
+	if s.taskQueue == nil {
+		return fmt.Errorf("task queue not initialized")
+	}
+
+	// 注册流程执行处理器
+	s.taskQueue.RegisterHandler(TaskTypeFlowExecute, s.handleFlowExecuteTask)
+
+	return s.taskQueue.Start()
+}
+
+// StopTaskQueue 停止任务队列
+func (s *Service) StopTaskQueue() {
+	if s.taskQueue != nil {
+		s.taskQueue.Stop()
+	}
+}
+
+// handleFlowExecuteTask 处理流程执行任务
+func (s *Service) handleFlowExecuteTask(ctx context.Context, task *Task) (map[string]interface{}, error) {
+	flowID, ok := task.Payload["flow_id"].(string)
+	if !ok {
+		return nil, fmt.Errorf("flow_id is required")
+	}
+
+	input, _ := task.Payload["input"].(string)
+	variables, _ := task.Payload["variables"].(map[string]interface{})
+
+	flow, err := s.GetFlow(flowID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get flow: %w", err)
+	}
+
+	resp, err := s.engine.Execute(flow, ExecuteRequest{
+		Input:     input,
+		Variables: variables,
+		Trigger:   "queue",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"execution_id": resp.ExecutionID,
+		"status":       resp.Status,
+	}, nil
 }
 
 // RestoreWaitingExecutions 恢复等待中的执行实例
@@ -450,4 +504,68 @@ func (s *Service) DeleteTemplate(id string) error {
 // GetTemplateCategories 获取模板分类
 func (s *Service) GetTemplateCategories() []TemplateCategory {
 	return GetCategories()
+}
+
+// ========== 追踪管理方法 ==========
+
+// GetTraceService 获取追踪服务
+func (s *Service) GetTraceService() *TraceService {
+	return s.engine.GetTraceService()
+}
+
+// GetTrace 获取执行追踪
+func (s *Service) GetTrace(executionID string) (*Trace, error) {
+	return s.engine.GetTraceService().GetTrace(executionID)
+}
+
+// GetTraceSpans 获取追踪的 Span 列表
+func (s *Service) GetTraceSpans(executionID string) ([]*Span, error) {
+	return s.engine.GetTraceService().GetTraceSpans(executionID)
+}
+
+// ========== 任务队列方法 ==========
+
+// GetTaskQueue 获取任务队列
+func (s *Service) GetTaskQueue() *TaskQueue {
+	return s.taskQueue
+}
+
+// GetQueueStats 获取队列统计
+func (s *Service) GetQueueStats() *QueueStats {
+	if s.taskQueue == nil {
+		return &QueueStats{}
+	}
+	return s.taskQueue.GetQueueStats()
+}
+
+// ListQueueTasks 列出队列任务
+func (s *Service) ListQueueTasks(status TaskStatus, limit int) ([]*Task, error) {
+	if s.taskQueue == nil {
+		return nil, fmt.Errorf("task queue not initialized")
+	}
+	return s.taskQueue.ListTasks(status, limit)
+}
+
+// GetQueueTask 获取队列任务
+func (s *Service) GetQueueTask(taskID string) (*Task, error) {
+	if s.taskQueue == nil {
+		return nil, fmt.Errorf("task queue not initialized")
+	}
+	return s.taskQueue.GetTask(taskID)
+}
+
+// EnqueueTask 入队任务
+func (s *Service) EnqueueTask(taskType string, payload map[string]interface{}, opts ...TaskOption) (*Task, error) {
+	if s.taskQueue == nil {
+		return nil, fmt.Errorf("task queue not initialized")
+	}
+	return s.taskQueue.Enqueue(taskType, payload, opts...)
+}
+
+// CancelQueueTask 取消队列任务
+func (s *Service) CancelQueueTask(taskID string) error {
+	if s.taskQueue == nil {
+		return fmt.Errorf("task queue not initialized")
+	}
+	return s.taskQueue.CancelTask(taskID)
 }

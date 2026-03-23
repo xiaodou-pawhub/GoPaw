@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -75,6 +76,19 @@ func (h *FlowHandler) RegisterRoutes(r *gin.RouterGroup) {
 		flows.POST("/executions/:execId/step", h.StepExecution)
 		flows.POST("/executions/:execId/breakpoints", h.SetBreakpoints)
 		flows.POST("/executions/:execId/retry/:nodeId", h.RetryFromNode)
+
+		// 运行轨迹
+		flows.GET("/executions/:execId/trace", h.GetTrace)
+		flows.GET("/executions/:execId/spans", h.GetTraceSpans)
+		flows.GET("/traces", h.ListTraces)
+		flows.GET("/traces/stats", h.GetTraceStats)
+
+		// 任务队列
+		flows.GET("/queue/stats", h.GetQueueStats)
+		flows.GET("/queue/tasks", h.ListQueueTasks)
+		flows.GET("/queue/tasks/:taskId", h.GetQueueTask)
+		flows.POST("/queue/tasks", h.EnqueueTask)
+		flows.DELETE("/queue/tasks/:taskId", h.CancelQueueTask)
 	}
 
 	// Webhook 触发流程执行（不需要认证）
@@ -679,4 +693,163 @@ func (h *FlowHandler) HandleWebSocket(c *gin.Context) {
 	// 启动读写协程
 	go client.WritePump()
 	go client.ReadPump()
+}
+
+// ========== 运行轨迹 API ==========
+
+// GetTrace 获取执行追踪
+func (h *FlowHandler) GetTrace(c *gin.Context) {
+	execID := c.Param("execId")
+
+	trace, err := h.service.GetTrace(execID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, trace)
+}
+
+// GetTraceSpans 获取追踪的 Span 列表
+func (h *FlowHandler) GetTraceSpans(c *gin.Context) {
+	execID := c.Param("execId")
+
+	spans, err := h.service.GetTraceSpans(execID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, spans)
+}
+
+// ListTraces 列出追踪
+func (h *FlowHandler) ListTraces(c *gin.Context) {
+	flowID := c.Query("flow_id")
+	limit := 50
+
+	traceService := h.service.GetTraceService()
+	if traceService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "trace service not available"})
+		return
+	}
+
+	traces, err := traceService.ListTraces(flowID, limit)
+	if err != nil {
+		h.logger.Error("failed to list traces", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, traces)
+}
+
+// GetTraceStats 获取追踪统计
+func (h *FlowHandler) GetTraceStats(c *gin.Context) {
+	flowID := c.Query("flow_id")
+	days := 7
+
+	traceService := h.service.GetTraceService()
+	if traceService == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "trace service not available"})
+		return
+	}
+
+	stats, err := traceService.GetTraceStats(flowID, days)
+	if err != nil {
+		h.logger.Error("failed to get trace stats", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// ========== 任务队列 API ==========
+
+// GetQueueStats 获取队列统计
+func (h *FlowHandler) GetQueueStats(c *gin.Context) {
+	stats := h.service.GetQueueStats()
+	c.JSON(http.StatusOK, stats)
+}
+
+// ListQueueTasks 列出队列任务
+func (h *FlowHandler) ListQueueTasks(c *gin.Context) {
+	status := flow.TaskStatus(c.Query("status"))
+	limit := 50
+
+	tasks, err := h.service.ListQueueTasks(status, limit)
+	if err != nil {
+		h.logger.Error("failed to list queue tasks", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, tasks)
+}
+
+// GetQueueTask 获取队列任务
+func (h *FlowHandler) GetQueueTask(c *gin.Context) {
+	taskID := c.Param("taskId")
+
+	task, err := h.service.GetQueueTask(taskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, task)
+}
+
+// EnqueueTask 入队任务
+func (h *FlowHandler) EnqueueTask(c *gin.Context) {
+	var req struct {
+		Type        string                 `json:"type" binding:"required"`
+		Payload     map[string]interface{} `json:"payload"`
+		Priority    int                    `json:"priority"`
+		Delay       int                    `json:"delay"`       // 延迟秒数
+		MaxRetries  int                    `json:"max_retries"`
+		Timeout     int                    `json:"timeout"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	opts := []flow.TaskOption{}
+	if req.Priority > 0 {
+		opts = append(opts, flow.WithPriority(flow.TaskPriority(req.Priority)))
+	}
+	if req.Delay > 0 {
+		opts = append(opts, flow.WithScheduledAt(time.Now().Add(time.Duration(req.Delay)*time.Second)))
+	}
+	if req.MaxRetries > 0 {
+		opts = append(opts, flow.WithMaxRetries(req.MaxRetries))
+	}
+	if req.Timeout > 0 {
+		opts = append(opts, flow.WithTimeout(req.Timeout))
+	}
+
+	task, err := h.service.EnqueueTask(req.Type, req.Payload, opts...)
+	if err != nil {
+		h.logger.Error("failed to enqueue task", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, task)
+}
+
+// CancelQueueTask 取消队列任务
+func (h *FlowHandler) CancelQueueTask(c *gin.Context) {
+	taskID := c.Param("taskId")
+
+	if err := h.service.CancelQueueTask(taskID); err != nil {
+		h.logger.Error("failed to cancel task", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "task cancelled"})
 }

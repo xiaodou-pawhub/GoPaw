@@ -23,25 +23,39 @@ import (
 
 // Engine 流程执行引擎
 type Engine struct {
-	db          *sql.DB
-	agentMgr    *agent.Manager
-	agentRouter *agent.Router
-	msgMgr      *message.Manager
-	wsHub       *WebSocketHub
-	logger      *zap.Logger
-	running     map[string]*Execution // 正在执行的实例
-	mu          sync.RWMutex
+	db           *sql.DB
+	agentMgr     *agent.Manager
+	agentRouter  *agent.Router
+	msgMgr       *message.Manager
+	wsHub        *WebSocketHub
+	traceService *TraceService
+	logger       *zap.Logger
+	running      map[string]*Execution // 正在执行的实例
+	mu           sync.RWMutex
 }
 
 // NewEngine 创建执行引擎
 func NewEngine(db *sql.DB, agentMgr *agent.Manager, msgMgr *message.Manager, logger *zap.Logger) (*Engine, error) {
+	// 初始化追踪表
+	if err := InitTraceSchema(db); err != nil {
+		return nil, fmt.Errorf("failed to init trace schema: %w", err)
+	}
+
+	traceService := NewTraceService(db, logger)
+
 	return &Engine{
-		db:       db,
-		agentMgr: agentMgr,
-		msgMgr:   msgMgr,
-		logger:   logger.Named("flow_engine"),
-		running:  make(map[string]*Execution),
+		db:           db,
+		agentMgr:     agentMgr,
+		msgMgr:       msgMgr,
+		traceService: traceService,
+		logger:       logger.Named("flow_engine"),
+		running:      make(map[string]*Execution),
 	}, nil
+}
+
+// GetTraceService 获取追踪服务
+func (e *Engine) GetTraceService() *TraceService {
+	return e.traceService
 }
 
 // SetWebSocketHub 设置 WebSocket Hub
@@ -306,6 +320,21 @@ func (e *Engine) Continue(executionID string, input string) (*ExecuteResponse, e
 
 // runFlow 执行流程
 func (e *Engine) runFlow(flow *Flow, exec *Execution) {
+	// 开始追踪
+	trace, err := e.traceService.StartTrace(
+		flow.ID,
+		flow.Name,
+		exec.ID,
+		exec.Trigger,
+		TraceMetadata{
+			Input:     exec.Input,
+			Variables: exec.Variables,
+		},
+	)
+	if err != nil {
+		e.logger.Warn("failed to start trace", zap.Error(err))
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			e.logger.Error("flow panic", zap.Any("error", r))
@@ -321,6 +350,10 @@ func (e *Engine) runFlow(flow *Flow, exec *Execution) {
 				Status:      "failed",
 				Error:       exec.Error,
 			})
+			// 结束追踪
+			if trace != nil {
+				e.traceService.EndTrace(trace.ID, "", fmt.Errorf("panic: %v", r))
+			}
 		}
 
 		e.mu.Lock()
@@ -350,6 +383,9 @@ func (e *Engine) runFlow(flow *Flow, exec *Execution) {
 
 	// 循环状态跟踪
 	loopStack := make([]LoopState, 0) // 循环栈，支持嵌套循环
+
+	// 当前 Span ID（用于追踪）
+	var currentSpan *Span
 
 	// 执行循环
 	for exec.Status == ExecutionStatusRunning {
@@ -397,6 +433,11 @@ func (e *Engine) runFlow(flow *Flow, exec *Execution) {
 			}
 		}
 
+		// 开始 Span 追踪
+		if trace != nil {
+			currentSpan = e.traceService.StartSpan(trace.ID, "", node.ID, node.Name, string(node.Type))
+		}
+
 		// 发送节点开始事件
 		e.emitEvent(ExecutionEvent{
 			Type:        "node_started",
@@ -406,6 +447,15 @@ func (e *Engine) runFlow(flow *Flow, exec *Execution) {
 			NodeName:    node.Name,
 			Status:      "running",
 		})
+
+		// 添加节点开始事件到追踪
+		if currentSpan != nil {
+			e.traceService.AddEvent(currentSpan.ID, "node_started", EventTypeNodeStart, map[string]interface{}{
+				"node_id":   node.ID,
+				"node_name": node.Name,
+				"node_type": node.Type,
+			})
+		}
 
 		// 记录步骤开始
 		step := ExecutionStep{
@@ -498,6 +548,15 @@ func (e *Engine) runFlow(flow *Flow, exec *Execution) {
 					Error:       err.Error(),
 				})
 
+				// 添加 fallback 事件到追踪
+				if currentSpan != nil {
+					e.traceService.AddEvent(currentSpan.ID, "node_fallback", EventTypeNodeRetry, map[string]interface{}{
+						"fallback_node": fallbackNode,
+						"error":         err.Error(),
+					})
+					currentSpan.Tags.IsFallback = true
+				}
+
 				// 跳转到 fallback 节点
 				exec.CurrentNode = fallbackNode
 				e.saveExecution(exec)
@@ -519,6 +578,15 @@ func (e *Engine) runFlow(flow *Flow, exec *Execution) {
 				Status:      "failed",
 				Error:       err.Error(),
 			})
+
+			// 结束 Span 追踪（失败）
+			if currentSpan != nil {
+				e.traceService.AddEvent(currentSpan.ID, "node_failed", EventTypeNodeFail, map[string]interface{}{
+					"error": err.Error(),
+				})
+				outputJSON, _ := json.Marshal(output)
+				e.traceService.EndSpan(currentSpan.ID, string(outputJSON), err)
+			}
 		} else {
 			step.Status = ExecutionStatusCompleted
 			step.Output = output
@@ -533,6 +601,15 @@ func (e *Engine) runFlow(flow *Flow, exec *Execution) {
 				Status:      "completed",
 				Output:      output,
 			})
+
+			// 结束 Span 追踪（成功）
+			if currentSpan != nil {
+				e.traceService.AddEvent(currentSpan.ID, "node_completed", EventTypeNodeComplete, map[string]interface{}{
+					"output": output,
+				})
+				outputJSON, _ := json.Marshal(output)
+				e.traceService.EndSpan(currentSpan.ID, string(outputJSON), nil)
+			}
 		}
 
 		now := time.Now()
@@ -551,6 +628,11 @@ func (e *Engine) runFlow(flow *Flow, exec *Execution) {
 				FlowID:      flow.ID,
 				Status:      "completed",
 			})
+
+			// 结束追踪
+			if trace != nil {
+				e.traceService.EndTrace(trace.ID, exec.Output, nil)
+			}
 			break
 		}
 
@@ -674,6 +756,11 @@ func (e *Engine) runFlow(flow *Flow, exec *Execution) {
 			// 不在循环中，结束
 			exec.Status = ExecutionStatusCompleted
 			exec.CompletedAt = &now
+
+			// 结束追踪
+			if trace != nil {
+				e.traceService.EndTrace(trace.ID, exec.Output, nil)
+			}
 			break
 		}
 
@@ -682,6 +769,11 @@ func (e *Engine) runFlow(flow *Flow, exec *Execution) {
 		if nextNodeID == "" {
 			exec.Status = ExecutionStatusFailed
 			exec.Error = "no valid next node"
+
+			// 结束追踪（失败）
+			if trace != nil {
+				e.traceService.EndTrace(trace.ID, "", fmt.Errorf("no valid next node"))
+			}
 			break
 		}
 		exec.CurrentNode = nextNodeID
@@ -692,6 +784,11 @@ func (e *Engine) runFlow(flow *Flow, exec *Execution) {
 
 	// 最终保存
 	e.saveExecution(exec)
+
+	// 如果流程失败，确保追踪结束
+	if exec.Status == ExecutionStatusFailed && trace != nil {
+		e.traceService.EndTrace(trace.ID, "", fmt.Errorf(exec.Error))
+	}
 }
 
 // LoopState 循环状态

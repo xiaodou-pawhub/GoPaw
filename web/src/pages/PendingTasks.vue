@@ -8,7 +8,7 @@
       </div>
       <div class="header-right">
         <button class="btn-secondary" @click="loadTasks">
-          <RefreshIcon :size="16" /> 刷新
+          <RefreshCwIcon :size="16" /> 刷新
         </button>
       </div>
     </div>
@@ -87,7 +87,7 @@ import {
   ClockIcon,
   CheckCircleIcon,
   LoaderIcon,
-  RefreshIcon,
+  RefreshCwIcon,
   MessageSquareIcon,
   SendIcon
 } from 'lucide-vue-next'
