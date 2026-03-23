@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/agent"
 	"github.com/gopaw/gopaw/internal/agent/message"
+	"github.com/gopaw/gopaw/internal/alert"
 	"github.com/gopaw/gopaw/internal/audit"
 	"github.com/gopaw/gopaw/internal/auth"
 	"github.com/gopaw/gopaw/internal/channel"
@@ -25,9 +26,9 @@ import (
 	"github.com/gopaw/gopaw/internal/knowledge"
 	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/mcp"
-	"github.com/gopaw/gopaw/internal/mode"
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/metrics"
+	"github.com/gopaw/gopaw/internal/mode"
 	"github.com/gopaw/gopaw/internal/queue"
 	"github.com/gopaw/gopaw/internal/server/handlers"
 	"github.com/gopaw/gopaw/internal/settings"
@@ -79,6 +80,7 @@ func New(
 	knowledgeService *knowledge.Service,
 	flowService *flow.Service,
 	auditMgr *audit.Manager,
+	alertSvc *alert.Service,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 	logger *zap.Logger,
@@ -98,7 +100,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, wp, staticFS)
+	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, alertSvc, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -135,6 +137,7 @@ func (s *Server) registerRoutes(
 	knowledgeService *knowledge.Service,
 	flowService *flow.Service,
 	auditMgr *audit.Manager,
+	alertSvc *alert.Service,
 	wp *workspace.Paths,
 	staticFS fs.FS,
 ) {
@@ -403,6 +406,12 @@ func (s *Server) registerRoutes(
 	if knowledgeService != nil {
 		knowledgeH := handlers.NewKnowledgeHandler(knowledgeService)
 		knowledgeH.RegisterRoutes(api)
+	}
+
+	// /api/alert — alert management
+	if alertSvc != nil {
+		alertH := handlers.NewAlertHandler(alertSvc, s.logger)
+		alertH.RegisterRoutes(api)
 	}
 
 	// /api/flows — unified flow management

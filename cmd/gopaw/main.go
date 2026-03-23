@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/gopaw/gopaw/internal/agent"
+	"github.com/gopaw/gopaw/internal/agent/message"
+	"github.com/gopaw/gopaw/internal/alert"
 	"github.com/gopaw/gopaw/internal/audit"
 	"github.com/gopaw/gopaw/internal/auth"
 	"github.com/gopaw/gopaw/internal/channel"
@@ -35,7 +37,6 @@ import (
 	"github.com/gopaw/gopaw/internal/mcp"
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/mode"
-	"github.com/gopaw/gopaw/internal/agent/message"
 	"github.com/gopaw/gopaw/internal/sandbox"
 	"github.com/gopaw/gopaw/internal/server"
 	"github.com/gopaw/gopaw/internal/settings"
@@ -644,7 +645,17 @@ func runStart() {
 		metricsService.Collect()
 	}
 
-	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, wp, web.FS(), logger)
+	// Create alert service
+	var alertSvc *alert.Service
+	if auditMgr != nil {
+		var err error
+		alertSvc, err = alert.NewService(store.DB(), logger)
+		if err != nil {
+			logger.Fatal("failed to create alert service", zap.Error(err))
+		}
+	}
+
+	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, alertSvc, wp, web.FS(), logger)
 	go srv.Start()
 
 	// Auto-open browser in solo mode unless --no-browser is set.
