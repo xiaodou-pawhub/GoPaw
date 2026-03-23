@@ -45,6 +45,9 @@ func (h *FlowHandler) RegisterRoutes(r *gin.RouterGroup) {
 		flows.GET("/executions/:execId", h.GetExecution)
 		flows.POST("/executions/:execId/continue", h.ContinueExecution)
 	}
+
+	// Webhook 回调（不需要认证）
+	r.POST("/webhooks/:webhookId", h.HandleWebhook)
 }
 
 // ListFlows 列出流程
@@ -225,4 +228,30 @@ func (h *FlowHandler) ContinueExecution(c *gin.Context) {
 func (h *FlowHandler) GetNodeTypes(c *gin.Context) {
 	types := flow.GetNodeTypes()
 	c.JSON(http.StatusOK, types)
+}
+
+// HandleWebhook 处理 Webhook 回调
+func (h *FlowHandler) HandleWebhook(c *gin.Context) {
+	webhookID := c.Param("webhookId")
+
+	var payload map[string]interface{}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		// 允许空 payload
+		payload = make(map[string]interface{})
+	}
+
+	// 添加请求信息到 payload
+	payload["webhook_method"] = c.Request.Method
+	payload["webhook_headers"] = c.Request.Header
+	payload["webhook_query"] = c.Request.URL.Query()
+
+	if err := h.service.HandleWebhook(webhookID, payload); err != nil {
+		h.logger.Error("failed to handle webhook",
+			zap.String("webhook_id", webhookID),
+			zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "webhook received"})
 }

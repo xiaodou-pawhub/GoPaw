@@ -35,7 +35,9 @@
             :title="type.usage"
             @dragstart="onDragStart($event, type)"
           >
-            <span class="comp-icon" :style="{ background: type.color }">{{ type.abbr }}</span>
+            <span class="comp-icon" :style="{ background: type.color }">
+              <component :is="type.icon" :size="14" />
+            </span>
             <div class="comp-info">
               <span class="comp-name">{{ type.name }}</span>
               <span class="comp-desc">{{ type.description }}</span>
@@ -55,7 +57,9 @@
             :title="type.usage"
             @dragstart="onDragStart($event, type)"
           >
-            <span class="comp-icon" :style="{ background: type.color }">{{ type.abbr }}</span>
+            <span class="comp-icon" :style="{ background: type.color }">
+              <component :is="type.icon" :size="14" />
+            </span>
             <div class="comp-info">
               <span class="comp-name">{{ type.name }}</span>
               <span class="comp-desc">{{ type.description }}</span>
@@ -75,7 +79,9 @@
             :title="type.usage"
             @dragstart="onDragStart($event, type)"
           >
-            <span class="comp-icon" :style="{ background: type.color }">{{ type.abbr }}</span>
+            <span class="comp-icon" :style="{ background: type.color }">
+              <component :is="type.icon" :size="14" />
+            </span>
             <div class="comp-info">
               <span class="comp-name">{{ type.name }}</span>
               <span class="comp-desc">{{ type.description }}</span>
@@ -125,7 +131,11 @@
 
 <script setup lang="ts">
 import { ref, watch, markRaw, computed } from 'vue'
-import { SaveIcon, CheckCircleIcon, Trash2Icon, MousePointerIcon } from 'lucide-vue-next'
+import {
+  SaveIcon, CheckCircleIcon, Trash2Icon, MousePointerIcon,
+  PlayIcon, BotIcon, UserIcon, GitBranchIcon, GitMergeIcon,
+  RepeatIcon, FolderIcon, WebhookIcon, SquareIcon
+} from 'lucide-vue-next'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
@@ -175,7 +185,7 @@ interface NodeTypeInfo {
   description: string
   usage: string      // 使用场景
   color: string
-  abbr: string
+  icon: any          // lucide 图标组件
   category: string   // 分类：basic/control/advanced
 }
 
@@ -194,15 +204,15 @@ const { addNodes, addEdges, removeNodes } = useVueFlow()
 
 // 节点类型配置
 const nodeTypes: NodeTypeInfo[] = [
-  { type: 'start',     name: '开始', description: '流程的起点，每个流程必须有一个', usage: '流程开始时执行', color: '#22c55e', abbr: 'S', category: 'basic' },
-  { type: 'agent',     name: 'Agent', description: '调用数字员工执行任务', usage: '需要 AI 处理、工具调用、决策时', color: '#3b82f6', abbr: 'A', category: 'basic' },
-  { type: 'human',     name: '人工',  description: '等待人工输入或确认', usage: '需要人工审核、选择、补充信息时', color: '#f59e0b', abbr: 'H', category: 'basic' },
-  { type: 'condition', name: '条件',  description: '根据条件分支执行不同路径', usage: '意图识别、结果判断、状态检查', color: '#4facfe', abbr: 'C', category: 'control' },
-  { type: 'parallel',  name: '并行',  description: '同时执行多个分支', usage: '多个独立任务需要并行处理', color: '#8b5cf6', abbr: 'P', category: 'control' },
-  { type: 'loop',      name: '循环',  description: '重复执行直到条件满足', usage: '需要迭代处理、重试机制', color: '#ec4899', abbr: 'L', category: 'control' },
-  { type: 'subflow',   name: '子流程', description: '嵌套执行另一个流程', usage: '复用已有流程、模块化设计', color: '#06b6d4', abbr: 'F', category: 'advanced' },
-  { type: 'webhook',   name: 'Webhook', description: '等待外部事件触发', usage: '需要外部系统回调、异步等待', color: '#64748b', abbr: 'W', category: 'advanced' },
-  { type: 'end',       name: '结束',  description: '流程的终点，输出最终结果', usage: '流程结束时执行', color: '#ef4444', abbr: 'E', category: 'basic' },
+  { type: 'start',     name: '开始', description: '流程的起点，每个流程必须有一个', usage: '流程开始时执行', color: '#22c55e', icon: PlayIcon, category: 'basic' },
+  { type: 'agent',     name: 'Agent', description: '调用数字员工执行任务', usage: '需要 AI 处理、工具调用、决策时', color: '#3b82f6', icon: BotIcon, category: 'basic' },
+  { type: 'human',     name: '人工',  description: '等待人工输入或确认', usage: '需要人工审核、选择、补充信息时', color: '#f59e0b', icon: UserIcon, category: 'basic' },
+  { type: 'condition', name: '条件',  description: '根据条件分支执行不同路径', usage: '意图识别、结果判断、状态检查', color: '#4facfe', icon: GitBranchIcon, category: 'control' },
+  { type: 'parallel',  name: '并行',  description: '同时执行多个分支', usage: '多个独立任务需要并行处理', color: '#8b5cf6', icon: GitMergeIcon, category: 'control' },
+  { type: 'loop',      name: '循环',  description: '重复执行直到条件满足', usage: '需要迭代处理、重试机制', color: '#ec4899', icon: RepeatIcon, category: 'control' },
+  { type: 'subflow',   name: '子流程', description: '嵌套执行另一个流程', usage: '复用已有流程、模块化设计', color: '#06b6d4', icon: FolderIcon, category: 'advanced' },
+  { type: 'webhook',   name: 'Webhook', description: '等待外部事件触发', usage: '需要外部系统回调、异步等待', color: '#64748b', icon: WebhookIcon, category: 'advanced' },
+  { type: 'end',       name: '结束',  description: '流程的终点，输出最终结果', usage: '流程结束时执行', color: '#ef4444', icon: SquareIcon, category: 'basic' },
 ]
 
 const vueFlowNodeTypes: Record<string, unknown> = {

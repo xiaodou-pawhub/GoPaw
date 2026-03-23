@@ -262,6 +262,11 @@ func (s *Service) ListExecutions(flowID string, limit int) ([]*Execution, error)
 	return s.engine.ListExecutions(flowID, limit)
 }
 
+// HandleWebhook 处理 Webhook 回调
+func (s *Service) HandleWebhook(webhookID string, payload map[string]interface{}) error {
+	return s.engine.WebhookCallback(webhookID, payload)
+}
+
 // validateDefinition 验证流程定义
 func (s *Service) validateDefinition(def *FlowDefinition) error {
 	if len(def.Nodes) == 0 {

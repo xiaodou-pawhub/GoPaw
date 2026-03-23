@@ -330,19 +330,19 @@ func (e *Engine) executeHumanNode(node *FlowNode, exec *Execution) (map[string]i
 
 // executeParallelNode 执行并行节点
 func (e *Engine) executeParallelNode(node *FlowNode, exec *Execution) (map[string]interface{}, error) {
-	// 并行节点在流程中通过多条出边实现
-	// 这里只做标记
-	return map[string]interface{}{"parallel": true}, nil
+	// 并行节点标记，实际并行执行在 runFlow 中处理
+	// 这里设置并行执行信息
+	maxConcurrent := 0 // 0 表示不限制
+	if m, ok := node.Config["max_concurrent"].(float64); ok {
+		maxConcurrent = int(m)
+	}
+	exec.Context[node.ID+"_parallel"] = true
+	exec.Context[node.ID+"_max_concurrent"] = maxConcurrent
+	return map[string]interface{}{"parallel": true, "max_concurrent": maxConcurrent}, nil
 }
 
 // executeLoopNode 执行循环节点
 func (e *Engine) executeLoopNode(node *FlowNode, exec *Execution) (map[string]interface{}, error) {
-	// 检查循环条件
-	cond := node.Config["condition"]
-	if cond == nil {
-		return nil, fmt.Errorf("loop condition is required")
-	}
-
 	// 获取循环计数
 	count := 0
 	if c, ok := exec.Context[node.ID+"_loop_count"].(int); ok {
@@ -355,12 +355,23 @@ func (e *Engine) executeLoopNode(node *FlowNode, exec *Execution) (map[string]in
 		maxLoop = int(m)
 	}
 
-	if count >= maxLoop {
+	// 检查循环条件
+	shouldContinue := true
+	if cond, ok := node.Config["condition"].(string); ok && cond != "" {
+		// 评估循环条件
+		shouldContinue = e.evaluateExpression(cond, exec)
+	}
+
+	// 检查是否达到最大循环次数或条件不满足
+	if count >= maxLoop || !shouldContinue {
+		// 循环结束，清除计数
+		delete(exec.Context, node.ID+"_loop_count")
 		return map[string]interface{}{"loop_completed": true, "iterations": count}, nil
 	}
 
 	// 更新计数
 	exec.Context[node.ID+"_loop_count"] = count + 1
+	exec.Context[node.ID+"_in_loop"] = true
 
 	return map[string]interface{}{"loop": true, "iteration": count + 1}, nil
 }
@@ -407,14 +418,76 @@ func (e *Engine) executeSubFlowNode(node *FlowNode, exec *Execution) (map[string
 
 // executeWebhookNode 执行 Webhook 节点
 func (e *Engine) executeWebhookNode(node *FlowNode, exec *Execution) (map[string]interface{}, error) {
-	// Webhook 节点等待外部触发
+	// 生成 webhook URL
+	webhookID := fmt.Sprintf("%s_%s", exec.ID, node.ID)
+	webhookURL := fmt.Sprintf("/api/webhooks/%s", webhookID)
+
+	// 设置等待状态
 	exec.Status = ExecutionStatusWaiting
 	exec.Context["waiting_for"] = node.ID
-	exec.Context["webhook_id"] = node.ID
+	exec.Context["webhook_id"] = webhookID
+	exec.Context["webhook_url"] = webhookURL
 
+	// 设置超时（默认 1 小时）
+	timeout := 3600
+	if t, ok := node.Config["timeout"].(float64); ok {
+		timeout = int(t)
+	}
+	exec.Context["webhook_timeout"] = timeout
+
+	// 保存状态
 	e.saveExecution(exec)
 
-	return map[string]interface{}{"waiting": true, "webhook_id": node.ID}, nil
+	return map[string]interface{}{
+		"waiting":     true,
+		"webhook_id":  webhookID,
+		"webhook_url": webhookURL,
+		"timeout":     timeout,
+	}, nil
+}
+
+// WebhookCallback 处理 Webhook 回调
+func (e *Engine) WebhookCallback(webhookID string, payload map[string]interface{}) error {
+	// 解析 webhook ID: executionID_nodeID
+	parts := strings.SplitN(webhookID, "_", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid webhook ID format")
+	}
+	executionID := parts[0]
+
+	// 获取执行实例
+	e.mu.RLock()
+	exec, ok := e.running[executionID]
+	e.mu.RUnlock()
+
+	if !ok {
+		// 从数据库加载
+		var err error
+		exec, err = e.GetExecution(executionID)
+		if err != nil {
+			return fmt.Errorf("execution not found: %s", executionID)
+		}
+	}
+
+	if exec.Status != ExecutionStatusWaiting {
+		return fmt.Errorf("execution is not waiting: %s", exec.Status)
+	}
+
+	// 更新上下文
+	exec.Context["webhook_payload"] = payload
+	exec.Context["webhook_received_at"] = time.Now().Format(time.RFC3339)
+	exec.Status = ExecutionStatusRunning
+
+	// 获取流程定义
+	flow, err := e.getFlow(exec.FlowID)
+	if err != nil {
+		return err
+	}
+
+	// 继续执行
+	go e.runFlow(flow, exec)
+
+	return nil
 }
 
 // selectNextNode 选择下一个节点
@@ -451,12 +524,68 @@ func (e *Engine) evaluateCondition(cond *EdgeCondition, exec *Execution) bool {
 		return e.evaluateIntent(cond.Intent, exec)
 
 	case "llm":
-		// LLM 判断需要异步处理，这里简化处理
-		return true
+		// LLM 判断 - 同步执行
+		return e.evaluateLLM(cond.LLMQuery, exec)
 
 	default:
 		return false
 	}
+}
+
+// evaluateLLM 使用 LLM 评估条件
+func (e *Engine) evaluateLLM(query string, exec *Execution) bool {
+	if query == "" {
+		return true
+	}
+
+	// 获取 Agent Router
+	e.mu.RLock()
+	router := e.agentRouter
+	agentMgr := e.agentMgr
+	e.mu.RUnlock()
+
+	if router == nil || agentMgr == nil {
+		e.logger.Warn("agent router or manager not available for LLM evaluation")
+		return true
+	}
+
+	// 获取第一个可用的 Agent
+	agents := agentMgr.List()
+	if len(agents) == 0 {
+		return true
+	}
+
+	// 构建评估 prompt
+	input, _ := exec.Context["input"].(string)
+	prompt := fmt.Sprintf(`你是一个条件判断助手。请根据以下信息判断条件是否满足。
+
+用户输入: %s
+
+判断问题: %s
+
+请只回答 "是" 或 "否"，不要有其他内容。`, input, query)
+
+	agentInstance, err := router.GetOrCreateAgent(agents[0].ID)
+	if err != nil {
+		e.logger.Warn("failed to get agent for LLM evaluation", zap.Error(err))
+		return true
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	resp, err := agentInstance.Process(ctx, &types.Request{
+		Content:   prompt,
+		SessionID: exec.ID + "_llm_eval",
+	})
+	if err != nil {
+		e.logger.Warn("LLM evaluation failed", zap.Error(err))
+		return true
+	}
+
+	// 解析结果
+	result := strings.TrimSpace(strings.ToLower(resp.Content))
+	return result == "是" || result == "yes" || result == "true" || result == "1"
 }
 
 // evaluateExpression 评估表达式

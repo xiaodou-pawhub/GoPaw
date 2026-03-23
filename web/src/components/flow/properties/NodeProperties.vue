@@ -10,10 +10,12 @@
     <template v-if="nodeType === 'agent'">
       <div class="form-group">
         <label>Agent</label>
-        <select v-model="localData.agent_id" @change="onUpdate">
-          <option value="">请选择...</option>
-          <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-        </select>
+        <Combobox
+          v-model="localData.agent_id"
+          :options="agentOptions"
+          placeholder="请选择 Agent..."
+          @change="onAgentChange"
+        />
       </div>
       <div class="form-group">
         <label>角色描述</label>
@@ -49,11 +51,12 @@
     <template v-if="nodeType === 'condition'">
       <div class="form-group">
         <label>条件类型</label>
-        <select v-model="getConfig().condition_type" @change="onUpdate">
-          <option value="expression">表达式</option>
-          <option value="intent">意图匹配</option>
-          <option value="llm">LLM 判断</option>
-        </select>
+        <Combobox
+          v-model="getConfig().condition_type"
+          :options="conditionTypeOptions"
+          placeholder="请选择条件类型..."
+          @change="onUpdate"
+        />
       </div>
       <div v-if="getConfig().condition_type === 'expression'" class="form-group">
         <label>表达式</label>
@@ -76,6 +79,7 @@
       <div class="form-group">
         <label>最大并发数</label>
         <input v-model.number="getConfig().max_concurrent" type="number" min="1" max="10" @input="onUpdate" />
+        <span class="hint">0 表示不限制</span>
       </div>
     </template>
 
@@ -84,6 +88,7 @@
       <div class="form-group">
         <label>循环条件</label>
         <input v-model="getConfig().condition" type="text" placeholder="{{continue}} == true" @input="onUpdate" />
+        <span class="hint">条件为 true 时继续循环</span>
       </div>
       <div class="form-group">
         <label>最大循环次数</label>
@@ -94,11 +99,13 @@
     <!-- 子流程节点 -->
     <template v-if="nodeType === 'subflow'">
       <div class="form-group">
-        <label>子流程 ID</label>
-        <select v-model="getConfig().flow_id" @change="onUpdate">
-          <option value="">请选择...</option>
-          <option v-for="f in flows" :key="f.id" :value="f.id">{{ f.name }}</option>
-        </select>
+        <label>子流程</label>
+        <Combobox
+          v-model="getConfig().flow_id"
+          :options="flowOptions"
+          placeholder="请选择子流程..."
+          @change="onUpdate"
+        />
       </div>
     </template>
 
@@ -107,10 +114,12 @@
       <div class="form-group">
         <label>Webhook 路径</label>
         <input v-model="getConfig().path" type="text" placeholder="/webhook/xxx" @input="onUpdate" />
+        <span class="hint">自定义路径标识</span>
       </div>
       <div class="form-group">
         <label>超时 (秒)</label>
         <input v-model.number="getConfig().timeout" type="number" min="60" max="86400" @input="onUpdate" />
+        <span class="hint">等待外部回调的最长时间</span>
       </div>
     </template>
 
@@ -131,8 +140,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { Trash2Icon } from 'lucide-vue-next'
+import Combobox from '@/components/common/Combobox.vue'
 
 interface Agent { id: string; name: string }
 interface Flow { id: string; name: string }
@@ -150,6 +160,23 @@ const emit = defineEmits<{
 }>()
 
 const localData = ref<Record<string, any>>({ name: '', config: {} })
+
+// Agent 选项
+const agentOptions = computed(() => {
+  return (props.agents || []).map(a => ({ value: a.id, label: a.name }))
+})
+
+// 流程选项
+const flowOptions = computed(() => {
+  return (props.flows || []).map(f => ({ value: f.id, label: f.name }))
+})
+
+// 条件类型选项
+const conditionTypeOptions = [
+  { value: 'expression', label: '表达式' },
+  { value: 'intent', label: '意图匹配' },
+  { value: 'llm', label: 'LLM 判断' }
+]
 
 function getConfig(): Record<string, any> {
   if (!localData.value.config) localData.value.config = {}
@@ -169,6 +196,15 @@ watch(() => props.nodeData, (newData) => {
 
 function onUpdate() {
   emit('update', JSON.parse(JSON.stringify(localData.value)))
+}
+
+function onAgentChange(value: string | number | null) {
+  // 自动填充 Agent 名称作为节点名称
+  const agent = (props.agents || []).find(a => a.id === value)
+  if (agent && !localData.value.name) {
+    localData.value.name = agent.name
+  }
+  onUpdate()
 }
 
 function addOption() {
@@ -193,7 +229,6 @@ function removeOption(index: number) {
   margin-bottom: 4px;
 }
 .form-group input,
-.form-group select,
 .form-group textarea {
   width: 100%;
   padding: 6px 8px;
@@ -204,7 +239,7 @@ function removeOption(index: number) {
   font-size: 12px;
 }
 .form-group textarea { resize: vertical; }
-.hint { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.hint { font-size: 10px; color: var(--text-muted); margin-top: 2px; display: block; }
 .option-row { display: flex; gap: 4px; margin-bottom: 4px; }
 .option-row input { flex: 1; }
 .icon-btn {
