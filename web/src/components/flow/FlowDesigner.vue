@@ -247,7 +247,8 @@ import {
   PlayIcon, BotIcon, UserIcon, GitBranchIcon, GitMergeIcon,
   RepeatIcon, FolderIcon, WebhookIcon, SquareIcon,
   BookmarkIcon, RefreshCwIcon, LoaderIcon, XIcon,
-  LayersIcon, CircleIcon, StopCircleIcon, WorkflowIcon
+  LayersIcon, CircleIcon, StopCircleIcon, WorkflowIcon,
+  ShuffleIcon, GlobeIcon, ClockIcon
 } from 'lucide-vue-next'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -256,7 +257,8 @@ import { MiniMap } from '@vue-flow/minimap'
 import type { Connection, Node, Edge, NodeMouseEvent } from '@vue-flow/core'
 import {
   StartNode, AgentNode, HumanNode, ConditionNode,
-  ParallelNode, LoopNode, SubFlowNode, WebhookNode, EndNode
+  ParallelNode, LoopNode, SubFlowNode, WebhookNode, EndNode,
+  TransformNode, HttpNode, DelayNode, SwitchNode, MergeNode
 } from './nodes'
 import NodeProperties from './properties/NodeProperties.vue'
 import '@vue-flow/core/dist/style.css'
@@ -396,15 +398,24 @@ function handleExecutionEvent(event: ExecutionEvent) {
 
 // 节点类型配置
 const nodeTypes: NodeTypeInfo[] = [
+  // 基础节点
   { type: 'start',     name: '开始', description: '流程的起点，每个流程必须有一个', usage: '流程开始时执行', color: '#22c55e', icon: PlayIcon, category: 'basic' },
   { type: 'agent',     name: 'Agent', description: '调用数字员工执行任务', usage: '需要 AI 处理、工具调用、决策时', color: '#3b82f6', icon: BotIcon, category: 'basic' },
   { type: 'human',     name: '人工',  description: '等待人工输入或确认', usage: '需要人工审核、选择、补充信息时', color: '#f59e0b', icon: UserIcon, category: 'basic' },
+  { type: 'end',       name: '结束',  description: '流程的终点，输出最终结果', usage: '流程结束时执行', color: '#ef4444', icon: SquareIcon, category: 'basic' },
+  // 控制节点
   { type: 'condition', name: '条件',  description: '根据条件分支执行不同路径', usage: '意图识别、结果判断、状态检查', color: '#4facfe', icon: GitBranchIcon, category: 'control' },
   { type: 'parallel',  name: '并行',  description: '同时执行多个分支', usage: '多个独立任务需要并行处理', color: '#8b5cf6', icon: GitMergeIcon, category: 'control' },
   { type: 'loop',      name: '循环',  description: '重复执行直到条件满足', usage: '需要迭代处理、重试机制', color: '#ec4899', icon: RepeatIcon, category: 'control' },
+  { type: 'switch',    name: '开关',  description: '多路分支选择', usage: '根据值选择不同分支', color: '#f97316', icon: GitBranchIcon, category: 'control' },
+  { type: 'merge',     name: '合并',  description: '合并多个分支结果', usage: '等待多个分支完成后合并', color: '#14b8a6', icon: GitMergeIcon, category: 'control' },
+  // 数据节点
+  { type: 'transform', name: '转换',  description: '数据格式转换和映射', usage: '数据转换、字段映射、模板渲染', color: '#8b5cf6', icon: ShuffleIcon, category: 'data' },
+  { type: 'http',      name: 'HTTP',  description: '发送 HTTP 请求', usage: '调用外部 API', color: '#0ea5e9', icon: GlobeIcon, category: 'data' },
+  { type: 'delay',     name: '延迟',  description: '等待指定时间', usage: '延迟执行、定时等待', color: '#64748b', icon: ClockIcon, category: 'data' },
+  // 高级节点
   { type: 'subflow',   name: '子流程', description: '嵌套执行另一个流程', usage: '复用已有流程、模块化设计', color: '#06b6d4', icon: FolderIcon, category: 'advanced' },
   { type: 'webhook',   name: 'Webhook', description: '等待外部事件触发', usage: '需要外部系统回调、异步等待', color: '#64748b', icon: WebhookIcon, category: 'advanced' },
-  { type: 'end',       name: '结束',  description: '流程的终点，输出最终结果', usage: '流程结束时执行', color: '#ef4444', icon: SquareIcon, category: 'basic' },
 ]
 
 const vueFlowNodeTypes: Record<string, unknown> = {
@@ -417,6 +428,12 @@ const vueFlowNodeTypes: Record<string, unknown> = {
   subflow: markRaw(SubFlowNode),
   webhook: markRaw(WebhookNode),
   end: markRaw(EndNode),
+  // 新增节点
+  transform: markRaw(TransformNode),
+  http: markRaw(HttpNode),
+  delay: markRaw(DelayNode),
+  switch: markRaw(SwitchNode),
+  merge: markRaw(MergeNode),
 }
 
 const defaultEdgeOptions = {

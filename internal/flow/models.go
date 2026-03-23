@@ -52,6 +52,12 @@ const (
 	NodeTypeSubFlow   NodeType = "subflow"   // 子流程
 	NodeTypeWebhook   NodeType = "webhook"   // Webhook 等待
 	NodeTypeEnd       NodeType = "end"       // 结束节点
+	// 新增节点类型
+	NodeTypeTransform NodeType = "transform" // 数据转换
+	NodeTypeHTTP      NodeType = "http"      // HTTP 请求
+	NodeTypeDelay     NodeType = "delay"     // 延迟等待
+	NodeTypeSwitch    NodeType = "switch"    // 多路分支
+	NodeTypeMerge     NodeType = "merge"     // 分支合并
 )
 
 // Flow 流程定义
@@ -273,15 +279,24 @@ type NodeTypeInfo struct {
 // GetNodeTypes 返回所有节点类型信息
 func GetNodeTypes() []NodeTypeInfo {
 	return []NodeTypeInfo{
+		// 基础节点
 		{NodeTypeStart, "开始", "流程的起点", "#22c55e", "play", "basic"},
 		{NodeTypeAgent, "Agent", "调用数字员工执行任务", "#3b82f6", "bot", "basic"},
 		{NodeTypeHuman, "人工", "等待人工输入或确认", "#f59e0b", "user", "basic"},
+		{NodeTypeEnd, "结束", "流程的终点", "#ef4444", "square", "basic"},
+		// 控制节点
 		{NodeTypeCondition, "条件", "根据条件分支执行", "#4facfe", "git-branch", "control"},
 		{NodeTypeParallel, "并行", "同时执行多个分支", "#8b5cf6", "git-merge", "control"},
 		{NodeTypeLoop, "循环", "重复执行直到条件满足", "#ec4899", "repeat", "control"},
+		{NodeTypeSwitch, "开关", "多路分支选择", "#f97316", "git-branch", "control"},
+		{NodeTypeMerge, "合并", "合并多个分支结果", "#14b8a6", "git-merge", "control"},
+		// 数据节点
+		{NodeTypeTransform, "转换", "数据格式转换和映射", "#8b5cf6", "shuffle", "data"},
+		{NodeTypeHTTP, "HTTP", "发送 HTTP 请求", "#0ea5e9", "globe", "data"},
+		{NodeTypeDelay, "延迟", "等待指定时间", "#64748b", "clock", "data"},
+		// 高级节点
 		{NodeTypeSubFlow, "子流程", "嵌套执行另一个流程", "#06b6d4", "folder", "advanced"},
 		{NodeTypeWebhook, "Webhook", "等待外部事件触发", "#64748b", "webhook", "advanced"},
-		{NodeTypeEnd, "结束", "流程的终点", "#ef4444", "square", "basic"},
 	}
 }
 

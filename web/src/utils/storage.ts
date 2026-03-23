@@ -7,14 +7,11 @@ export interface StoredState {
   // 聊天状态
   currentSessionId?: string
   recentSessions?: string[]
-  
-  // 设置状态
-  activeSettingsTab?: string
-  
+
   // 用户偏好
   theme?: 'light' | 'dark' | 'system'
   language?: string
-  
+
   // 时间戳
   lastActive?: number
 }
@@ -83,20 +80,6 @@ export function saveRecentSessions(sessionIds: string[]): void {
  */
 export function getRecentSessions(): string[] {
   return getState().recentSessions || []
-}
-
-/**
- * 存储活跃的设置 Tab
- */
-export function saveActiveSettingsTab(tabKey: string): void {
-  saveState({ activeSettingsTab: tabKey })
-}
-
-/**
- * 获取活跃的设置 Tab
- */
-export function getActiveSettingsTab(): string {
-  return getState().activeSettingsTab || 'providers'
 }
 
 /**

@@ -126,7 +126,6 @@ function handleGlobalKey(e: KeyboardEvent) {
     if (e.key === '1') { e.preventDefault(); router.push('/chat'); return }
     if (e.key === '2') { e.preventDefault(); router.push('/models'); return }
     if (e.key === '3') { e.preventDefault(); router.push('/market'); return }
-    if (e.key === '4' || e.key === ',') { e.preventDefault(); router.push('/settings'); return }
   }
 
   if (e.key === 'Escape' && showWelcome.value) {

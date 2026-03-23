@@ -807,6 +807,31 @@ func (e *Engine) executeNode(flow *Flow, node *FlowNode, exec *Execution, nodeMa
 		zap.String("type", string(node.Type)),
 	)
 
+	// 首先尝试从节点注册表获取执行器
+	if executor, ok := GetNodeExecutor(node.Type); ok {
+		ctx := context.Background()
+		output, err := executor.Execute(ctx, node, exec)
+		if err != nil {
+			return nil, err
+		}
+
+		// 处理特殊节点类型的额外逻辑
+		switch node.Type {
+		case NodeTypeCondition:
+			// 条件节点需要处理边信息
+			return e.executeConditionNode(node, exec, edgeMap)
+		case NodeTypeParallel:
+			// 并行节点需要特殊处理
+			return e.executeParallelNode(flow, node, exec, nodeMap, edgeMap)
+		case NodeTypeLoop:
+			// 循环节点需要特殊处理
+			return e.executeLoopNode(node, exec, edgeMap)
+		}
+
+		return output, nil
+	}
+
+	// 回退到默认实现（向后兼容）
 	switch node.Type {
 	case NodeTypeStart:
 		// 开始节点，直接返回输入

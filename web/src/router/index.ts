@@ -122,6 +122,16 @@ const routes: RouteRecordRaw[] = [
         path: 'cron',
         name: 'Cron',
         component: () => import('@/pages/Cron.vue')
+      },
+      {
+        path: 'agent-messages',
+        name: 'AgentMessages',
+        component: () => import('@/pages/AgentMessages.vue')
+      },
+      {
+        path: 'alert',
+        name: 'Alert',
+        component: () => import('@/pages/Alert.vue')
       }
     ]
   }
