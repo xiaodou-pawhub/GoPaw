@@ -1,5 +1,5 @@
 BINARY  := gopaw
-VERSION := 0.2.0
+VERSION := 0.2.2
 LDFLAGS := -ldflags "-X main.appVersion=$(VERSION) -s -w"
 GO      := go
 
@@ -9,13 +9,13 @@ GREEN := \033[32m
 YELLOW:= \033[33m
 RESET := \033[0m
 
-.PHONY: build build-desktop build-linux build-windows build-all \
-        package-linux package-windows package-all \
+.PHONY: build build-desktop build-linux build-linux-arm64 build-windows build-darwin build-darwin-arm64 build-all \
+        package-linux package-linux-arm64 package-windows package-darwin package-darwin-arm64 package-all \
         dev dev-go dev-embedded \
         run run-solo run-team run-tray \
         web-install web-build web-dev \
         test test-short lint vet tidy clean \
-        docker-build docker-push help
+        docker-build docker-push release help
 
 # ─── Production builds ───────────────────────────────────────────────────────
 
@@ -35,16 +35,31 @@ build-go:
 
 ## build-linux: 交叉编译 Linux amd64 服务器二进制（纯 Go，无 CGo）
 build-linux: web-build
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BINARY)-linux ./cmd/gopaw
-	@printf "$(GREEN)✓ Built ./$(BINARY)-linux (linux/amd64)$(RESET)\n"
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BINARY)-linux-amd64 ./cmd/gopaw
+	@printf "$(GREEN)✓ Built ./$(BINARY)-linux-amd64 (linux/amd64)$(RESET)\n"
+
+## build-linux-arm64: 交叉编译 Linux arm64 服务器二进制（纯 Go，无 CGo）
+build-linux-arm64: web-build
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build $(LDFLAGS) -o $(BINARY)-linux-arm64 ./cmd/gopaw
+	@printf "$(GREEN)✓ Built ./$(BINARY)-linux-arm64 (linux/arm64)$(RESET)\n"
 
 ## build-windows: 交叉编译 Windows amd64 服务器二进制（纯 Go，无 CGo）
 build-windows: web-build
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BINARY).exe ./cmd/gopaw
-	@printf "$(GREEN)✓ Built ./$(BINARY).exe (windows/amd64)$(RESET)\n"
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BINARY)-windows-amd64.exe ./cmd/gopaw
+	@printf "$(GREEN)✓ Built ./$(BINARY)-windows-amd64.exe (windows/amd64)$(RESET)\n"
 
-## build-all: 交叉编译所有平台（Linux + Windows）
-build-all: build-linux build-windows
+## build-darwin: 交叉编译 macOS amd64 服务器二进制（纯 Go，无 CGo）
+build-darwin: web-build
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BINARY)-darwin-amd64 ./cmd/gopaw
+	@printf "$(GREEN)✓ Built ./$(BINARY)-darwin-amd64 (darwin/amd64)$(RESET)\n"
+
+## build-darwin-arm64: 交叉编译 macOS arm64 (M1/M2) 服务器二进制（纯 Go，无 CGo）
+build-darwin-arm64: web-build
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(GO) build $(LDFLAGS) -o $(BINARY)-darwin-arm64 ./cmd/gopaw
+	@printf "$(GREEN)✓ Built ./$(BINARY)-darwin-arm64 (darwin/arm64)$(RESET)\n"
+
+## build-all: 交叉编译所有平台
+build-all: build-linux build-linux-arm64 build-windows build-darwin build-darwin-arm64
 	@printf "$(GREEN)✓ Built all platforms$(RESET)\n"
 
 # ─── Package releases ───────────────────────────────────────────────────────
@@ -53,31 +68,81 @@ build-all: build-linux build-windows
 package-linux: build-linux
 	@rm -rf dist/gopaw-$(VERSION)-linux-amd64
 	@mkdir -p dist/gopaw-$(VERSION)-linux-amd64
-	@cp $(BINARY)-linux dist/gopaw-$(VERSION)-linux-amd64/gopaw
+	@cp $(BINARY)-linux-amd64 dist/gopaw-$(VERSION)-linux-amd64/gopaw
 	@cp config.yaml.example dist/gopaw-$(VERSION)-linux-amd64/config.yaml.example
 	@cp README.md dist/gopaw-$(VERSION)-linux-amd64/README.md
 	@cp LICENSE dist/gopaw-$(VERSION)-linux-amd64/LICENSE
-	@cp scripts/start-linux.sh dist/gopaw-$(VERSION)-linux-amd64/start.sh
 	@chmod +x dist/gopaw-$(VERSION)-linux-amd64/gopaw
-	@chmod +x dist/gopaw-$(VERSION)-linux-amd64/start.sh
 	@cd dist && tar -czvf gopaw-$(VERSION)-linux-amd64.tar.gz gopaw-$(VERSION)-linux-amd64
 	@printf "$(GREEN)✓ Packaged dist/gopaw-$(VERSION)-linux-amd64.tar.gz$(RESET)\n"
+
+## package-linux-arm64: 打包 Linux arm64 发布包
+package-linux-arm64: build-linux-arm64
+	@rm -rf dist/gopaw-$(VERSION)-linux-arm64
+	@mkdir -p dist/gopaw-$(VERSION)-linux-arm64
+	@cp $(BINARY)-linux-arm64 dist/gopaw-$(VERSION)-linux-arm64/gopaw
+	@cp config.yaml.example dist/gopaw-$(VERSION)-linux-arm64/config.yaml.example
+	@cp README.md dist/gopaw-$(VERSION)-linux-arm64/README.md
+	@cp LICENSE dist/gopaw-$(VERSION)-linux-arm64/LICENSE
+	@chmod +x dist/gopaw-$(VERSION)-linux-arm64/gopaw
+	@cd dist && tar -czvf gopaw-$(VERSION)-linux-arm64.tar.gz gopaw-$(VERSION)-linux-arm64
+	@printf "$(GREEN)✓ Packaged dist/gopaw-$(VERSION)-linux-arm64.tar.gz$(RESET)\n"
 
 ## package-windows: 打包 Windows amd64 发布包
 package-windows: build-windows
 	@rm -rf dist/gopaw-$(VERSION)-windows-amd64
 	@mkdir -p dist/gopaw-$(VERSION)-windows-amd64
-	@cp $(BINARY).exe dist/gopaw-$(VERSION)-windows-amd64/gopaw.exe
+	@cp $(BINARY)-windows-amd64.exe dist/gopaw-$(VERSION)-windows-amd64/gopaw.exe
 	@cp config.yaml.example dist/gopaw-$(VERSION)-windows-amd64/config.yaml.example
 	@cp README.md dist/gopaw-$(VERSION)-windows-amd64/README.md
 	@cp LICENSE dist/gopaw-$(VERSION)-windows-amd64/LICENSE
-	@cp scripts/start-windows.bat dist/gopaw-$(VERSION)-windows-amd64/start.bat
 	@cd dist && zip -r gopaw-$(VERSION)-windows-amd64.zip gopaw-$(VERSION)-windows-amd64
 	@printf "$(GREEN)✓ Packaged dist/gopaw-$(VERSION)-windows-amd64.zip$(RESET)\n"
 
+## package-darwin: 打包 macOS amd64 发布包
+package-darwin: build-darwin
+	@rm -rf dist/gopaw-$(VERSION)-darwin-amd64
+	@mkdir -p dist/gopaw-$(VERSION)-darwin-amd64
+	@cp $(BINARY)-darwin-amd64 dist/gopaw-$(VERSION)-darwin-amd64/gopaw
+	@cp config.yaml.example dist/gopaw-$(VERSION)-darwin-amd64/config.yaml.example
+	@cp README.md dist/gopaw-$(VERSION)-darwin-amd64/README.md
+	@cp LICENSE dist/gopaw-$(VERSION)-darwin-amd64/LICENSE
+	@chmod +x dist/gopaw-$(VERSION)-darwin-amd64/gopaw
+	@cd dist && tar -czvf gopaw-$(VERSION)-darwin-amd64.tar.gz gopaw-$(VERSION)-darwin-amd64
+	@printf "$(GREEN)✓ Packaged dist/gopaw-$(VERSION)-darwin-amd64.tar.gz$(RESET)\n"
+
+## package-darwin-arm64: 打包 macOS arm64 (M1/M2) 发布包
+package-darwin-arm64: build-darwin-arm64
+	@rm -rf dist/gopaw-$(VERSION)-darwin-arm64
+	@mkdir -p dist/gopaw-$(VERSION)-darwin-arm64
+	@cp $(BINARY)-darwin-arm64 dist/gopaw-$(VERSION)-darwin-arm64/gopaw
+	@cp config.yaml.example dist/gopaw-$(VERSION)-darwin-arm64/config.yaml.example
+	@cp README.md dist/gopaw-$(VERSION)-darwin-arm64/README.md
+	@cp LICENSE dist/gopaw-$(VERSION)-darwin-arm64/LICENSE
+	@chmod +x dist/gopaw-$(VERSION)-darwin-arm64/gopaw
+	@cd dist && tar -czvf gopaw-$(VERSION)-darwin-arm64.tar.gz gopaw-$(VERSION)-darwin-arm64
+	@printf "$(GREEN)✓ Packaged dist/gopaw-$(VERSION)-darwin-arm64.tar.gz$(RESET)\n"
+
 ## package-all: 打包所有平台发布包
-package-all: package-linux package-windows
+package-all: package-linux package-linux-arm64 package-windows package-darwin package-darwin-arm64
 	@printf "$(GREEN)✓ All packages ready in dist/$(RESET)\n"
+
+## release: 创建新版本发布（打 tag 并推送）
+release:
+	@if [ -z "$(v)" ]; then \
+		echo "Usage: make release v=0.2.3"; \
+		exit 1; \
+	fi
+	@echo "Updating VERSION in Makefile..."
+	@sed -i '' 's/VERSION := .*/VERSION := $(v)/' Makefile
+	@echo "Committing version bump..."
+	@git add Makefile
+	@git commit -m "chore: bump version to $(v)"
+	@echo "Creating tag v$(v)..."
+	@git tag -a v$(v) -m "Release v$(v)"
+	@echo "Pushing commit and tag..."
+	@git push && git push --tags
+	@printf "$(GREEN)✓ Released v$(v)$(RESET)\n"
 
 # ─── Development ─────────────────────────────────────────────────────────────
 
@@ -171,7 +236,8 @@ docker-push:
 
 ## clean: 清理构建产物
 clean:
-	rm -f $(BINARY) $(BINARY)-linux $(BINARY).exe
+	rm -f $(BINARY) $(BINARY)-linux-amd64 $(BINARY)-linux-arm64 $(BINARY)-windows-amd64.exe
+	rm -f $(BINARY)-darwin-amd64 $(BINARY)-darwin-arm64
 	rm -rf web/dist dist
 	rm -f coverage.html
 
