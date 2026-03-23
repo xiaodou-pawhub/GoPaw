@@ -24,6 +24,23 @@
             @click="typeFilter = 'task'"
           >任务流</button>
         </div>
+        <div class="dropdown">
+          <button class="btn-secondary" @click="showTemplates = !showTemplates">
+            <FileTextIcon :size="16" /> 从模板创建
+            <ChevronDownIcon :size="14" />
+          </button>
+          <div v-if="showTemplates" class="dropdown-menu">
+            <button
+              v-for="tpl in templates"
+              :key="tpl.id"
+              class="dropdown-item"
+              @click="createFromTemplate(tpl)"
+            >
+              <span class="tpl-name">{{ tpl.name }}</span>
+              <span class="tpl-desc">{{ tpl.description }}</span>
+            </button>
+          </div>
+        </div>
         <button class="btn-primary" @click="openCreateDialog">
           <PlusIcon :size="16" /> 新建流程
         </button>
@@ -172,7 +189,7 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   PlusIcon, EditIcon, Trash2Icon, PlayIcon, PauseIcon, RocketIcon,
-  LoaderIcon, GitBranchIcon, XIcon
+  LoaderIcon, GitBranchIcon, XIcon, FileTextIcon, ChevronDownIcon
 } from 'lucide-vue-next'
 import FlowDesigner from '@/components/flow/FlowDesigner.vue'
 
@@ -195,6 +212,127 @@ const loading = ref(true)
 const flows = ref<Flow[]>([])
 const agents = ref<Agent[]>([])
 const typeFilter = ref('')
+const showTemplates = ref(false)
+
+// 预置模板
+interface FlowTemplate {
+  id: string
+  name: string
+  description: string
+  type: 'conversation' | 'task'
+  definition: FlowDefinition
+}
+
+const templates: FlowTemplate[] = [
+  {
+    id: 'customer_service',
+    name: '客服对话流程',
+    description: '意图识别 → 分支处理 → 统一回复',
+    type: 'conversation',
+    definition: {
+      nodes: [
+        { id: 'start_1', type: 'start', name: '开始', position: { x: 250, y: 30 } },
+        { id: 'agent_1', type: 'agent', name: '意图识别', position: { x: 250, y: 120 } },
+        { id: 'condition_1', type: 'condition', name: '意图判断', position: { x: 250, y: 220 } },
+        { id: 'agent_2', type: 'agent', name: '查询处理', position: { x: 100, y: 320 } },
+        { id: 'agent_3', type: 'agent', name: '投诉处理', position: { x: 250, y: 320 } },
+        { id: 'agent_4', type: 'agent', name: '闲聊回复', position: { x: 400, y: 320 } },
+        { id: 'end_1', type: 'end', name: '结束', position: { x: 250, y: 420 } }
+      ],
+      edges: [
+        { id: 'e1', source: 'start_1', target: 'agent_1' },
+        { id: 'e2', source: 'agent_1', target: 'condition_1' },
+        { id: 'e3', source: 'condition_1', target: 'agent_2' },
+        { id: 'e4', source: 'condition_1', target: 'agent_3' },
+        { id: 'e5', source: 'condition_1', target: 'agent_4' },
+        { id: 'e6', source: 'agent_2', target: 'end_1' },
+        { id: 'e7', source: 'agent_3', target: 'end_1' },
+        { id: 'e8', source: 'agent_4', target: 'end_1' }
+      ],
+      start_node_id: 'start_1'
+    }
+  },
+  {
+    id: 'approval_flow',
+    name: '审批流程',
+    description: '初审 → 人工审批 → 结果通知',
+    type: 'conversation',
+    definition: {
+      nodes: [
+        { id: 'start_1', type: 'start', name: '开始', position: { x: 250, y: 30 } },
+        { id: 'agent_1', type: 'agent', name: '初审', position: { x: 250, y: 120 } },
+        { id: 'condition_1', type: 'condition', name: '是否需要人工', position: { x: 250, y: 220 } },
+        { id: 'human_1', type: 'human', name: '人工审批', position: { x: 150, y: 320 } },
+        { id: 'agent_2', type: 'agent', name: '自动通过', position: { x: 350, y: 320 } },
+        { id: 'agent_3', type: 'agent', name: '结果通知', position: { x: 250, y: 420 } },
+        { id: 'end_1', type: 'end', name: '结束', position: { x: 250, y: 520 } }
+      ],
+      edges: [
+        { id: 'e1', source: 'start_1', target: 'agent_1' },
+        { id: 'e2', source: 'agent_1', target: 'condition_1' },
+        { id: 'e3', source: 'condition_1', target: 'human_1' },
+        { id: 'e4', source: 'condition_1', target: 'agent_2' },
+        { id: 'e5', source: 'human_1', target: 'agent_3' },
+        { id: 'e6', source: 'agent_2', target: 'agent_3' },
+        { id: 'e7', source: 'agent_3', target: 'end_1' }
+      ],
+      start_node_id: 'start_1'
+    }
+  },
+  {
+    id: 'data_pipeline',
+    name: '数据处理流程',
+    description: '数据获取 → 并行处理 → 汇总输出',
+    type: 'task',
+    definition: {
+      nodes: [
+        { id: 'start_1', type: 'start', name: '开始', position: { x: 250, y: 30 } },
+        { id: 'agent_1', type: 'agent', name: '数据获取', position: { x: 250, y: 120 } },
+        { id: 'parallel_1', type: 'parallel', name: '并行处理', position: { x: 250, y: 220 } },
+        { id: 'agent_2', type: 'agent', name: '数据清洗', position: { x: 100, y: 320 } },
+        { id: 'agent_3', type: 'agent', name: '数据分析', position: { x: 250, y: 320 } },
+        { id: 'agent_4', type: 'agent', name: '数据可视化', position: { x: 400, y: 320 } },
+        { id: 'agent_5', type: 'agent', name: '汇总报告', position: { x: 250, y: 420 } },
+        { id: 'end_1', type: 'end', name: '结束', position: { x: 250, y: 520 } }
+      ],
+      edges: [
+        { id: 'e1', source: 'start_1', target: 'agent_1' },
+        { id: 'e2', source: 'agent_1', target: 'parallel_1' },
+        { id: 'e3', source: 'parallel_1', target: 'agent_2' },
+        { id: 'e4', source: 'parallel_1', target: 'agent_3' },
+        { id: 'e5', source: 'parallel_1', target: 'agent_4' },
+        { id: 'e6', source: 'agent_2', target: 'agent_5' },
+        { id: 'e7', source: 'agent_3', target: 'agent_5' },
+        { id: 'e8', source: 'agent_4', target: 'agent_5' },
+        { id: 'e9', source: 'agent_5', target: 'end_1' }
+      ],
+      start_node_id: 'start_1'
+    }
+  },
+  {
+    id: 'retry_flow',
+    name: '重试流程',
+    description: '执行任务 → 失败重试 → 成功结束',
+    type: 'task',
+    definition: {
+      nodes: [
+        { id: 'start_1', type: 'start', name: '开始', position: { x: 250, y: 30 } },
+        { id: 'loop_1', type: 'loop', name: '重试循环', position: { x: 250, y: 120 } },
+        { id: 'agent_1', type: 'agent', name: '执行任务', position: { x: 250, y: 220 } },
+        { id: 'condition_1', type: 'condition', name: '执行结果', position: { x: 250, y: 320 } },
+        { id: 'end_1', type: 'end', name: '成功结束', position: { x: 250, y: 420 } }
+      ],
+      edges: [
+        { id: 'e1', source: 'start_1', target: 'loop_1' },
+        { id: 'e2', source: 'loop_1', target: 'agent_1' },
+        { id: 'e3', source: 'agent_1', target: 'condition_1' },
+        { id: 'e4', source: 'condition_1', target: 'end_1' },
+        { id: 'e5', source: 'condition_1', target: 'loop_1' }
+      ],
+      start_node_id: 'start_1'
+    }
+  }
+]
 
 const filteredFlows = computed(() => {
   if (!typeFilter.value) return flows.value
@@ -260,6 +398,24 @@ async function loadAgents() {
     }
   } catch (e) {
     console.error('Failed to load agents:', e)
+  }
+}
+
+function createFromTemplate(tpl: FlowTemplate) {
+  showTemplates.value = false
+  dialog.value = {
+    show: true,
+    isEdit: false,
+    data: {
+      id: generateId(),
+      name: tpl.name,
+      description: tpl.description,
+      type: tpl.type,
+      definition: JSON.parse(JSON.stringify(tpl.definition))
+    },
+    activeTab: 'designer',
+    definitionText: '',
+    jsonError: ''
   }
 }
 
@@ -428,6 +584,27 @@ function formatDate(dateStr: string): string {
   border-radius: 6px; color: #fff; font-size: 13px; font-weight: 500; cursor: pointer;
 }
 .btn-primary:hover { opacity: 0.9; }
+.btn-secondary {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px; background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text-secondary); font-size: 13px; cursor: pointer;
+}
+.btn-secondary:hover { background: var(--bg-overlay); }
+.dropdown { position: relative; }
+.dropdown-menu {
+  position: absolute; top: 100%; left: 0; margin-top: 4px;
+  min-width: 240px; background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 100;
+  overflow: hidden;
+}
+.dropdown-item {
+  display: flex; flex-direction: column; width: 100%;
+  padding: 10px 14px; background: transparent; border: none;
+  text-align: left; cursor: pointer;
+}
+.dropdown-item:hover { background: var(--bg-overlay); }
+.tpl-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.tpl-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
 .flow-list { flex: 1; overflow-y: auto; padding: 20px 24px; }
 .loading-state, .empty-state {

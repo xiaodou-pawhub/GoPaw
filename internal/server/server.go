@@ -21,6 +21,7 @@ import (
 	"github.com/gopaw/gopaw/internal/channel"
 	"github.com/gopaw/gopaw/internal/config"
 	"github.com/gopaw/gopaw/internal/cron"
+	"github.com/gopaw/gopaw/internal/flow"
 	"github.com/gopaw/gopaw/internal/knowledge"
 	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/mcp"
@@ -80,6 +81,7 @@ func New(
 	metricsService *metrics.Service,
 	knowledgeService *knowledge.Service,
 	orchestrationEngine *orchestration.Engine,
+	flowService *flow.Service,
 	auditMgr *audit.Manager,
 	wp *workspace.Paths,
 	staticFS fs.FS,
@@ -100,7 +102,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, auditMgr, wp, staticFS)
+	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, flowService, auditMgr, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -137,6 +139,7 @@ func (s *Server) registerRoutes(
 	metricsService *metrics.Service,
 	knowledgeService *knowledge.Service,
 	orchestrationEngine *orchestration.Engine,
+	flowService *flow.Service,
 	auditMgr *audit.Manager,
 	wp *workspace.Paths,
 	staticFS fs.FS,
@@ -419,6 +422,12 @@ func (s *Server) registerRoutes(
 	if orchestrationEngine != nil {
 		orchH := handlers.NewOrchestrationHandler(orchestration.NewService(orchestrationEngine.DB, orchestrationEngine))
 		orchH.RegisterRoutes(api)
+	}
+
+	// /api/flows — unified flow management
+	if flowService != nil {
+		flowH := handlers.NewFlowHandler(flowService, s.logger)
+		flowH.RegisterRoutes(api)
 	}
 
 	// /api/users — user management (team mode only, admin access)

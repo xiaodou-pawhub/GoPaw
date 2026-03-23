@@ -49,6 +49,13 @@ func NewService(db *sql.DB, agentMgr *agent.Manager, msgMgr *message.Manager, lo
 	return s, nil
 }
 
+// SetAgentRouter 设置 Agent Router（用于延迟注入）
+func (s *Service) SetAgentRouter(router *agent.Router) {
+	if s.engine != nil {
+		s.engine.SetAgentRouter(router)
+	}
+}
+
 // CreateFlow 创建流程
 func (s *Service) CreateFlow(req CreateFlowRequest) (*Flow, error) {
 	// 设置默认类型

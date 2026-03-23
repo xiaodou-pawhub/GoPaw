@@ -28,6 +28,7 @@ import (
 	"github.com/gopaw/gopaw/internal/config"
 	"github.com/gopaw/gopaw/internal/convlog"
 	"github.com/gopaw/gopaw/internal/cron"
+	"github.com/gopaw/gopaw/internal/flow"
 	"github.com/gopaw/gopaw/internal/focus"
 	"github.com/gopaw/gopaw/internal/knowledge"
 	"github.com/gopaw/gopaw/internal/llm"
@@ -630,6 +631,21 @@ func runStart() {
 		logger.Info("orchestration engine initialized")
 	}
 
+	// Initialize flow service (unified flow management)
+	var flowService *flow.Service
+	if store != nil && agentMgr != nil && agentMsgMgr != nil {
+		flowService, err = flow.NewService(store.DB(), agentMgr, agentMsgMgr, logger)
+		if err != nil {
+			logger.Warn("failed to initialize flow service", zap.Error(err))
+		} else {
+			// Set agent router for execution engine
+			if flowService != nil && agentRouter != nil {
+				flowService.SetAgentRouter(agentRouter)
+			}
+			logger.Info("flow service initialized")
+		}
+	}
+
 	// Start metrics collection (every 5 minutes)
 	if metricsService != nil {
 		go func() {
@@ -650,7 +666,7 @@ func runStart() {
 		metricsService.Collect()
 	}
 
-	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, auditMgr, wp, web.FS(), logger)
+	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, flowService, auditMgr, wp, web.FS(), logger)
 	go srv.Start()
 
 	// Auto-open browser in solo mode unless --no-browser is set.
