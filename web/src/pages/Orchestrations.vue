@@ -142,48 +142,46 @@
     <div v-if="dialog.show" class="modal-overlay" @click.self="dialog.show = false">
       <div class="modal-fullscreen">
         <div class="modal-fheader">
-          <h2 class="modal-title">{{ dialog.isEdit ? '编辑编排' : '新建编排' }}</h2>
-          <button class="btn-icon-close" @click="dialog.show = false"><XIcon :size="20" /></button>
-        </div>
-        <div class="modal-fbody">
-          <!-- 左：基本信息 -->
-          <div class="modal-sidebar">
-            <div class="form-group">
-              <label>ID</label>
-              <input v-model="dialog.data.id" type="text" disabled class="input-mono" />
-            </div>
-            <div class="form-group">
-              <label>名称 <span class="required">*</span></label>
-              <input v-model="dialog.data.name" type="text" placeholder="编排名称" />
-            </div>
-            <div class="form-group">
-              <label>描述</label>
-              <textarea v-model="dialog.data.description" rows="3" placeholder="可选描述" />
-            </div>
-          </div>
-          <!-- 右：设计器/JSON -->
-          <div class="modal-main">
-            <div class="tab-bar">
-              <button class="tab-btn" :class="{ active: dialog.activeTab === 'designer' }" @click="switchTab('designer')">设计器</button>
-              <button class="tab-btn" :class="{ active: dialog.activeTab === 'json' }" @click="switchTab('json')">JSON</button>
-            </div>
-            <div v-if="dialog.activeTab === 'designer'" class="designer-wrap">
-              <OrchestrationDesigner
-                :definition="dialog.data.definition"
-                :agents="availableAgents"
-                @save="onDesignerSave"
-                @validate="onDesignerValidate"
+          <div class="header-info">
+            <h2 class="modal-title">{{ dialog.isEdit ? '编辑编排' : '新建编排' }}</h2>
+            <div class="header-form">
+              <input
+                v-model="dialog.data.name"
+                type="text"
+                class="name-input"
+                placeholder="编排名称"
+              />
+              <input
+                v-model="dialog.data.description"
+                type="text"
+                class="desc-input"
+                placeholder="描述（可选）"
               />
             </div>
-            <div v-if="dialog.activeTab === 'json'" class="json-wrap">
-              <textarea v-model="dialog.definitionText" class="json-editor" spellcheck="false" />
-              <span v-if="dialog.jsonError" class="field-error">{{ dialog.jsonError }}</span>
+          </div>
+          <div class="header-actions">
+            <div class="tab-switch">
+              <button class="switch-btn" :class="{ active: dialog.activeTab === 'designer' }" @click="switchTab('designer')">设计器</button>
+              <button class="switch-btn" :class="{ active: dialog.activeTab === 'json' }" @click="switchTab('json')">JSON</button>
             </div>
+            <button class="btn-ghost-sm" @click="dialog.show = false">取消</button>
+            <button class="btn-primary-sm" @click="saveOrchestration">保存</button>
+            <button class="btn-icon-close" @click="dialog.show = false"><XIcon :size="18" /></button>
           </div>
         </div>
-        <div class="modal-ffooter">
-          <button class="btn-ghost" @click="dialog.show = false">取消</button>
-          <button class="btn-primary" @click="saveOrchestration">保存</button>
+        <div class="modal-fbody">
+          <div v-if="dialog.activeTab === 'designer'" class="designer-wrap">
+            <OrchestrationDesigner
+              :definition="dialog.data.definition"
+              :agents="availableAgents"
+              @save="onDesignerSave"
+              @validate="onDesignerValidate"
+            />
+          </div>
+          <div v-if="dialog.activeTab === 'json'" class="json-wrap">
+            <textarea v-model="dialog.definitionText" class="json-editor" spellcheck="false" />
+            <span v-if="dialog.jsonError" class="field-error">{{ dialog.jsonError }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -815,9 +813,9 @@ function formatDate(date: string) {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 10px;
-  width: 95vw;
-  max-width: 1200px;
-  height: 90vh;
+  width: 98vw;
+  max-width: 1600px;
+  height: 92vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -826,16 +824,115 @@ function formatDate(date: string) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--border);
+  gap: 16px;
 }
-.modal-fheader .modal-title { font-size: 16px; font-weight: 600; color: var(--text-primary); margin: 0; }
+.header-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+}
+.modal-fheader .modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  white-space: nowrap;
+}
+.header-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.name-input {
+  width: 200px;
+  padding: 6px 10px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.desc-input {
+  flex: 1;
+  min-width: 150px;
+  padding: 6px 10px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.desc-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.tab-switch {
+  display: flex;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+.switch-btn {
+  padding: 5px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.switch-btn:hover { color: var(--text-primary); }
+.switch-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.btn-ghost-sm {
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn-ghost-sm:hover { background: var(--bg-overlay); }
+.btn-primary-sm {
+  padding: 6px 14px;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn-primary-sm:hover { opacity: 0.9; }
 .btn-icon-close {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -848,47 +945,6 @@ function formatDate(date: string) {
   display: flex;
   overflow: hidden;
 }
-.modal-sidebar {
-  width: 260px;
-  padding: 16px;
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
-  flex-shrink: 0;
-}
-.modal-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.modal-ffooter {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border);
-}
-
-.tab-bar {
-  display: flex;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.tab-bar .tab-btn {
-  padding: 10px 14px;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.1s;
-  margin-bottom: -1px;
-}
-.tab-bar .tab-btn:hover { color: var(--text-primary); }
-.tab-bar .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
-
 .designer-wrap {
   flex: 1;
   overflow: hidden;
