@@ -26,7 +26,6 @@ import (
 	"github.com/gopaw/gopaw/internal/llm"
 	"github.com/gopaw/gopaw/internal/mcp"
 	"github.com/gopaw/gopaw/internal/mode"
-	"github.com/gopaw/gopaw/internal/orchestration"
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/metrics"
 	"github.com/gopaw/gopaw/internal/queue"
@@ -36,7 +35,6 @@ import (
 	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/internal/trace"
 	"github.com/gopaw/gopaw/internal/user"
-	"github.com/gopaw/gopaw/internal/workflow"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"go.uber.org/zap"
 )
@@ -76,11 +74,9 @@ func New(
 	agentRouter *agent.Router,
 	mcpMgr *mcp.Manager,
 	agentMsgMgr *message.Manager,
-	workflowEngine *workflow.Engine,
 	queueMgr *queue.Manager,
 	metricsService *metrics.Service,
 	knowledgeService *knowledge.Service,
-	orchestrationEngine *orchestration.Engine,
 	flowService *flow.Service,
 	auditMgr *audit.Manager,
 	wp *workspace.Paths,
@@ -102,7 +98,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, flowService, auditMgr, wp, staticFS)
+	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -134,11 +130,9 @@ func (s *Server) registerRoutes(
 	agentRouter *agent.Router,
 	mcpMgr *mcp.Manager,
 	agentMsgMgr *message.Manager,
-	workflowEngine *workflow.Engine,
 	queueMgr *queue.Manager,
 	metricsService *metrics.Service,
 	knowledgeService *knowledge.Service,
-	orchestrationEngine *orchestration.Engine,
 	flowService *flow.Service,
 	auditMgr *audit.Manager,
 	wp *workspace.Paths,
@@ -361,25 +355,6 @@ func (s *Server) registerRoutes(
 	// /api/system/health is already registered inside the api group above (behind WebAuth).
 	s.engine.GET("/health", sysH.Health)
 
-	// /api/workflows — workflow management
-	if workflowEngine != nil {
-		workflowH := handlers.NewWorkflowHandler(workflowEngine, s.logger)
-		workflowsG := api.Group("/workflows")
-		{
-			workflowsG.GET("", workflowH.ListWorkflows)
-			workflowsG.POST("", workflowH.CreateWorkflow)
-			workflowsG.POST("/validate", workflowH.ValidateWorkflow)
-			workflowsG.GET("/:id", workflowH.GetWorkflow)
-			workflowsG.PUT("/:id", workflowH.UpdateWorkflow)
-			workflowsG.DELETE("/:id", workflowH.DeleteWorkflow)
-			workflowsG.POST("/:id/execute", workflowH.ExecuteWorkflow)
-			workflowsG.GET("/:id/executions", workflowH.ListExecutions)
-			workflowsG.GET("/:id/stats", workflowH.GetStats)
-			workflowsG.GET("/executions/:execId", workflowH.GetExecution)
-			workflowsG.POST("/executions/:execId/cancel", workflowH.CancelExecution)
-		}
-	}
-
 	// /api/queues — message queue management
 	if queueMgr != nil {
 		queueH := handlers.NewQueueHandler(queueMgr, s.logger)
@@ -416,12 +391,6 @@ func (s *Server) registerRoutes(
 	if knowledgeService != nil {
 		knowledgeH := handlers.NewKnowledgeHandler(knowledgeService)
 		knowledgeH.RegisterRoutes(api)
-	}
-
-	// /api/orchestrations — orchestration management
-	if orchestrationEngine != nil {
-		orchH := handlers.NewOrchestrationHandler(orchestration.NewService(orchestrationEngine.DB, orchestrationEngine))
-		orchH.RegisterRoutes(api)
 	}
 
 	// /api/flows — unified flow management

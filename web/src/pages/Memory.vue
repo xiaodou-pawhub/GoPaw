@@ -23,7 +23,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import MemoryTab from '@/components/settings/MemoryTab.vue'
+import MemoryTab from '@/components/memory/MemoryTab.vue'
 import { listAgents, type Agent } from '@/api/agents'
 
 const agents = ref<Agent[]>([])

@@ -35,7 +35,6 @@ import (
 	"github.com/gopaw/gopaw/internal/mcp"
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/mode"
-	"github.com/gopaw/gopaw/internal/orchestration"
 	"github.com/gopaw/gopaw/internal/agent/message"
 	"github.com/gopaw/gopaw/internal/sandbox"
 	"github.com/gopaw/gopaw/internal/server"
@@ -48,7 +47,6 @@ import (
 	"github.com/gopaw/gopaw/internal/queue"
 	"github.com/gopaw/gopaw/internal/metrics"
 	"github.com/gopaw/gopaw/internal/user"
-	"github.com/gopaw/gopaw/internal/workflow"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"github.com/gopaw/gopaw/pkg/plugin"
 	"github.com/gopaw/gopaw/pkg/types"
@@ -482,18 +480,11 @@ func runStart() {
 		agentMsgMgr = nil
 	}
 
-	// Initialize queue manager first (needed by workflow engine)
+	// Initialize queue manager
 	queueMgr, err := queue.NewManager(store.DB(), logger)
 	if err != nil {
 		logger.Warn("failed to initialize queue manager", zap.Error(err))
 		queueMgr = nil
-	}
-
-	// Initialize workflow engine
-	workflowEngine, err := workflow.NewEngine(store.DB(), agentMsgMgr, nil, queueMgr, logger)
-	if err != nil {
-		logger.Warn("failed to initialize workflow engine", zap.Error(err))
-		workflowEngine = nil
 	}
 
 	// Initialize audit manager
@@ -610,27 +601,6 @@ func runStart() {
 		return resp.Content, nil
 	})
 
-	// Update workflow engine with agent router
-	if workflowEngine != nil {
-		workflowEngine.SetAgentRouter(agentRouter)
-	}
-
-	// Initialize orchestration engine
-	var orchestrationEngine *orchestration.Engine
-	if err := orchestration.InitSchema(store.DB()); err != nil {
-		logger.Warn("failed to initialize orchestration schema", zap.Error(err))
-	} else {
-		orchestrationEngine = orchestration.NewEngine(
-			store.DB(),
-			agentMgr,
-			agentRouter,
-			agentMsgMgr,
-			workflowEngine,
-			logger,
-		)
-		logger.Info("orchestration engine initialized")
-	}
-
 	// Initialize flow service (unified flow management)
 	var flowService *flow.Service
 	if store != nil && agentMgr != nil && agentMsgMgr != nil {
@@ -666,7 +636,7 @@ func runStart() {
 		metricsService.Collect()
 	}
 
-	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, flowService, auditMgr, wp, web.FS(), logger)
+	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, wp, web.FS(), logger)
 	go srv.Start()
 
 	// Auto-open browser in solo mode unless --no-browser is set.
@@ -727,13 +697,6 @@ func runStart() {
 	if agentMgr != nil {
 		if err := agentMgr.Close(); err != nil {
 			logger.Warn("failed to close agent manager", zap.Error(err))
-		}
-	}
-
-	// Close workflow engine
-	if workflowEngine != nil {
-		if err := workflowEngine.Close(); err != nil {
-			logger.Warn("failed to close workflow engine", zap.Error(err))
 		}
 	}
 

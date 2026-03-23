@@ -54,14 +54,6 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/MCP.vue')
       },
       {
-        path: 'workflows',
-        redirect: '/flows'
-      },
-      {
-        path: 'orchestrations',
-        redirect: '/flows'
-      },
-      {
         path: 'flows',
         name: 'Flows',
         component: () => import('@/pages/Flows.vue')
