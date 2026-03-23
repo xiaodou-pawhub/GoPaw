@@ -310,6 +310,18 @@ func (s *Server) registerRoutes(
 			agentsG.POST("/:id/default", agentsH.SetDefault)
 			agentsG.GET("/:id/config", agentsH.GetConfig)
 			agentsG.PUT("/:id/config", agentsH.UpdateConfig)
+			// 版本管理
+			agentsG.GET("/:id/versions", agentsH.ListVersions)
+			agentsG.GET("/:id/versions/stats", agentsH.GetVersionStats)
+			agentsG.POST("/:id/versions", agentsH.CreateVersion)
+			agentsG.GET("/:id/versions/:version", agentsH.GetVersion)
+			agentsG.POST("/:id/versions/:version/rollback", agentsH.RollbackVersion)
+			agentsG.DELETE("/:id/versions/:version", agentsH.DeleteVersion)
+			// 性能分析
+			agentsG.GET("/stats", agentsH.GetAllAgentsStats)
+			agentsG.GET("/:id/stats", agentsH.GetAgentStats)
+			agentsG.GET("/:id/stats/daily", agentsH.GetAgentDailyStats)
+			agentsG.GET("/:id/stats/errors", agentsH.GetAgentErrorStats)
 		}
 	}
 

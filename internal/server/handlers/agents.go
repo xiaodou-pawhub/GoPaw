@@ -5,6 +5,9 @@
 package handlers
 
 import (
+	"fmt"
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/agent"
 	"github.com/gopaw/gopaw/pkg/api"
@@ -140,4 +143,186 @@ func (h *AgentsHandler) UpdateConfig(c *gin.Context) {
 	}
 
 	api.Success(c, existing.Config)
+}
+
+// ========== 版本管理 ==========
+
+// ListVersions handles GET /api/agents/:id/versions
+func (h *AgentsHandler) ListVersions(c *gin.Context) {
+	agentID := c.Param("id")
+
+	versions, err := h.manager.ListVersions(agentID)
+	if err != nil {
+		h.logger.Error("failed to list versions", zap.Error(err))
+		api.InternalErrorWithDetails(c, "failed to list versions", err)
+		return
+	}
+
+	api.Success(c, versions)
+}
+
+// CreateVersion handles POST /api/agents/:id/versions
+func (h *AgentsHandler) CreateVersion(c *gin.Context) {
+	agentID := c.Param("id")
+
+	var req struct {
+		Name string `json:"name"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		api.BadRequestWithError(c, "invalid request", err)
+		return
+	}
+
+	version, err := h.manager.CreateVersion(agentID, req.Name, "")
+	if err != nil {
+		h.logger.Error("failed to create version", zap.Error(err))
+		api.InternalErrorWithDetails(c, "failed to create version", err)
+		return
+	}
+
+	api.Created(c, version)
+}
+
+// GetVersion handles GET /api/agents/:id/versions/:version
+func (h *AgentsHandler) GetVersion(c *gin.Context) {
+	agentID := c.Param("id")
+	versionStr := c.Param("version")
+
+	var version int
+	if _, err := fmt.Sscanf(versionStr, "%d", &version); err != nil {
+		api.BadRequest(c, "invalid version number")
+		return
+	}
+
+	v, err := h.manager.GetVersion(agentID, version)
+	if err != nil {
+		api.NotFound(c, "version")
+		return
+	}
+
+	api.Success(c, v)
+}
+
+// RollbackVersion handles POST /api/agents/:id/versions/:version/rollback
+func (h *AgentsHandler) RollbackVersion(c *gin.Context) {
+	agentID := c.Param("id")
+	versionStr := c.Param("version")
+
+	var version int
+	if _, err := fmt.Sscanf(versionStr, "%d", &version); err != nil {
+		api.BadRequest(c, "invalid version number")
+		return
+	}
+
+	def, err := h.manager.RollbackVersion(agentID, version)
+	if err != nil {
+		h.logger.Error("failed to rollback version", zap.Error(err))
+		api.InternalErrorWithDetails(c, "failed to rollback version", err)
+		return
+	}
+
+	api.SuccessWithMessage(c, "rolled back successfully", def)
+}
+
+// DeleteVersion handles DELETE /api/agents/:id/versions/:version
+func (h *AgentsHandler) DeleteVersion(c *gin.Context) {
+	agentID := c.Param("id")
+	versionStr := c.Param("version")
+
+	var version int
+	if _, err := fmt.Sscanf(versionStr, "%d", &version); err != nil {
+		api.BadRequest(c, "invalid version number")
+		return
+	}
+
+	if err := h.manager.DeleteVersion(agentID, version); err != nil {
+		h.logger.Error("failed to delete version", zap.Error(err))
+		api.InternalErrorWithDetails(c, "failed to delete version", err)
+		return
+	}
+
+	api.Success(c, gin.H{"status": "ok"})
+}
+
+// GetVersionStats handles GET /api/agents/:id/versions/stats
+func (h *AgentsHandler) GetVersionStats(c *gin.Context) {
+	agentID := c.Param("id")
+
+	stats, err := h.manager.GetVersionStats(agentID)
+	if err != nil {
+		h.logger.Error("failed to get version stats", zap.Error(err))
+		api.InternalErrorWithDetails(c, "failed to get version stats", err)
+		return
+	}
+
+	api.Success(c, stats)
+}
+
+// ========== 性能分析 ==========
+
+// GetAgentStats handles GET /api/agents/:id/stats
+func (h *AgentsHandler) GetAgentStats(c *gin.Context) {
+	agentID := c.Param("id")
+
+	stats, err := h.manager.GetAgentStats(agentID)
+	if err != nil {
+		h.logger.Error("failed to get agent stats", zap.Error(err))
+		api.InternalErrorWithDetails(c, "failed to get agent stats", err)
+		return
+	}
+
+	api.Success(c, stats)
+}
+
+// GetAgentDailyStats handles GET /api/agents/:id/stats/daily
+func (h *AgentsHandler) GetAgentDailyStats(c *gin.Context) {
+	agentID := c.Param("id")
+	days := 7
+	if d := c.Query("days"); d != "" {
+		if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 {
+			days = parsed
+		}
+	}
+
+	stats, err := h.manager.GetAgentDailyStats(agentID, days)
+	if err != nil {
+		h.logger.Error("failed to get daily stats", zap.Error(err))
+		api.InternalErrorWithDetails(c, "failed to get daily stats", err)
+		return
+	}
+
+	api.Success(c, stats)
+}
+
+// GetAgentErrorStats handles GET /api/agents/:id/stats/errors
+func (h *AgentsHandler) GetAgentErrorStats(c *gin.Context) {
+	agentID := c.Param("id")
+	limit := 10
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	stats, err := h.manager.GetAgentErrorStats(agentID, limit)
+	if err != nil {
+		h.logger.Error("failed to get error stats", zap.Error(err))
+		api.InternalErrorWithDetails(c, "failed to get error stats", err)
+		return
+	}
+
+	api.Success(c, stats)
+}
+
+// GetAllAgentsStats handles GET /api/agents/stats
+func (h *AgentsHandler) GetAllAgentsStats(c *gin.Context) {
+	stats, err := h.manager.GetAllAgentsStats()
+	if err != nil {
+		h.logger.Error("failed to get all agents stats", zap.Error(err))
+		api.InternalErrorWithDetails(c, "failed to get all agents stats", err)
+		return
+	}
+
+	api.Success(c, stats)
 }

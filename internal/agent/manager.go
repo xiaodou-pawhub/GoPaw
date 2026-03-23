@@ -6,6 +6,7 @@ package agent
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -95,6 +96,20 @@ CREATE TABLE IF NOT EXISTS agents (
 
 CREATE INDEX IF NOT EXISTS idx_agents_active ON agents(is_active);
 CREATE INDEX IF NOT EXISTS idx_agents_default ON agents(is_default);
+
+CREATE TABLE IF NOT EXISTS agent_versions (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    name TEXT,
+    description TEXT,
+    config TEXT,
+    created_at TIMESTAMP NOT NULL,
+    created_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_versions_agent ON agent_versions(agent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_versions_unique ON agent_versions(agent_id, version);
 `
 	_, err := m.db.Exec(schema)
 	return err
@@ -425,4 +440,342 @@ func (m *Manager) saveConfig(def *Definition) error {
 // GetAgentsDir returns the agents directory path.
 func (m *Manager) GetAgentsDir() string {
 	return m.agentsDir
+}
+
+// ========== 版本管理 ==========
+
+// AgentVersion Agent 版本
+type AgentVersion struct {
+	ID          string       `json:"id" db:"id"`
+	AgentID     string       `json:"agent_id" db:"agent_id"`
+	Version     int          `json:"version" db:"version"`
+	Name        string       `json:"name" db:"name"`
+	Description string       `json:"description" db:"description"`
+	Config      *AgentConfig `json:"config" db:"config"`
+	CreatedAt   time.Time    `json:"created_at" db:"created_at"`
+	CreatedBy   string       `json:"created_by" db:"created_by"`
+}
+
+// CreateVersion 创建版本
+func (m *Manager) CreateVersion(agentID, name, createdBy string) (*AgentVersion, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	def, ok := m.agents[agentID]
+	if !ok {
+		return nil, fmt.Errorf("agent not found: %s", agentID)
+	}
+
+	// 获取下一个版本号
+	var maxVersion int
+	err := m.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM agent_versions WHERE agent_id = ?`, agentID).Scan(&maxVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get max version: %w", err)
+	}
+
+	nextVersion := maxVersion + 1
+	versionID := fmt.Sprintf("av_%s_%d", agentID, nextVersion)
+
+	configJSON, _ := json.Marshal(def.Config)
+
+	version := &AgentVersion{
+		ID:          versionID,
+		AgentID:     agentID,
+		Version:     nextVersion,
+		Name:        name,
+		Description: def.Description,
+		Config:      def.Config,
+		CreatedAt:   time.Now(),
+		CreatedBy:   createdBy,
+	}
+
+	_, err = m.db.Exec(`
+		INSERT INTO agent_versions (id, agent_id, version, name, description, config, created_at, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, version.ID, version.AgentID, version.Version, version.Name, version.Description, string(configJSON), version.CreatedAt, version.CreatedBy)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create version: %w", err)
+	}
+
+	return version, nil
+}
+
+// ListVersions 列出版本
+func (m *Manager) ListVersions(agentID string) ([]*AgentVersion, error) {
+	rows, err := m.db.Query(`
+		SELECT id, agent_id, version, name, description, config, created_at, created_by
+		FROM agent_versions
+		WHERE agent_id = ?
+		ORDER BY version DESC
+	`, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list versions: %w", err)
+	}
+	defer rows.Close()
+
+	var versions []*AgentVersion
+	for rows.Next() {
+		v := &AgentVersion{}
+		var configJSON sql.NullString
+		err := rows.Scan(&v.ID, &v.AgentID, &v.Version, &v.Name, &v.Description, &configJSON, &v.CreatedAt, &v.CreatedBy)
+		if err != nil {
+			continue
+		}
+		if configJSON.Valid && configJSON.String != "" {
+			var config AgentConfig
+			if err := json.Unmarshal([]byte(configJSON.String), &config); err == nil {
+				v.Config = &config
+			}
+		}
+		versions = append(versions, v)
+	}
+
+	return versions, nil
+}
+
+// GetVersion 获取版本
+func (m *Manager) GetVersion(agentID string, version int) (*AgentVersion, error) {
+	v := &AgentVersion{}
+	var configJSON sql.NullString
+
+	err := m.db.QueryRow(`
+		SELECT id, agent_id, version, name, description, config, created_at, created_by
+		FROM agent_versions
+		WHERE agent_id = ? AND version = ?
+	`, agentID, version).Scan(&v.ID, &v.AgentID, &v.Version, &v.Name, &v.Description, &configJSON, &v.CreatedAt, &v.CreatedBy)
+
+	if err != nil {
+		return nil, fmt.Errorf("version not found: %w", err)
+	}
+
+	if configJSON.Valid && configJSON.String != "" {
+		var config AgentConfig
+		if err := json.Unmarshal([]byte(configJSON.String), &config); err == nil {
+			v.Config = &config
+		}
+	}
+
+	return v, nil
+}
+
+// RollbackVersion 回滚到指定版本
+func (m *Manager) RollbackVersion(agentID string, version int) (*Definition, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	v, err := m.GetVersion(agentID, version)
+	if err != nil {
+		return nil, err
+	}
+
+	def, ok := m.agents[agentID]
+	if !ok {
+		return nil, fmt.Errorf("agent not found: %s", agentID)
+	}
+
+	// 更新配置
+	if v.Config != nil {
+		def.Config = v.Config
+		def.Name = v.Name
+		def.Description = v.Description
+		def.UpdatedAt = time.Now()
+
+		// 保存配置文件
+		if err := m.saveConfig(def); err != nil {
+			return nil, fmt.Errorf("failed to save config: %w", err)
+		}
+
+		// 更新数据库
+		_, err = m.db.Exec(`
+			UPDATE agents SET name = ?, description = ?, updated_at = ?
+			WHERE id = ?
+		`, def.Name, def.Description, def.UpdatedAt, def.ID)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to update agent: %w", err)
+		}
+	}
+
+	return def, nil
+}
+
+// DeleteVersion 删除版本
+func (m *Manager) DeleteVersion(agentID string, version int) error {
+	_, err := m.db.Exec(`DELETE FROM agent_versions WHERE agent_id = ? AND version = ?`, agentID, version)
+	return err
+}
+
+// GetVersionStats 获取版本统计
+func (m *Manager) GetVersionStats(agentID string) (map[string]interface{}, error) {
+	stats := make(map[string]interface{})
+
+	var count int
+	err := m.db.QueryRow(`SELECT COUNT(*) FROM agent_versions WHERE agent_id = ?`, agentID).Scan(&count)
+	if err != nil {
+		return nil, err
+	}
+	stats["total_versions"] = count
+
+	var latestVersion int
+	err = m.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM agent_versions WHERE agent_id = ?`, agentID).Scan(&latestVersion)
+	if err != nil {
+		return nil, err
+	}
+	stats["latest_version"] = latestVersion
+
+	return stats, nil
+}
+
+// ========== 性能分析 ==========
+
+// AgentStats Agent 统计
+type AgentStats struct {
+	AgentID          string  `json:"agent_id"`
+	TotalExecutions  int     `json:"total_executions"`
+	SuccessCount     int     `json:"success_count"`
+	FailureCount     int     `json:"failure_count"`
+	TotalTokens      int64   `json:"total_tokens"`
+	TotalInputTokens int64   `json:"total_input_tokens"`
+	TotalOutputTokens int64  `json:"total_output_tokens"`
+	AvgLatencyMs     float64 `json:"avg_latency_ms"`
+	MaxLatencyMs     int64   `json:"max_latency_ms"`
+	MinLatencyMs     int64   `json:"min_latency_ms"`
+	LastExecutedAt   *time.Time `json:"last_executed_at,omitempty"`
+}
+
+// GetAgentStats 获取 Agent 统计
+func (m *Manager) GetAgentStats(agentID string) (*AgentStats, error) {
+	stats := &AgentStats{AgentID: agentID}
+
+	// 从 traces 表获取统计（如果存在）
+	err := m.db.QueryRow(`
+		SELECT
+			COUNT(*) as total,
+			COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success,
+			COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) as failure,
+			COALESCE(SUM(total_tokens), 0) as tokens,
+			COALESCE(SUM(input_tokens), 0) as input_tokens,
+			COALESCE(SUM(output_tokens), 0) as output_tokens,
+			COALESCE(AVG(duration_ms), 0) as avg_latency,
+			COALESCE(MAX(duration_ms), 0) as max_latency,
+			COALESCE(MIN(duration_ms), 0) as min_latency,
+			MAX(created_at) as last_executed
+		FROM traces
+		WHERE agent_id = ?
+	`, agentID).Scan(
+		&stats.TotalExecutions, &stats.SuccessCount, &stats.FailureCount,
+		&stats.TotalTokens, &stats.TotalInputTokens, &stats.TotalOutputTokens,
+		&stats.AvgLatencyMs, &stats.MaxLatencyMs, &stats.MinLatencyMs,
+		&stats.LastExecutedAt,
+	)
+
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to get agent stats: %w", err)
+	}
+
+	return stats, nil
+}
+
+// GetAgentDailyStats 获取 Agent 每日统计
+func (m *Manager) GetAgentDailyStats(agentID string, days int) ([]map[string]interface{}, error) {
+	rows, err := m.db.Query(`
+		SELECT
+			date(created_at) as date,
+			COUNT(*) as executions,
+			SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
+			SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as failure,
+			SUM(total_tokens) as tokens,
+			AVG(duration_ms) as avg_latency
+		FROM traces
+		WHERE agent_id = ? AND created_at >= datetime('now', '-' || ? || ' days')
+		GROUP BY date(created_at)
+		ORDER BY date DESC
+	`, agentID, days)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get daily stats: %w", err)
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var date string
+		var executions, success, failure int
+		var tokens int64
+		var avgLatency float64
+
+		err := rows.Scan(&date, &executions, &success, &failure, &tokens, &avgLatency)
+		if err != nil {
+			continue
+		}
+
+		results = append(results, map[string]interface{}{
+			"date":        date,
+			"executions":  executions,
+			"success":     success,
+			"failure":     failure,
+			"tokens":      tokens,
+			"avg_latency": avgLatency,
+		})
+	}
+
+	return results, nil
+}
+
+// GetAgentErrorStats 获取 Agent 错误统计
+func (m *Manager) GetAgentErrorStats(agentID string, limit int) ([]map[string]interface{}, error) {
+	rows, err := m.db.Query(`
+		SELECT
+			error_message,
+			COUNT(*) as count,
+			MAX(created_at) as last_occurred
+		FROM traces
+		WHERE agent_id = ? AND status = 'error' AND error_message IS NOT NULL
+		GROUP BY error_message
+		ORDER BY count DESC
+		LIMIT ?
+	`, agentID, limit)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get error stats: %w", err)
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var errorMsg string
+		var count int
+		var lastOccurred time.Time
+
+		err := rows.Scan(&errorMsg, &count, &lastOccurred)
+		if err != nil {
+			continue
+		}
+
+		results = append(results, map[string]interface{}{
+			"error_message": errorMsg,
+			"count":         count,
+			"last_occurred": lastOccurred,
+		})
+	}
+
+	return results, nil
+}
+
+// GetAllAgentsStats 获取所有 Agent 统计
+func (m *Manager) GetAllAgentsStats() ([]*AgentStats, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var results []*AgentStats
+	for agentID := range m.agents {
+		stats, err := m.GetAgentStats(agentID)
+		if err != nil {
+			continue
+		}
+		results = append(results, stats)
+	}
+
+	return results, nil
 }

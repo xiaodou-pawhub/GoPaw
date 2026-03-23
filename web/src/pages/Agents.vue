@@ -45,6 +45,9 @@
       >
         <!-- 右上角菜单 -->
         <div class="card-actions">
+          <button class="icon-btn" title="版本管理" @click="openVersionDialog(agent)">
+            <HistoryIcon :size="14" />
+          </button>
           <button class="icon-btn" title="编辑" @click="openEdit(agent)">
             <EditIcon :size="14" />
           </button>
@@ -125,6 +128,60 @@
         </div>
       </div>
     </div>
+
+    <!-- 版本管理对话框 -->
+    <div v-if="versionAgent" class="overlay" @click.self="versionAgent = null">
+      <div class="version-dialog">
+        <div class="version-header">
+          <h4 class="version-title">
+            <HistoryIcon :size="18" />
+            版本管理 - {{ versionAgent.name }}
+          </h4>
+          <button class="close-btn" @click="versionAgent = null">×</button>
+        </div>
+
+        <div class="version-toolbar">
+          <button class="btn-primary" :disabled="creatingVersion" @click="createNewVersion">
+            <PlusIcon :size="14" />
+            保存当前版本
+          </button>
+        </div>
+
+        <div v-if="loadingVersions" class="version-loading">
+          <div class="loading-spinner" />
+          <span>加载版本...</span>
+        </div>
+
+        <div v-else-if="versions.length === 0" class="version-empty">
+          <HistoryIcon :size="32" class="empty-icon" />
+          <p>暂无历史版本</p>
+          <p class="hint">保存版本后可随时回滚</p>
+        </div>
+
+        <div v-else class="version-list">
+          <div
+            v-for="v in versions"
+            :key="v.id"
+            class="version-item"
+          >
+            <div class="version-info">
+              <span class="version-badge">v{{ v.version }}</span>
+              <span class="version-name">{{ v.name || '未命名版本' }}</span>
+              <span class="version-date">{{ formatDate(v.created_at) }}</span>
+            </div>
+            <div class="version-actions">
+              <button class="btn-sm" title="回滚到此版本" @click="rollbackVersion(v.version)">
+                <RotateCcwIcon :size="12" />
+                回滚
+              </button>
+              <button class="btn-sm danger" title="删除版本" @click="deleteVersion(v.version)">
+                <TrashIcon :size="12" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -133,7 +190,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   PlusIcon, BotIcon, SearchIcon,
-  EditIcon, TrashIcon, MessageSquareIcon
+  EditIcon, TrashIcon, MessageSquareIcon,
+  HistoryIcon, RotateCcwIcon
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { listAgents, deleteAgent, type Agent } from '@/api/agents'
@@ -142,8 +200,21 @@ import { listMCPServers, type MCPServer } from '@/api/mcp'
 import type { BackendProvider } from '@/types'
 import CreateWizard from '@/components/agents/CreateWizard.vue'
 import EditDialog from '@/components/agents/EditDialog.vue'
+import axios from 'axios'
 
 const router = useRouter()
+
+// 版本类型
+interface AgentVersion {
+  id: string
+  agent_id: string
+  version: number
+  name: string
+  description: string
+  config: any
+  created_at: string
+  created_by: string
+}
 
 // ---- State ----
 const agents = ref<Agent[]>([])
@@ -155,6 +226,12 @@ const searchQuery = ref('')
 const showCreateWizard = ref(false)
 const editingAgent = ref<Agent | null>(null)
 const deletingAgent = ref<Agent | null>(null)
+
+// 版本管理
+const versionAgent = ref<Agent | null>(null)
+const versions = ref<AgentVersion[]>([])
+const loadingVersions = ref(false)
+const creatingVersion = ref(false)
 
 // ---- Computed ----
 const filteredAgents = computed(() => {
@@ -243,6 +320,74 @@ async function onSaved() {
 
 function startChat(agent: Agent) {
   router.push({ path: '/chat', query: { agent_id: agent.id } })
+}
+
+// ---- 版本管理 ----
+function openVersionDialog(agent: Agent) {
+  versionAgent.value = agent
+  loadVersions()
+}
+
+async function loadVersions() {
+  if (!versionAgent.value) return
+  loadingVersions.value = true
+  try {
+    const res = await axios.get(`/api/agents/${versionAgent.value.id}/versions`)
+    versions.value = res.data.data || []
+  } catch (err) {
+    console.error('Failed to load versions:', err)
+    toast.error('加载版本失败')
+  } finally {
+    loadingVersions.value = false
+  }
+}
+
+async function createNewVersion() {
+  if (!versionAgent.value) return
+  creatingVersion.value = true
+  try {
+    const name = `版本 ${new Date().toLocaleString('zh-CN')}`
+    await axios.post(`/api/agents/${versionAgent.value.id}/versions`, { name })
+    toast.success('版本已保存')
+    await loadVersions()
+  } catch (err) {
+    console.error('Failed to create version:', err)
+    toast.error('保存版本失败')
+  } finally {
+    creatingVersion.value = false
+  }
+}
+
+async function rollbackVersion(version: number) {
+  if (!versionAgent.value) return
+  if (!confirm(`确定要回滚到版本 v${version} 吗？当前配置将被覆盖。`)) return
+  try {
+    await axios.post(`/api/agents/${versionAgent.value.id}/versions/${version}/rollback`)
+    toast.success('已回滚到版本 v' + version)
+    await loadAll()
+    await loadVersions()
+  } catch (err) {
+    console.error('Failed to rollback:', err)
+    toast.error('回滚失败')
+  }
+}
+
+async function deleteVersion(version: number) {
+  if (!versionAgent.value) return
+  if (!confirm(`确定要删除版本 v${version} 吗？`)) return
+  try {
+    await axios.delete(`/api/agents/${versionAgent.value.id}/versions/${version}`)
+    toast.success('版本已删除')
+    await loadVersions()
+  } catch (err) {
+    console.error('Failed to delete version:', err)
+    toast.error('删除版本失败')
+  }
+}
+
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  return date.toLocaleString('zh-CN')
 }
 
 // ---- Lifecycle ----
@@ -572,4 +717,143 @@ onMounted(loadAll)
   cursor: pointer;
 }
 .btn-danger:hover { opacity: 0.85; }
+
+/* 版本管理对话框 */
+.version-dialog {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 480px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.version-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.version-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.close-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.close-btn:hover { background: var(--bg-overlay); }
+
+.version-toolbar {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn-primary:hover { opacity: 0.9; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.version-loading,
+.version-empty {
+  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.version-empty .empty-icon { opacity: 0.4; }
+.version-empty .hint { font-size: 12px; opacity: 0.6; }
+
+.version-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.version-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.version-item:last-child { border-bottom: none; }
+.version-item:hover { background: var(--bg-overlay); }
+
+.version-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.version-badge {
+  padding: 2px 8px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+}
+
+.version-name {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.version-date {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.version-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn-sm:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.btn-sm.danger { color: var(--red); border-color: var(--red-dim); }
+.btn-sm.danger:hover { background: var(--red-dim); }
 </style>
