@@ -10,6 +10,14 @@
       </button>
       <div class="toolbar-divider" />
       <button
+        class="toolbar-btn"
+        :disabled="!selectedNode"
+        @click="saveAsTemplate"
+      >
+        <BookmarkIcon :size="14" /> 保存为模板
+      </button>
+      <div class="toolbar-divider" />
+      <button
         class="toolbar-btn toolbar-btn-danger"
         :disabled="!selectedNode"
         @click="deleteSelectedNode"
@@ -86,6 +94,44 @@
               <span class="comp-name">{{ type.name }}</span>
               <span class="comp-desc">{{ type.description }}</span>
             </div>
+          </div>
+        </div>
+
+        <!-- 我的模板 -->
+        <div class="node-category">
+          <div class="category-title">
+            我的模板
+            <button class="refresh-templates-btn" @click="loadNodeTemplates" title="刷新">
+              <RefreshCwIcon :size="12" />
+            </button>
+          </div>
+          <div v-if="nodeTemplatesLoading" class="templates-loading">
+            <LoaderIcon :size="14" class="spin" /> 加载中...
+          </div>
+          <div v-else-if="nodeTemplates.length === 0" class="no-templates">
+            <p>暂无自定义模板</p>
+            <p class="hint">选中节点后点击"保存为模板"</p>
+          </div>
+          <div
+            v-else
+            v-for="tpl in nodeTemplates"
+            :key="tpl.id"
+            class="component-item template-item"
+            :style="{ borderLeftColor: getTemplateColor(tpl.node_type) }"
+            draggable="true"
+            :title="tpl.description"
+            @dragstart="onTemplateDragStart($event, tpl)"
+          >
+            <span class="comp-icon" :style="{ background: getTemplateColor(tpl.node_type) }">
+              <component :is="getTemplateIcon(tpl.node_type)" :size="14" />
+            </span>
+            <div class="comp-info">
+              <span class="comp-name">{{ tpl.name }}</span>
+              <span class="comp-desc">{{ tpl.description || tpl.node_type }}</span>
+            </div>
+            <button class="template-delete-btn" @click.stop="deleteNodeTemplate(tpl.id)" title="删除模板">
+              <XIcon :size="12" />
+            </button>
           </div>
         </div>
       </div>
@@ -199,7 +245,9 @@ import { ref, watch, markRaw, computed, onMounted, onUnmounted } from 'vue'
 import {
   SaveIcon, CheckCircleIcon, Trash2Icon, MousePointerIcon,
   PlayIcon, BotIcon, UserIcon, GitBranchIcon, GitMergeIcon,
-  RepeatIcon, FolderIcon, WebhookIcon, SquareIcon
+  RepeatIcon, FolderIcon, WebhookIcon, SquareIcon,
+  BookmarkIcon, RefreshCwIcon, LoaderIcon, XIcon,
+  LayersIcon, CircleIcon, StopCircleIcon, WorkflowIcon
 } from 'lucide-vue-next'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -381,6 +429,19 @@ const elements = ref<(Node | Edge)[]>([])
 const selectedNode = ref<Node | null>(null)
 const availableFlows = ref<Flow[]>([])
 
+// 节点模板
+interface NodeTemplate {
+  id: string
+  name: string
+  description: string
+  category: string
+  node_type: string
+  node_config: Record<string, any>
+  use_count: number
+}
+const nodeTemplates = ref<NodeTemplate[]>([])
+const nodeTemplatesLoading = ref(false)
+
 // 变量面板
 interface FlowVariable {
   name: string
@@ -418,6 +479,7 @@ watch([() => props.executionHistory, () => props.currentNode], () => {
 // WebSocket 生命周期
 onMounted(() => {
   connectWebSocket()
+  loadNodeTemplates()
 })
 
 onUnmounted(() => {
@@ -490,13 +552,41 @@ function onDragStart(event: DragEvent, type: NodeTypeInfo) {
 }
 
 function onDrop(event: DragEvent) {
-  const typeInfo = JSON.parse(event.dataTransfer!.getData('application/vueflow'))
   const { left, top } = (event.target as HTMLElement).getBoundingClientRect()
   const position = {
     x: event.clientX - left,
     y: event.clientY - top
   }
 
+  // 检查是否是节点模板
+  const templateData = event.dataTransfer?.getData('application/node-template')
+  if (templateData) {
+    const template = JSON.parse(templateData)
+    const config = template.node_config || {}
+    const newNode: Node = {
+      id: `node_${nodeIdCounter++}`,
+      type: template.node_type,
+      position,
+      data: {
+        id: `node_${nodeIdCounter - 1}`,
+        type: template.node_type,
+        name: config.name || template.name,
+        agent_id: config.agent_id,
+        role: config.role,
+        prompt: config.prompt,
+        config: config.config || {},
+        inputs: config.inputs,
+        outputs: config.outputs
+      }
+    }
+    addNodes([newNode])
+    // 增加使用次数
+    fetch(`/api/flows/node-templates/${template.id}/use`, { method: 'POST' })
+    return
+  }
+
+  // 普通节点类型
+  const typeInfo = JSON.parse(event.dataTransfer!.getData('application/vueflow'))
   const newNode: Node = {
     id: `node_${nodeIdCounter++}`,
     type: typeInfo.type,
@@ -547,6 +637,114 @@ function deleteSelectedNode() {
   const nodeToRemove = selectedNode.value
   selectedNode.value = null
   removeNodes([nodeToRemove as any])
+}
+
+// 节点模板功能
+async function loadNodeTemplates() {
+  nodeTemplatesLoading.value = true
+  try {
+    const res = await fetch('/api/flows/node-templates')
+    if (res.ok) {
+      nodeTemplates.value = await res.json()
+    }
+  } catch (e) {
+    console.error('Failed to load node templates:', e)
+  } finally {
+    nodeTemplatesLoading.value = false
+  }
+}
+
+function getTemplateColor(nodeType: string): string {
+  const colors: Record<string, string> = {
+    start: '#22c55e',
+    agent: '#3b82f6',
+    human: '#f59e0b',
+    condition: '#8b5cf6',
+    parallel: '#06b6d4',
+    loop: '#ec4899',
+    subflow: '#6366f1',
+    webhook: '#14b8a6',
+    end: '#ef4444'
+  }
+  return colors[nodeType] || '#6b7280'
+}
+
+function getTemplateIcon(nodeType: string) {
+  const icons: Record<string, any> = {
+    start: PlayIcon,
+    agent: BotIcon,
+    human: UserIcon,
+    condition: GitBranchIcon,
+    parallel: LayersIcon,
+    loop: RepeatIcon,
+    subflow: WorkflowIcon,
+    webhook: WebhookIcon,
+    end: StopCircleIcon
+  }
+  return icons[nodeType] || CircleIcon
+}
+
+function onTemplateDragStart(event: DragEvent, template: NodeTemplate) {
+  event.dataTransfer?.setData('application/node-template', JSON.stringify(template))
+  event.dataTransfer!.effectAllowed = 'copy'
+}
+
+async function saveAsTemplate() {
+  if (!selectedNode.value) return
+  
+  const name = prompt('请输入模板名称：')
+  if (!name) return
+  
+  const description = prompt('请输入模板描述（可选）：') || ''
+  
+  const nodeData = selectedNode.value.data as any
+  const template = {
+    name,
+    description,
+    category: selectedNode.value.type || 'custom',
+    node_type: selectedNode.value.type,
+    node_config: {
+      name: nodeData?.name,
+      agent_id: nodeData?.agent_id,
+      role: nodeData?.role,
+      prompt: nodeData?.prompt,
+      config: nodeData?.config,
+      inputs: nodeData?.inputs,
+      outputs: nodeData?.outputs
+    }
+  }
+  
+  try {
+    const res = await fetch('/api/flows/node-templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(template)
+    })
+    if (res.ok) {
+      alert('模板保存成功')
+      loadNodeTemplates()
+    } else {
+      alert('保存失败')
+    }
+  } catch (e) {
+    console.error('Failed to save template:', e)
+    alert('保存失败')
+  }
+}
+
+async function deleteNodeTemplate(id: string) {
+  if (!confirm('确定要删除此模板吗？')) return
+  
+  try {
+    const res = await fetch(`/api/flows/node-templates/${id}`, {
+      method: 'DELETE'
+    })
+    if (res.ok) {
+      loadNodeTemplates()
+    }
+  } catch (e) {
+    console.error('Failed to delete template:', e)
+  }
 }
 
 function getDefinition(): FlowDefinition {
@@ -763,6 +961,75 @@ function validateFlow() {
 }
 .component-item:hover { background: var(--bg-overlay); }
 .component-item:active { cursor: grabbing; }
+
+.template-item {
+  position: relative;
+}
+.template-delete-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 0.15s;
+}
+.template-item:hover .template-delete-btn {
+  opacity: 1;
+}
+.template-delete-btn:hover {
+  background: var(--bg-overlay);
+  color: var(--text-secondary);
+}
+
+.refresh-templates-btn {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+}
+.refresh-templates-btn:hover {
+  background: var(--bg-overlay);
+  color: var(--text-secondary);
+}
+
+.templates-loading {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.no-templates {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.no-templates .hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
 
 .comp-icon {
   width: 24px;

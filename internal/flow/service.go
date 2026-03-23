@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gopaw/gopaw/internal/agent"
@@ -289,7 +290,7 @@ func (s *Service) GetFlow(id string) (*Flow, error) {
 }
 
 // ListFlows 列出流程
-func (s *Service) ListFlows(flowType FlowType, status FlowStatus) ([]*Flow, error) {
+func (s *Service) ListFlows(flowType FlowType, status FlowStatus, search string) ([]*Flow, error) {
 	query := "SELECT id, name, description, type, definition, trigger, status, created_at, updated_at FROM flows WHERE 1=1"
 	var args []interface{}
 
@@ -300,6 +301,11 @@ func (s *Service) ListFlows(flowType FlowType, status FlowStatus) ([]*Flow, erro
 	if status != "" {
 		query += " AND status = ?"
 		args = append(args, status)
+	}
+	if search != "" {
+		query += " AND (name LIKE ? OR description LIKE ?)"
+		searchPattern := "%" + search + "%"
+		args = append(args, searchPattern, searchPattern)
 	}
 	query += " ORDER BY updated_at DESC"
 
@@ -342,6 +348,42 @@ func (s *Service) DeleteFlow(id string) error {
 		return fmt.Errorf("failed to delete flow: %w", err)
 	}
 	return nil
+}
+
+// BatchUpdateStatus 批量更新流程状态
+func (s *Service) BatchUpdateStatus(ids []string, status FlowStatus) (success []string, failed []string) {
+	success = make([]string, 0)
+	failed = make([]string, 0)
+
+	for _, id := range ids {
+		_, err := s.db.Exec("UPDATE flows SET status = ?, updated_at = ? WHERE id = ?", status, time.Now(), id)
+		if err != nil {
+			s.logger.Warn("failed to update flow status", zap.String("id", id), zap.Error(err))
+			failed = append(failed, id)
+		} else {
+			success = append(success, id)
+		}
+	}
+
+	return success, failed
+}
+
+// BatchDeleteFlows 批量删除流程
+func (s *Service) BatchDeleteFlows(ids []string) (success []string, failed []string) {
+	success = make([]string, 0)
+	failed = make([]string, 0)
+
+	for _, id := range ids {
+		err := s.DeleteFlow(id)
+		if err != nil {
+			s.logger.Warn("failed to delete flow", zap.String("id", id), zap.Error(err))
+			failed = append(failed, id)
+		} else {
+			success = append(success, id)
+		}
+	}
+
+	return success, failed
 }
 
 // Execute 执行流程
@@ -653,4 +695,799 @@ func (s *Service) ImportFlow(data *FlowImport) (*Flow, error) {
 	}
 
 	return created, nil
+}
+
+// ========== 节点模板管理 ==========
+
+// CreateNodeTemplate 创建节点模板
+func (s *Service) CreateNodeTemplate(template *NodeTemplate) (*NodeTemplate, error) {
+	if template.ID == "" {
+		template.ID = "ntpl_" + generateID()
+	}
+	template.CreatedAt = time.Now()
+	template.UpdatedAt = time.Now()
+
+	configJSON, err := json.Marshal(template.NodeConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal node config: %w", err)
+	}
+
+	_, err = s.db.Exec(`
+		INSERT INTO node_templates (id, name, description, category, node_type, node_config, is_public, use_count, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, template.ID, template.Name, template.Description, template.Category, template.NodeType, string(configJSON), template.IsPublic, template.UseCount, template.CreatedAt, template.UpdatedAt)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create node template: %w", err)
+	}
+
+	return template, nil
+}
+
+// ListNodeTemplates 列出节点模板
+func (s *Service) ListNodeTemplates(category string, nodeType NodeType) ([]*NodeTemplate, error) {
+	query := "SELECT id, name, description, category, node_type, node_config, is_public, use_count, created_at, updated_at FROM node_templates WHERE 1=1"
+	var args []interface{}
+
+	if category != "" {
+		query += " AND category = ?"
+		args = append(args, category)
+	}
+	if nodeType != "" {
+		query += " AND node_type = ?"
+		args = append(args, nodeType)
+	}
+	query += " ORDER BY use_count DESC, created_at DESC"
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list node templates: %w", err)
+	}
+	defer rows.Close()
+
+	var templates []*NodeTemplate
+	for rows.Next() {
+		var t NodeTemplate
+		var configJSON sql.NullString
+		var isPublic int
+		err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Category, &t.NodeType, &configJSON, &isPublic, &t.UseCount, &t.CreatedAt, &t.UpdatedAt)
+		if err != nil {
+			s.logger.Warn("failed to scan node template", zap.Error(err))
+			continue
+		}
+		t.IsPublic = isPublic == 1
+		if configJSON.Valid && configJSON.String != "" {
+			json.Unmarshal([]byte(configJSON.String), &t.NodeConfig)
+		}
+		templates = append(templates, &t)
+	}
+
+	return templates, nil
+}
+
+// GetNodeTemplate 获取节点模板
+func (s *Service) GetNodeTemplate(id string) (*NodeTemplate, error) {
+	var t NodeTemplate
+	var configJSON sql.NullString
+	var isPublic int
+
+	err := s.db.QueryRow(`
+		SELECT id, name, description, category, node_type, node_config, is_public, use_count, created_at, updated_at
+		FROM node_templates WHERE id = ?
+	`, id).Scan(&t.ID, &t.Name, &t.Description, &t.Category, &t.NodeType, &configJSON, &isPublic, &t.UseCount, &t.CreatedAt, &t.UpdatedAt)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node template: %w", err)
+	}
+
+	t.IsPublic = isPublic == 1
+	if configJSON.Valid && configJSON.String != "" {
+		json.Unmarshal([]byte(configJSON.String), &t.NodeConfig)
+	}
+
+	return &t, nil
+}
+
+// UpdateNodeTemplate 更新节点模板
+func (s *Service) UpdateNodeTemplate(id string, updates map[string]interface{}) error {
+	updates["updated_at"] = time.Now()
+
+	query := "UPDATE node_templates SET "
+	var setClauses []string
+	var args []interface{}
+
+	for key, value := range updates {
+		if key == "node_config" {
+			configJSON, err := json.Marshal(value)
+			if err != nil {
+				return fmt.Errorf("failed to marshal node config: %w", err)
+			}
+			setClauses = append(setClauses, "node_config = ?")
+			args = append(args, string(configJSON))
+		} else if key == "is_public" {
+			setClauses = append(setClauses, "is_public = ?")
+			if v, ok := value.(bool); ok {
+				args = append(args, v)
+			}
+		} else {
+			setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+			args = append(args, value)
+		}
+	}
+
+	query += strings.Join(setClauses, ", ") + " WHERE id = ?"
+	args = append(args, id)
+
+	_, err := s.db.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to update node template: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteNodeTemplate 删除节点模板
+func (s *Service) DeleteNodeTemplate(id string) error {
+	_, err := s.db.Exec("DELETE FROM node_templates WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete node template: %w", err)
+	}
+	return nil
+}
+
+// UseNodeTemplate 使用节点模板（增加使用次数）
+func (s *Service) UseNodeTemplate(id string) (*NodeTemplate, error) {
+	template, err := s.GetNodeTemplate(id)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = s.db.Exec("UPDATE node_templates SET use_count = use_count + 1 WHERE id = ?", id)
+	if err != nil {
+		s.logger.Warn("failed to increment use count", zap.Error(err))
+	}
+
+	template.UseCount++
+	return template, nil
+}
+
+// GetNodeTemplateCategories 获取节点模板分类
+func (s *Service) GetNodeTemplateCategories() ([]map[string]interface{}, error) {
+	rows, err := s.db.Query(`
+		SELECT category, COUNT(*) as count
+		FROM node_templates
+		GROUP BY category
+		ORDER BY count DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get categories: %w", err)
+	}
+	defer rows.Close()
+
+	var categories []map[string]interface{}
+	for rows.Next() {
+		var category string
+		var count int
+		if err := rows.Scan(&category, &count); err != nil {
+			continue
+		}
+		categories = append(categories, map[string]interface{}{
+			"name":  category,
+			"count": count,
+		})
+	}
+
+	return categories, nil
+}
+
+// ========== 流程文档生成 ==========
+
+// FlowDocumentation 流程文档
+type FlowDocumentation struct {
+	FlowID      string            `json:"flow_id"`
+	FlowName    string            `json:"flow_name"`
+	Description string            `json:"description"`
+	FlowType    FlowType          `json:"flow_type"`
+	Status      FlowStatus        `json:"status"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+	Overview    string            `json:"overview"`
+	Nodes       []NodeDoc         `json:"nodes"`
+	Variables   VariablesDoc      `json:"variables"`
+	Trigger     *TriggerDoc       `json:"trigger,omitempty"`
+	FlowChart   string            `json:"flow_chart"`
+}
+
+// NodeDoc 节点文档
+type NodeDoc struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Description string   `json:"description"`
+	Inputs      []string `json:"inputs,omitempty"`
+	Outputs     []string `json:"outputs,omitempty"`
+	Config      string   `json:"config,omitempty"`
+	NextNodes   []string `json:"next_nodes,omitempty"`
+}
+
+// VariablesDoc 变量文档
+type VariablesDoc struct {
+	Inputs  []VariableDoc `json:"inputs,omitempty"`
+	Outputs []VariableDoc `json:"outputs,omitempty"`
+}
+
+// VariableDoc 变量文档项
+type VariableDoc struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Required    bool   `json:"required"`
+	Default     string `json:"default,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// TriggerDoc 触发器文档
+type TriggerDoc struct {
+	Type        string            `json:"type"`
+	Description string            `json:"description"`
+	Config      map[string]string `json:"config,omitempty"`
+}
+
+// GenerateDocumentation 生成流程文档
+func (s *Service) GenerateDocumentation(flowID string) (*FlowDocumentation, error) {
+	flow, err := s.GetFlow(flowID)
+	if err != nil {
+		return nil, err
+	}
+
+	doc := &FlowDocumentation{
+		FlowID:      flow.ID,
+		FlowName:    flow.Name,
+		Description: flow.Description,
+		FlowType:    flow.Type,
+		Status:      flow.Status,
+		CreatedAt:   flow.CreatedAt,
+		UpdatedAt:   flow.UpdatedAt,
+	}
+
+	// 生成概述
+	doc.Overview = s.generateOverview(flow)
+
+	// 生成节点文档
+	doc.Nodes = s.generateNodeDocs(flow)
+
+	// 生成变量文档
+	doc.Variables = s.generateVariablesDoc(flow)
+
+	// 生成触发器文档
+	if flow.Trigger != nil {
+		doc.Trigger = s.generateTriggerDoc(flow.Trigger)
+	}
+
+	// 生成流程图
+	doc.FlowChart = s.generateFlowChart(flow)
+
+	return doc, nil
+}
+
+// generateOverview 生成流程概述
+func (s *Service) generateOverview(flow *Flow) string {
+	var overview strings.Builder
+
+	overview.WriteString(fmt.Sprintf("## 流程概述\n\n"))
+	overview.WriteString(fmt.Sprintf("**流程名称**: %s\n\n", flow.Name))
+
+	if flow.Description != "" {
+		overview.WriteString(fmt.Sprintf("**描述**: %s\n\n", flow.Description))
+	}
+
+	overview.WriteString(fmt.Sprintf("**类型**: %s\n\n", map[string]string{
+		"conversation": "对话流",
+		"task":         "任务流",
+	}[string(flow.Type)]))
+
+	overview.WriteString(fmt.Sprintf("**状态**: %s\n\n", map[string]string{
+		"draft":    "草稿",
+		"active":   "已启用",
+		"disabled": "已停用",
+	}[string(flow.Status)]))
+
+	overview.WriteString(fmt.Sprintf("**节点数量**: %d\n\n", len(flow.Definition.Nodes)))
+	overview.WriteString(fmt.Sprintf("**连线数量**: %d\n\n", len(flow.Definition.Edges)))
+
+	return overview.String()
+}
+
+// generateNodeDocs 生成节点文档
+func (s *Service) generateNodeDocs(flow *Flow) []NodeDoc {
+	var docs []NodeDoc
+
+	nodeTypeNames := map[NodeType]string{
+		NodeTypeStart:     "开始节点",
+		NodeTypeAgent:     "Agent 节点",
+		NodeTypeHuman:     "人工节点",
+		NodeTypeCondition: "条件分支",
+		NodeTypeParallel:  "并行执行",
+		NodeTypeLoop:      "循环执行",
+		NodeTypeSubFlow:   "子流程",
+		NodeTypeWebhook:   "Webhook 等待",
+		NodeTypeEnd:       "结束节点",
+	}
+
+	// 构建节点连接关系
+	nextNodesMap := make(map[string][]string)
+	for _, edge := range flow.Definition.Edges {
+		nextNodesMap[edge.Source] = append(nextNodesMap[edge.Source], edge.Target)
+	}
+
+	for _, node := range flow.Definition.Nodes {
+		doc := NodeDoc{
+			ID:   node.ID,
+			Name: node.Name,
+			Type: nodeTypeNames[node.Type],
+		}
+
+		// 生成描述
+		switch node.Type {
+		case NodeTypeAgent:
+			if node.AgentID != "" {
+				doc.Description = fmt.Sprintf("调用 Agent: %s", node.AgentID)
+			}
+			if node.Role != "" {
+				doc.Description += fmt.Sprintf(", 角色: %s", node.Role)
+			}
+		case NodeTypeHuman:
+			doc.Description = "等待人工输入"
+			if node.Prompt != "" {
+				doc.Description += fmt.Sprintf(": %s", truncate(node.Prompt, 50))
+			}
+		case NodeTypeCondition:
+			doc.Description = "条件判断分支"
+		case NodeTypeParallel:
+			doc.Description = "并行执行多个分支"
+		case NodeTypeLoop:
+			doc.Description = "循环执行"
+		case NodeTypeSubFlow:
+			doc.Description = "调用子流程"
+		case NodeTypeWebhook:
+			doc.Description = "等待 Webhook 回调"
+		}
+
+		// 输入输出
+		if node.Inputs != nil {
+			for k := range node.Inputs {
+				doc.Inputs = append(doc.Inputs, k)
+			}
+		}
+		if node.Outputs != nil {
+			for k := range node.Outputs {
+				doc.Outputs = append(doc.Outputs, k)
+			}
+		}
+
+		// 下游节点
+		if nextNodes, ok := nextNodesMap[node.ID]; ok {
+			for _, nextID := range nextNodes {
+				for _, n := range flow.Definition.Nodes {
+					if n.ID == nextID {
+						doc.NextNodes = append(doc.NextNodes, n.Name)
+						break
+					}
+				}
+			}
+		}
+
+		docs = append(docs, doc)
+	}
+
+	return docs
+}
+
+// generateVariablesDoc 生成变量文档
+func (s *Service) generateVariablesDoc(flow *Flow) VariablesDoc {
+	var doc VariablesDoc
+
+	// 输入变量
+	if flow.Definition.InputVars != nil {
+		for name, v := range flow.Definition.InputVars {
+			defaultVal := ""
+			if v.Default != nil {
+				defaultVal = fmt.Sprintf("%v", v.Default)
+			}
+			doc.Inputs = append(doc.Inputs, VariableDoc{
+				Name:        name,
+				Type:        v.Type,
+				Required:    v.Required,
+				Default:     defaultVal,
+				Description: v.Description,
+			})
+		}
+	}
+
+	// 输出变量
+	if flow.Definition.OutputVars != nil {
+		for name, v := range flow.Definition.OutputVars {
+			doc.Outputs = append(doc.Outputs, VariableDoc{
+				Name:        name,
+				Type:        v.Type,
+				Required:    v.Required,
+				Description: v.Description,
+			})
+		}
+	}
+
+	return doc
+}
+
+// generateTriggerDoc 生成触发器文档
+func (s *Service) generateTriggerDoc(trigger *TriggerConfig) *TriggerDoc {
+	doc := &TriggerDoc{
+		Config: make(map[string]string),
+	}
+
+	switch trigger.Type {
+	case "manual":
+		doc.Type = "手动触发"
+		doc.Description = "用户手动触发执行"
+	case "webhook":
+		doc.Type = "Webhook 触发"
+		doc.Description = "通过 HTTP 请求触发"
+		if trigger.Config != nil {
+			if path, ok := trigger.Config["path"].(string); ok {
+				doc.Config["path"] = path
+			}
+			if method, ok := trigger.Config["method"].(string); ok {
+				doc.Config["method"] = method
+			}
+		}
+	case "cron":
+		doc.Type = "定时触发"
+		doc.Description = "按计划定时执行"
+		if trigger.Config != nil {
+			if cron, ok := trigger.Config["cron"].(string); ok {
+				doc.Config["cron"] = cron
+			}
+		}
+	case "event":
+		doc.Type = "事件触发"
+		doc.Description = "响应系统事件执行"
+		if trigger.Config != nil {
+			if eventType, ok := trigger.Config["event_type"].(string); ok {
+				doc.Config["event_type"] = eventType
+			}
+		}
+	}
+
+	return doc
+}
+
+// generateFlowChart 生成流程图（Mermaid 格式）
+func (s *Service) generateFlowChart(flow *Flow) string {
+	var chart strings.Builder
+
+	chart.WriteString("```mermaid\n")
+	chart.WriteString("flowchart TD\n")
+
+	// 添加节点
+	for _, node := range flow.Definition.Nodes {
+		var label string
+		switch node.Type {
+		case NodeTypeStart:
+			label = fmt.Sprintf("%s([%s])", node.ID, node.Name)
+		case NodeTypeEnd:
+			label = fmt.Sprintf("%s([%s])", node.ID, node.Name)
+		case NodeTypeCondition:
+			label = fmt.Sprintf("%s{%s}", node.ID, node.Name)
+		default:
+			label = fmt.Sprintf("%s[%s]", node.ID, node.Name)
+		}
+		chart.WriteString(fmt.Sprintf("    %s\n", label))
+	}
+
+	chart.WriteString("\n")
+
+	// 添加连线
+	for _, edge := range flow.Definition.Edges {
+		label := ""
+		if edge.Label != "" {
+			label = fmt.Sprintf("|%s|", edge.Label)
+		}
+		chart.WriteString(fmt.Sprintf("    %s -->%s %s\n", edge.Source, label, edge.Target))
+	}
+
+	chart.WriteString("```\n")
+
+	return chart.String()
+}
+
+// truncate 截断字符串
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// ========== 测试用例管理 ==========
+
+// CreateTestCase 创建测试用例
+func (s *Service) CreateTestCase(tc *FlowTestCase) (*FlowTestCase, error) {
+	if tc.ID == "" {
+		tc.ID = "tc_" + generateID()
+	}
+	tc.CreatedAt = time.Now()
+	tc.UpdatedAt = time.Now()
+
+	inputJSON, _ := json.Marshal(tc.Input)
+	expectedJSON, _ := json.Marshal(tc.Expected)
+
+	_, err := s.db.Exec(`
+		INSERT INTO flow_test_cases (id, flow_id, name, description, input, expected, last_run_at, last_status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, tc.ID, tc.FlowID, tc.Name, tc.Description, string(inputJSON), string(expectedJSON), tc.LastRunAt, tc.LastStatus, tc.CreatedAt, tc.UpdatedAt)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create test case: %w", err)
+	}
+
+	return tc, nil
+}
+
+// ListTestCases 列出测试用例
+func (s *Service) ListTestCases(flowID string) ([]*FlowTestCase, error) {
+	query := "SELECT id, flow_id, name, description, input, expected, last_run_at, last_status, created_at, updated_at FROM flow_test_cases WHERE flow_id = ? ORDER BY created_at DESC"
+	rows, err := s.db.Query(query, flowID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list test cases: %w", err)
+	}
+	defer rows.Close()
+
+	var cases []*FlowTestCase
+	for rows.Next() {
+		var tc FlowTestCase
+		var inputJSON, expectedJSON sql.NullString
+		var lastRunAt sql.NullTime
+		err := rows.Scan(&tc.ID, &tc.FlowID, &tc.Name, &tc.Description, &inputJSON, &expectedJSON, &lastRunAt, &tc.LastStatus, &tc.CreatedAt, &tc.UpdatedAt)
+		if err != nil {
+			continue
+		}
+		if inputJSON.Valid {
+			json.Unmarshal([]byte(inputJSON.String), &tc.Input)
+		}
+		if expectedJSON.Valid {
+			json.Unmarshal([]byte(expectedJSON.String), &tc.Expected)
+		}
+		if lastRunAt.Valid {
+			tc.LastRunAt = &lastRunAt.Time
+		}
+		cases = append(cases, &tc)
+	}
+
+	return cases, nil
+}
+
+// GetTestCase 获取测试用例
+func (s *Service) GetTestCase(id string) (*FlowTestCase, error) {
+	var tc FlowTestCase
+	var inputJSON, expectedJSON sql.NullString
+	var lastRunAt sql.NullTime
+
+	err := s.db.QueryRow(`
+		SELECT id, flow_id, name, description, input, expected, last_run_at, last_status, created_at, updated_at
+		FROM flow_test_cases WHERE id = ?
+	`, id).Scan(&tc.ID, &tc.FlowID, &tc.Name, &tc.Description, &inputJSON, &expectedJSON, &lastRunAt, &tc.LastStatus, &tc.CreatedAt, &tc.UpdatedAt)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get test case: %w", err)
+	}
+
+	if inputJSON.Valid {
+		json.Unmarshal([]byte(inputJSON.String), &tc.Input)
+	}
+	if expectedJSON.Valid {
+		json.Unmarshal([]byte(expectedJSON.String), &tc.Expected)
+	}
+	if lastRunAt.Valid {
+		tc.LastRunAt = &lastRunAt.Time
+	}
+
+	return &tc, nil
+}
+
+// UpdateTestCase 更新测试用例
+func (s *Service) UpdateTestCase(id string, updates map[string]interface{}) error {
+	updates["updated_at"] = time.Now()
+
+	query := "UPDATE flow_test_cases SET "
+	var setClauses []string
+	var args []interface{}
+
+	for key, value := range updates {
+		if key == "input" || key == "expected" {
+			jsonBytes, _ := json.Marshal(value)
+			setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+			args = append(args, string(jsonBytes))
+		} else {
+			setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+			args = append(args, value)
+		}
+	}
+
+	query += strings.Join(setClauses, ", ") + " WHERE id = ?"
+	args = append(args, id)
+
+	_, err := s.db.Exec(query, args...)
+	return err
+}
+
+// DeleteTestCase 删除测试用例
+func (s *Service) DeleteTestCase(id string) error {
+	_, err := s.db.Exec("DELETE FROM flow_test_cases WHERE id = ?", id)
+	return err
+}
+
+// RunTestCase 执行测试用例
+func (s *Service) RunTestCase(id string) (*FlowTestRun, error) {
+	tc, err := s.GetTestCase(id)
+	if err != nil {
+		return nil, err
+	}
+
+	startTime := time.Now()
+	run := &FlowTestRun{
+		ID:         "tr_" + generateID(),
+		TestCaseID: tc.ID,
+		FlowID:     tc.FlowID,
+		Input:      tc.Input,
+		Expected:   tc.Expected,
+		CreatedAt:  startTime,
+	}
+
+	// 执行流程
+	inputJSON, _ := json.Marshal(tc.Input)
+	execReq := ExecuteRequest{
+		Input: string(inputJSON),
+	}
+
+	execResp, err := s.Execute(tc.FlowID, execReq)
+	if err != nil {
+		run.Status = "error"
+		run.Error = err.Error()
+	} else if execResp.Status == "failed" {
+		run.Status = "error"
+		run.Error = "execution failed"
+	} else {
+		// 解析输出
+		if execResp.Output != "" {
+			var outputMap map[string]interface{}
+			if err := json.Unmarshal([]byte(execResp.Output), &outputMap); err == nil {
+				run.Output = outputMap
+			} else {
+				run.Output = map[string]interface{}{"result": execResp.Output}
+			}
+		}
+
+		// 比较输出与期望
+		if s.compareOutput(run.Output, tc.Expected) {
+			run.Status = "passed"
+		} else {
+			run.Status = "failed"
+		}
+	}
+
+	run.Duration = time.Since(startTime).Milliseconds()
+
+	// 保存执行记录
+	inputJSON2, _ := json.Marshal(run.Input)
+	outputJSON, _ := json.Marshal(run.Output)
+	expectedJSON, _ := json.Marshal(run.Expected)
+
+	_, err = s.db.Exec(`
+		INSERT INTO flow_test_runs (id, test_case_id, flow_id, status, input, output, expected, duration, error, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, run.ID, run.TestCaseID, run.FlowID, run.Status, string(inputJSON2), string(outputJSON), string(expectedJSON), run.Duration, run.Error, run.CreatedAt)
+
+	if err != nil {
+		s.logger.Warn("failed to save test run", zap.Error(err))
+	}
+
+	// 更新测试用例状态
+	now := time.Now()
+	s.UpdateTestCase(id, map[string]interface{}{
+		"last_run_at":  &now,
+		"last_status":  run.Status,
+	})
+
+	return run, nil
+}
+
+// compareOutput 比较输出与期望
+func (s *Service) compareOutput(output, expected map[string]interface{}) bool {
+	if expected == nil || len(expected) == 0 {
+		return true // 没有期望则默认通过
+	}
+
+	for key, expectedValue := range expected {
+		outputValue, ok := output[key]
+		if !ok {
+			return false
+		}
+
+		if !s.compareValues(outputValue, expectedValue) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// compareValues 比较两个值
+func (s *Service) compareValues(a, b interface{}) bool {
+	aJSON, _ := json.Marshal(a)
+	bJSON, _ := json.Marshal(b)
+	return string(aJSON) == string(bJSON)
+}
+
+// ListTestRuns 列出测试执行记录
+func (s *Service) ListTestRuns(testCaseID string, limit int) ([]*FlowTestRun, error) {
+	query := "SELECT id, test_case_id, flow_id, status, input, output, expected, duration, error, created_at FROM flow_test_runs WHERE test_case_id = ? ORDER BY created_at DESC"
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", limit)
+	}
+
+	rows, err := s.db.Query(query, testCaseID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list test runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []*FlowTestRun
+	for rows.Next() {
+		var run FlowTestRun
+		var inputJSON, outputJSON, expectedJSON, errMsg sql.NullString
+		err := rows.Scan(&run.ID, &run.TestCaseID, &run.FlowID, &run.Status, &inputJSON, &outputJSON, &expectedJSON, &run.Duration, &errMsg, &run.CreatedAt)
+		if err != nil {
+			continue
+		}
+		if inputJSON.Valid {
+			json.Unmarshal([]byte(inputJSON.String), &run.Input)
+		}
+		if outputJSON.Valid {
+			json.Unmarshal([]byte(outputJSON.String), &run.Output)
+		}
+		if expectedJSON.Valid {
+			json.Unmarshal([]byte(expectedJSON.String), &run.Expected)
+		}
+		if errMsg.Valid {
+			run.Error = errMsg.String
+		}
+		runs = append(runs, &run)
+	}
+
+	return runs, nil
+}
+
+// GetTestStats 获取测试统计
+func (s *Service) GetTestStats(flowID string) (map[string]interface{}, error) {
+	stats := make(map[string]interface{})
+
+	// 总用例数
+	var totalCases int
+	s.db.QueryRow("SELECT COUNT(*) FROM flow_test_cases WHERE flow_id = ?", flowID).Scan(&totalCases)
+	stats["total_cases"] = totalCases
+
+	// 通过/失败数
+	var passed, failed int
+	s.db.QueryRow("SELECT COUNT(*) FROM flow_test_cases WHERE flow_id = ? AND last_status = 'passed'", flowID).Scan(&passed)
+	s.db.QueryRow("SELECT COUNT(*) FROM flow_test_cases WHERE flow_id = ? AND last_status = 'failed'", flowID).Scan(&failed)
+	stats["passed"] = passed
+	stats["failed"] = failed
+
+	// 通过率
+	if totalCases > 0 {
+		stats["pass_rate"] = float64(passed) / float64(totalCases) * 100
+	} else {
+		stats["pass_rate"] = 0.0
+	}
+
+	return stats, nil
 }

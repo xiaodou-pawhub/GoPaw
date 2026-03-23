@@ -7,6 +7,19 @@
         <p class="page-desc">统一管理对话流和任务流，支持可视化设计</p>
       </div>
       <div class="header-right">
+        <!-- 搜索框 -->
+        <div class="search-box">
+          <SearchIcon :size="16" />
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="搜索流程..."
+            @input="debouncedSearch"
+          />
+          <button v-if="searchQuery" class="clear-btn" @click="clearSearch">
+            <XIcon :size="14" />
+          </button>
+        </div>
         <div class="type-filter">
           <button
             class="filter-btn"
@@ -23,6 +36,22 @@
             :class="{ active: typeFilter === 'task' }"
             @click="typeFilter = 'task'"
           >任务流</button>
+        </div>
+        <!-- 批量操作 -->
+        <div v-if="selectedFlows.length > 0" class="batch-actions">
+          <span class="selected-count">已选 {{ selectedFlows.length }} 项</span>
+          <button class="btn-sm btn-success" @click="batchActivate">
+            <PlayIcon :size="14" /> 启用
+          </button>
+          <button class="btn-sm btn-warning" @click="batchDeactivate">
+            <PauseIcon :size="14" /> 停用
+          </button>
+          <button class="btn-sm btn-danger" @click="batchDelete">
+            <Trash2Icon :size="14" /> 删除
+          </button>
+          <button class="btn-sm btn-ghost" @click="clearSelection">
+            取消选择
+          </button>
         </div>
         <button class="btn-secondary" @click="triggerImport">
           <UploadIcon :size="16" /> 导入
@@ -99,8 +128,15 @@
           v-for="flow in filteredFlows"
           :key="flow.id"
           class="flow-card"
-          :class="{ active: flow.status === 'active' }"
+          :class="{ active: flow.status === 'active', selected: selectedFlows.includes(flow.id) }"
         >
+          <div class="card-select">
+            <input
+              type="checkbox"
+              :checked="selectedFlows.includes(flow.id)"
+              @change="toggleSelect(flow.id)"
+            />
+          </div>
           <div class="card-header">
             <div class="card-type" :class="flow.type">
               {{ flow.type === 'conversation' ? '对话流' : '任务流' }}
@@ -140,6 +176,12 @@
             </button>
             <button class="action-btn" @click="openVersionDialog(flow)" title="版本管理">
               <HistoryIcon :size="14" />
+            </button>
+            <button class="action-btn" @click="openTestDialog(flow)" title="测试">
+              <FlaskConicalIcon :size="14" />
+            </button>
+            <button class="action-btn" @click="openDocDialog(flow)" title="文档">
+              <FileTextIcon :size="14" />
             </button>
             <button class="action-btn" @click="exportFlow(flow)" title="导出">
               <DownloadIcon :size="14" />
@@ -489,6 +531,207 @@
       </div>
     </div>
   </div>
+
+  <!-- 文档对话框 -->
+  <div v-if="docDialog.show" class="modal-overlay" @click.self="docDialog.show = false">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h3>流程文档 - {{ docDialog.flowName }}</h3>
+        <button class="btn-icon" @click="docDialog.show = false"><XIcon :size="16" /></button>
+      </div>
+
+      <div class="modal-body doc-body" v-if="docDialog.loading">
+        <div class="loading-center"><LoaderIcon :size="24" class="spin" /> 加载中...</div>
+      </div>
+
+      <div class="modal-body doc-body" v-else-if="docDialog.doc">
+        <!-- 概述 -->
+        <div class="doc-section">
+          <div class="doc-overview" v-html="renderMarkdown(docDialog.doc.overview)"></div>
+        </div>
+
+        <!-- 触发器 -->
+        <div class="doc-section" v-if="docDialog.doc.trigger">
+          <h4>触发器</h4>
+          <div class="doc-trigger">
+            <span class="trigger-type">{{ docDialog.doc.trigger.type }}</span>
+            <span class="trigger-desc">{{ docDialog.doc.trigger.description }}</span>
+            <div v-if="docDialog.doc.trigger.config" class="trigger-config">
+              <span v-for="(v, k) in docDialog.doc.trigger.config" :key="k" class="config-item">
+                <strong>{{ k }}:</strong> {{ v }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 变量 -->
+        <div class="doc-section" v-if="docDialog.doc.variables?.inputs?.length || docDialog.doc.variables?.outputs?.length">
+          <h4>变量</h4>
+          <div class="doc-vars">
+            <div v-if="docDialog.doc.variables?.inputs?.length" class="var-group">
+              <h5>输入变量</h5>
+              <table class="var-table">
+                <thead><tr><th>名称</th><th>类型</th><th>必填</th><th>默认值</th><th>说明</th></tr></thead>
+                <tbody>
+                  <tr v-for="v in docDialog.doc.variables.inputs" :key="v.name">
+                    <td><code>{{ v.name }}</code></td>
+                    <td>{{ v.type }}</td>
+                    <td>{{ v.required ? '是' : '否' }}</td>
+                    <td>{{ v.default || '-' }}</td>
+                    <td>{{ v.description || '-' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="docDialog.doc.variables?.outputs?.length" class="var-group">
+              <h5>输出变量</h5>
+              <table class="var-table">
+                <thead><tr><th>名称</th><th>类型</th><th>说明</th></tr></thead>
+                <tbody>
+                  <tr v-for="v in docDialog.doc.variables.outputs" :key="v.name">
+                    <td><code>{{ v.name }}</code></td>
+                    <td>{{ v.type }}</td>
+                    <td>{{ v.description || '-' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 节点 -->
+        <div class="doc-section" v-if="docDialog.doc.nodes?.length">
+          <h4>节点列表</h4>
+          <div class="doc-nodes">
+            <div v-for="node in docDialog.doc.nodes" :key="node.id" class="doc-node">
+              <div class="node-header">
+                <span class="node-id">{{ node.id }}</span>
+                <span class="node-name">{{ node.name }}</span>
+                <span class="node-type badge">{{ node.type }}</span>
+              </div>
+              <div class="node-desc" v-if="node.description">{{ node.description }}</div>
+              <div class="node-io" v-if="node.inputs?.length || node.outputs?.length">
+                <span v-if="node.inputs?.length" class="node-inputs">
+                  输入: {{ node.inputs.join(', ') }}
+                </span>
+                <span v-if="node.outputs?.length" class="node-outputs">
+                  输出: {{ node.outputs.join(', ') }}
+                </span>
+              </div>
+              <div class="node-next" v-if="node.next_nodes?.length">
+                下一步: {{ node.next_nodes.join(' → ') }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 流程图 -->
+        <div class="doc-section" v-if="docDialog.doc.flow_chart">
+          <h4>流程图</h4>
+          <div class="doc-flowchart">
+            <pre>{{ docDialog.doc.flow_chart }}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 测试用例对话框 -->
+  <div v-if="testDialog.show" class="modal-overlay" @click.self="testDialog.show = false">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h3>测试用例 - {{ testDialog.flowName }}</h3>
+        <button class="btn-icon" @click="testDialog.show = false"><XIcon :size="16" /></button>
+      </div>
+
+      <div class="modal-body test-body">
+        <!-- 统计 -->
+        <div class="test-stats" v-if="testDialog.stats">
+          <div class="stat-item">
+            <span class="stat-value">{{ testDialog.stats.total_cases }}</span>
+            <span class="stat-label">总用例</span>
+          </div>
+          <div class="stat-item passed">
+            <span class="stat-value">{{ testDialog.stats.passed }}</span>
+            <span class="stat-label">通过</span>
+          </div>
+          <div class="stat-item failed">
+            <span class="stat-value">{{ testDialog.stats.failed }}</span>
+            <span class="stat-label">失败</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ testDialog.stats.pass_rate?.toFixed(1) }}%</span>
+            <span class="stat-label">通过率</span>
+          </div>
+        </div>
+
+        <!-- 用例列表 -->
+        <div class="test-cases">
+          <div class="cases-header">
+            <span>测试用例</span>
+            <button class="btn-sm btn-primary" @click="showCreateTestCase">+ 新建</button>
+          </div>
+
+          <div v-if="testDialog.loading" class="loading-center">
+            <LoaderIcon :size="20" class="spin" />
+          </div>
+
+          <div v-else-if="testDialog.cases.length === 0" class="no-cases">
+            <p>暂无测试用例</p>
+            <button class="btn-secondary" @click="showCreateTestCase">创建第一个测试用例</button>
+          </div>
+
+          <div v-else class="case-list">
+            <div v-for="tc in testDialog.cases" :key="tc.id" class="case-item" :class="tc.last_status">
+              <div class="case-info">
+                <span class="case-name">{{ tc.name }}</span>
+                <span class="case-desc">{{ tc.description || '无描述' }}</span>
+              </div>
+              <div class="case-status">
+                <span v-if="tc.last_status === 'passed'" class="status-badge passed">通过</span>
+                <span v-else-if="tc.last_status === 'failed'" class="status-badge failed">失败</span>
+                <span v-else-if="tc.last_status === 'error'" class="status-badge error">错误</span>
+                <span v-else class="status-badge">未运行</span>
+              </div>
+              <div class="case-actions">
+                <button class="btn-sm btn-success" @click="runTestCase(tc)" :disabled="tc.running">
+                  <LoaderIcon v-if="tc.running" :size="12" class="spin" />
+                  <PlayIcon v-else :size="12" /> 运行
+                </button>
+                <button class="btn-sm btn-ghost" @click="editTestCase(tc)">编辑</button>
+                <button class="btn-sm btn-danger" @click="deleteTestCase(tc.id)">删除</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 创建/编辑用例表单 -->
+        <div v-if="testDialog.showForm" class="case-form">
+          <h4>{{ testDialog.editingCase ? '编辑用例' : '新建用例' }}</h4>
+          <div class="form-group">
+            <label>名称</label>
+            <input v-model="testDialog.form.name" type="text" placeholder="用例名称" />
+          </div>
+          <div class="form-group">
+            <label>描述</label>
+            <input v-model="testDialog.form.description" type="text" placeholder="用例描述" />
+          </div>
+          <div class="form-group">
+            <label>输入 (JSON)</label>
+            <textarea v-model="testDialog.form.input" placeholder='{"key": "value"}' rows="3"></textarea>
+          </div>
+          <div class="form-group">
+            <label>期望输出 (JSON)</label>
+            <textarea v-model="testDialog.form.expected" placeholder='{"result": "expected"}' rows="3"></textarea>
+          </div>
+          <div class="form-actions">
+            <button class="btn-secondary" @click="testDialog.showForm = false">取消</button>
+            <button class="btn-primary" @click="saveTestCase">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -496,7 +739,7 @@ import { ref, computed, onMounted } from 'vue'
 import {
   PlusIcon, EditIcon, Trash2Icon, PlayIcon, PauseIcon, RocketIcon,
   LoaderIcon, GitBranchIcon, XIcon, FileTextIcon, ChevronDownIcon,
-  UploadIcon, DownloadIcon, HistoryIcon
+  UploadIcon, DownloadIcon, HistoryIcon, SearchIcon, FlaskConicalIcon
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import FlowDesigner from '@/components/flow/FlowDesigner.vue'
@@ -522,6 +765,13 @@ const flows = ref<Flow[]>([])
 const agents = ref<Agent[]>([])
 const typeFilter = ref('')
 const showTemplates = ref(false)
+
+// 搜索
+const searchQuery = ref('')
+const searchTimeout = ref<number | null>(null)
+
+// 批量操作
+const selectedFlows = ref<string[]>([])
 
 // 版本管理
 interface FlowVersion {
@@ -578,6 +828,53 @@ const versionDiffDialog = ref({
   nodeChanges: [] as NodeChange[],
   edgeChanges: [] as EdgeChange[],
   summary: {} as DiffSummary
+})
+
+// 文档对话框
+interface FlowDocumentation {
+  flow_id: string
+  flow_name: string
+  description: string
+  overview: string
+  nodes: { id: string; name: string; type: string; description: string; inputs?: string[]; outputs?: string[]; next_nodes?: string[] }[]
+  variables: { inputs?: { name: string; type: string; required: boolean; default?: string; description?: string }[]; outputs?: { name: string; type: string; description?: string }[] }
+  trigger?: { type: string; description: string; config?: Record<string, string> }
+  flow_chart: string
+}
+const docDialog = ref({
+  show: false,
+  flowId: '',
+  flowName: '',
+  loading: false,
+  doc: null as FlowDocumentation | null
+})
+
+// 测试用例对话框
+interface TestCase {
+  id: string
+  flow_id: string
+  name: string
+  description: string
+  input: Record<string, any>
+  expected: Record<string, any>
+  last_status: string
+  running?: boolean
+}
+const testDialog = ref({
+  show: false,
+  flowId: '',
+  flowName: '',
+  loading: false,
+  cases: [] as TestCase[],
+  stats: null as { total_cases: number; passed: number; failed: number; pass_rate: number } | null,
+  showForm: false,
+  editingCase: null as TestCase | null,
+  form: {
+    name: '',
+    description: '',
+    input: '',
+    expected: ''
+  }
 })
 
 // 预置模板
@@ -728,7 +1025,12 @@ onMounted(async () => {
 
 async function loadFlows() {
   try {
-    const res = await fetch('/api/flows')
+    const params = new URLSearchParams()
+    if (typeFilter.value) params.append('type', typeFilter.value)
+    if (searchQuery.value) params.append('search', searchQuery.value)
+    
+    const url = '/api/flows' + (params.toString() ? '?' + params.toString() : '')
+    const res = await fetch(url)
     if (res.ok) {
       const data = await res.json()
       flows.value = Array.isArray(data) ? data : []
@@ -927,6 +1229,102 @@ function generateId(): string {
   return 'flow_' + Math.random().toString(36).substring(2, 10)
 }
 
+// 搜索功能
+function debouncedSearch() {
+  if (searchTimeout.value) {
+    clearTimeout(searchTimeout.value)
+  }
+  searchTimeout.value = window.setTimeout(() => {
+    loadFlows()
+  }, 300)
+}
+
+function clearSearch() {
+  searchQuery.value = ''
+  loadFlows()
+}
+
+// 批量操作功能
+function toggleSelect(flowId: string) {
+  const index = selectedFlows.value.indexOf(flowId)
+  if (index === -1) {
+    selectedFlows.value.push(flowId)
+  } else {
+    selectedFlows.value.splice(index, 1)
+  }
+}
+
+function clearSelection() {
+  selectedFlows.value = []
+}
+
+async function batchActivate() {
+  if (selectedFlows.value.length === 0) return
+  
+  try {
+    const res = await fetch('/api/flows/batch/activate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: selectedFlows.value })
+    })
+    if (res.ok) {
+      const result = await res.json()
+      alert(`成功启用 ${result.success_count} 个流程${result.failed_count > 0 ? `，失败 ${result.failed_count} 个` : ''}`)
+      clearSelection()
+      loadFlows()
+    }
+  } catch (e) {
+    console.error('Batch activate failed:', e)
+    alert('批量启用失败')
+  }
+}
+
+async function batchDeactivate() {
+  if (selectedFlows.value.length === 0) return
+  
+  try {
+    const res = await fetch('/api/flows/batch/deactivate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: selectedFlows.value })
+    })
+    if (res.ok) {
+      const result = await res.json()
+      alert(`成功停用 ${result.success_count} 个流程${result.failed_count > 0 ? `，失败 ${result.failed_count} 个` : ''}`)
+      clearSelection()
+      loadFlows()
+    }
+  } catch (e) {
+    console.error('Batch deactivate failed:', e)
+    alert('批量停用失败')
+  }
+}
+
+async function batchDelete() {
+  if (selectedFlows.value.length === 0) return
+  
+  if (!confirm(`确定要删除选中的 ${selectedFlows.value.length} 个流程吗？此操作不可恢复。`)) {
+    return
+  }
+  
+  try {
+    const res = await fetch('/api/flows/batch/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: selectedFlows.value })
+    })
+    if (res.ok) {
+      const result = await res.json()
+      alert(`成功删除 ${result.success_count} 个流程${result.failed_count > 0 ? `，失败 ${result.failed_count} 个` : ''}`)
+      clearSelection()
+      loadFlows()
+    }
+  } catch (e) {
+    console.error('Batch delete failed:', e)
+    alert('批量删除失败')
+  }
+}
+
 function formatDate(dateStr: string): string {
   if (!dateStr) return ''
   const d = new Date(dateStr)
@@ -1033,6 +1431,178 @@ async function loadVersions() {
     console.error('Failed to load versions:', e)
   } finally {
     versionDialog.value.loading = false
+  }
+}
+
+// 文档功能
+async function openDocDialog(flow: Flow) {
+  docDialog.value = {
+    show: true,
+    flowId: flow.id,
+    flowName: flow.name,
+    loading: true,
+    doc: null
+  }
+  
+  try {
+    const res = await fetch(`/api/flows/${flow.id}/documentation`)
+    if (res.ok) {
+      docDialog.value.doc = await res.json()
+    }
+  } catch (e) {
+    console.error('Failed to load documentation:', e)
+  } finally {
+    docDialog.value.loading = false
+  }
+}
+
+function renderMarkdown(text: string): string {
+  if (!text) return ''
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>')
+}
+
+// 测试用例功能
+async function openTestDialog(flow: Flow) {
+  testDialog.value = {
+    show: true,
+    flowId: flow.id,
+    flowName: flow.name,
+    loading: true,
+    cases: [],
+    stats: null,
+    showForm: false,
+    editingCase: null,
+    form: { name: '', description: '', input: '', expected: '' }
+  }
+  await loadTestCases()
+  await loadTestStats()
+}
+
+async function loadTestCases() {
+  try {
+    const res = await fetch(`/api/flows/${testDialog.value.flowId}/test-cases`)
+    if (res.ok) {
+      testDialog.value.cases = await res.json()
+    }
+  } catch (e) {
+    console.error('Failed to load test cases:', e)
+  } finally {
+    testDialog.value.loading = false
+  }
+}
+
+async function loadTestStats() {
+  try {
+    const res = await fetch(`/api/flows/${testDialog.value.flowId}/test-stats`)
+    if (res.ok) {
+      testDialog.value.stats = await res.json()
+    }
+  } catch (e) {
+    console.error('Failed to load test stats:', e)
+  }
+}
+
+function showCreateTestCase() {
+  testDialog.value.editingCase = null
+  testDialog.value.form = { name: '', description: '', input: '{}', expected: '{}' }
+  testDialog.value.showForm = true
+}
+
+function editTestCase(tc: TestCase) {
+  testDialog.value.editingCase = tc
+  testDialog.value.form = {
+    name: tc.name,
+    description: tc.description,
+    input: JSON.stringify(tc.input || {}, null, 2),
+    expected: JSON.stringify(tc.expected || {}, null, 2)
+  }
+  testDialog.value.showForm = true
+}
+
+async function saveTestCase() {
+  const form = testDialog.value.form
+  let input = {}
+  let expected = {}
+  
+  try {
+    input = JSON.parse(form.input || '{}')
+    expected = JSON.parse(form.expected || '{}')
+  } catch (e) {
+    alert('JSON 格式错误')
+    return
+  }
+
+  const data = {
+    name: form.name,
+    description: form.description,
+    input,
+    expected
+  }
+
+  try {
+    let res
+    if (testDialog.value.editingCase) {
+      res = await fetch(`/api/flows/test-cases/${testDialog.value.editingCase.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      })
+    } else {
+      res = await fetch(`/api/flows/${testDialog.value.flowId}/test-cases`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      })
+    }
+
+    if (res.ok) {
+      testDialog.value.showForm = false
+      loadTestCases()
+      loadTestStats()
+    } else {
+      alert('保存失败')
+    }
+  } catch (e) {
+    console.error('Failed to save test case:', e)
+    alert('保存失败')
+  }
+}
+
+async function runTestCase(tc: TestCase) {
+  tc.running = true
+  try {
+    const res = await fetch(`/api/flows/test-cases/${tc.id}/run`, {
+      method: 'POST'
+    })
+    if (res.ok) {
+      const result = await res.json()
+      tc.last_status = result.status
+      loadTestStats()
+      alert(result.status === 'passed' ? '测试通过' : `测试${result.status}: ${result.error || '输出与期望不符'}`)
+    }
+  } catch (e) {
+    console.error('Failed to run test case:', e)
+    alert('运行失败')
+  } finally {
+    tc.running = false
+  }
+}
+
+async function deleteTestCase(id: string) {
+  if (!confirm('确定要删除此测试用例吗？')) return
+  
+  try {
+    const res = await fetch(`/api/flows/test-cases/${id}`, {
+      method: 'DELETE'
+    })
+    if (res.ok) {
+      loadTestCases()
+      loadTestStats()
+    }
+  } catch (e) {
+    console.error('Failed to delete test case:', e)
   }
 }
 
@@ -1203,6 +1773,46 @@ function getNextCronTime(schedule: string): string {
 .page-title { font-size: 20px; font-weight: 600; color: var(--text-primary); margin: 0 0 4px 0; }
 .page-desc { font-size: 13px; color: var(--text-secondary); margin: 0; }
 .header-right { display: flex; align-items: center; gap: 12px; }
+
+/* 搜索框 */
+.search-box {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: 6px; min-width: 200px;
+}
+.search-box input {
+  flex: 1; border: none; background: transparent; outline: none;
+  font-size: 13px; color: var(--text-primary);
+}
+.search-box input::placeholder { color: var(--text-tertiary); }
+.search-box .clear-btn {
+  padding: 2px; background: transparent; border: none;
+  cursor: pointer; color: var(--text-tertiary);
+}
+.search-box .clear-btn:hover { color: var(--text-secondary); }
+
+/* 批量操作 */
+.batch-actions {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px; background: var(--accent-dim); border-radius: 6px;
+}
+.selected-count {
+  font-size: 12px; color: var(--accent); font-weight: 500;
+}
+.btn-sm {
+  display: flex; align-items: center; gap: 4px;
+  padding: 4px 8px; border: none; border-radius: 4px;
+  font-size: 12px; cursor: pointer;
+}
+.btn-success { background: #10b981; color: #fff; }
+.btn-success:hover { background: #059669; }
+.btn-warning { background: #f59e0b; color: #fff; }
+.btn-warning:hover { background: #d97706; }
+.btn-danger { background: #ef4444; color: #fff; }
+.btn-danger:hover { background: #dc2626; }
+.btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--bg-overlay); }
+
 .type-filter { display: flex; gap: 4px; }
 .filter-btn {
   padding: 6px 12px; background: var(--bg-elevated); border: 1px solid var(--border);
@@ -1250,10 +1860,18 @@ function getNextCronTime(schedule: string): string {
 .flow-card {
   background: var(--bg-elevated); border: 1px solid var(--border);
   border-radius: 8px; padding: 16px; transition: all 0.15s;
+  position: relative;
 }
 .flow-card:hover { border-color: var(--accent); }
 .flow-card.active { border-left: 3px solid var(--accent); }
-.card-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.flow-card.selected { border-color: var(--accent); background: var(--accent-dim); }
+.card-select {
+  position: absolute; top: 12px; left: 12px;
+}
+.card-select input {
+  width: 16px; height: 16px; cursor: pointer;
+}
+.card-header { display: flex; justify-content: space-between; margin-bottom: 8px; padding-left: 24px; }
 .card-type {
   font-size: 10px; padding: 2px 6px; border-radius: 4px;
   background: var(--bg-app); color: var(--text-secondary);
@@ -1811,5 +2429,244 @@ function getNextCronTime(schedule: string): string {
   color: var(--text-tertiary);
 }
 
+/* 文档对话框 */
+.doc-body {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.loading-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px;
+  color: var(--text-muted);
+}
+
+.doc-section {
+  margin-bottom: 24px;
+}
+
+.doc-section h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.doc-overview {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.doc-trigger {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trigger-type {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.trigger-desc {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.trigger-config {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.config-item {
+  color: var(--text-secondary);
+}
+
+.doc-vars {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.var-group h5 {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+
+.var-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.var-table th, .var-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.var-table th {
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-app);
+}
+
+.var-table code {
+  background: var(--bg-overlay);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.doc-nodes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.doc-node {
+  padding: 12px;
+  background: var(--bg-app);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.doc-node .node-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.doc-node .node-id {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.doc-node .node-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.doc-node .node-type {
+  font-size: 10px;
+  padding: 1px 4px;
+  background: var(--bg-overlay);
+}
+
+.doc-node .node-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.doc-node .node-io {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  gap: 16px;
+}
+
+.doc-node .node-next {
+  font-size: 11px;
+  color: var(--accent);
+  margin-top: 6px;
+}
+
+.doc-flowchart {
+  background: var(--bg-app);
+  border-radius: 6px;
+  padding: 16px;
+  overflow-x: auto;
+}
+
+.doc-flowchart pre {
+  margin: 0;
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
 .execution-panel-wrap { width: 560px; max-width: 95vw; max-height: 90vh; overflow: hidden; border-radius: 10px; }
+
+/* 测试用例对话框 */
+.test-body { max-height: 70vh; overflow-y: auto; }
+.test-stats {
+  display: flex; gap: 16px; padding: 16px; background: var(--bg-app);
+  border-radius: 8px; margin-bottom: 16px;
+}
+.stat-item { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.stat-value { font-size: 24px; font-weight: 700; color: var(--text-primary); }
+.stat-label { font-size: 12px; color: var(--text-muted); }
+.stat-item.passed .stat-value { color: #22c55e; }
+.stat-item.failed .stat-value { color: #ef4444; }
+
+.test-cases { margin-bottom: 16px; }
+.cases-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 12px;
+}
+.cases-header span { font-weight: 600; color: var(--text-primary); }
+
+.no-cases { text-align: center; padding: 40px; color: var(--text-muted); }
+.no-cases p { margin-bottom: 12px; }
+
+.case-list { display: flex; flex-direction: column; gap: 8px; }
+.case-item {
+  display: flex; align-items: center; gap: 12px; padding: 12px;
+  background: var(--bg-app); border: 1px solid var(--border);
+  border-radius: 6px; border-left: 3px solid var(--border);
+}
+.case-item.passed { border-left-color: #22c55e; }
+.case-item.failed { border-left-color: #ef4444; }
+.case-item.error { border-left-color: #f59e0b; }
+
+.case-info { flex: 1; min-width: 0; }
+.case-name { font-weight: 500; color: var(--text-primary); display: block; }
+.case-desc { font-size: 12px; color: var(--text-muted); }
+
+.case-status { width: 80px; text-align: center; }
+.status-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 500; background: var(--bg-overlay);
+  color: var(--text-muted);
+}
+.status-badge.passed { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.status-badge.failed { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.status-badge.error { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+
+.case-actions { display: flex; gap: 4px; }
+
+.case-form {
+  background: var(--bg-app); border: 1px solid var(--border);
+  border-radius: 8px; padding: 16px; margin-top: 16px;
+}
+.case-form h4 { margin: 0 0 12px; font-size: 14px; }
+.form-group { margin-bottom: 12px; }
+.form-group label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+.form-group input, .form-group textarea {
+  width: 100%; padding: 8px; border: 1px solid var(--border);
+  border-radius: 4px; background: var(--bg-elevated); color: var(--text-primary);
+  font-size: 13px;
+}
+.form-group textarea { font-family: monospace; }
+.form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.btn-primary {
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 12px; background: var(--accent); border: none;
+  border-radius: 4px; color: #fff; font-size: 12px; cursor: pointer;
+}
+.btn-primary:hover { opacity: 0.9; }
 </style>

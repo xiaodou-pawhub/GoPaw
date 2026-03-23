@@ -374,5 +374,109 @@ func InitSchema(db *sql.DB) error {
 	// SQLite 不支持 IF NOT EXISTS，使用忽略错误的方式
 	db.Exec(`ALTER TABLE flow_executions ADD COLUMN trigger TEXT DEFAULT 'manual'`)
 
+	// 初始化节点模板表
+	if err := InitNodeTemplateSchema(db); err != nil {
+		return err
+	}
+
+	// 初始化测试用例表
+	if err := InitTestCaseSchema(db); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// NodeTemplate 节点模板
+type NodeTemplate struct {
+	ID          string                 `json:"id" db:"id"`
+	Name        string                 `json:"name" db:"name"`
+	Description string                 `json:"description" db:"description"`
+	Category    string                 `json:"category" db:"category"`       // 分类：agent, human, condition, etc.
+	NodeType    NodeType               `json:"node_type" db:"node_type"`     // 节点类型
+	NodeConfig  map[string]interface{} `json:"node_config" db:"node_config"` // 节点配置模板
+	IsPublic    bool                   `json:"is_public" db:"is_public"`     // 是否公开
+	UseCount    int                    `json:"use_count" db:"use_count"`     // 使用次数
+	CreatedAt   time.Time              `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at" db:"updated_at"`
+}
+
+// InitNodeTemplateSchema 初始化节点模板表
+func InitNodeTemplateSchema(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS node_templates (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT,
+			category TEXT NOT NULL,
+			node_type TEXT NOT NULL,
+			node_config TEXT,
+			is_public INTEGER DEFAULT 0,
+			use_count INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	return err
+}
+
+// FlowTestCase 流程测试用例
+type FlowTestCase struct {
+	ID          string                 `json:"id" db:"id"`
+	FlowID      string                 `json:"flow_id" db:"flow_id"`
+	Name        string                 `json:"name" db:"name"`
+	Description string                 `json:"description" db:"description"`
+	Input       map[string]interface{} `json:"input" db:"input"`             // 测试输入
+	Expected    map[string]interface{} `json:"expected" db:"expected"`       // 期望输出
+	LastRunAt   *time.Time             `json:"last_run_at" db:"last_run_at"` // 最后执行时间
+	LastStatus  string                 `json:"last_status" db:"last_status"` // 最后执行状态
+	CreatedAt   time.Time              `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at" db:"updated_at"`
+}
+
+// FlowTestRun 测试执行记录
+type FlowTestRun struct {
+	ID         string                 `json:"id" db:"id"`
+	TestCaseID string                 `json:"test_case_id" db:"test_case_id"`
+	FlowID     string                 `json:"flow_id" db:"flow_id"`
+	Status     string                 `json:"status" db:"status"` // passed, failed, error
+	Input      map[string]interface{} `json:"input" db:"input"`
+	Output     map[string]interface{} `json:"output" db:"output"`
+	Expected   map[string]interface{} `json:"expected" db:"expected"`
+	Duration   int64                  `json:"duration" db:"duration"` // 毫秒
+	Error      string                 `json:"error" db:"error"`
+	CreatedAt  time.Time              `json:"created_at" db:"created_at"`
+}
+
+// InitTestCaseSchema 初始化测试用例表
+func InitTestCaseSchema(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS flow_test_cases (
+			id TEXT PRIMARY KEY,
+			flow_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			description TEXT,
+			input TEXT,
+			expected TEXT,
+			last_run_at DATETIME,
+			last_status TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE IF NOT EXISTS flow_test_runs (
+			id TEXT PRIMARY KEY,
+			test_case_id TEXT NOT NULL,
+			flow_id TEXT NOT NULL,
+			status TEXT NOT NULL,
+			input TEXT,
+			output TEXT,
+			expected TEXT,
+			duration INTEGER DEFAULT 0,
+			error TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_test_cases_flow ON flow_test_cases(flow_id);
+		CREATE INDEX IF NOT EXISTS idx_test_runs_case ON flow_test_runs(test_case_id);
+	`)
+	return err
 }

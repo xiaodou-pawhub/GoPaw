@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -47,14 +48,28 @@ func (h *FlowHandler) RegisterRoutes(r *gin.RouterGroup) {
 		flows.POST("", h.CreateFlow)
 		flows.GET("/node-types", h.GetNodeTypes)
 		flows.POST("/import", h.ImportFlow)
+		flows.POST("/batch/activate", h.BatchActivateFlows)
+		flows.POST("/batch/deactivate", h.BatchDeactivateFlows)
+		flows.POST("/batch/delete", h.BatchDeleteFlows)
 		flows.GET("/:id", h.GetFlow)
 		flows.PUT("/:id", h.UpdateFlow)
 		flows.DELETE("/:id", h.DeleteFlow)
 		flows.POST("/:id/duplicate", h.DuplicateFlow)
 		flows.GET("/:id/export", h.ExportFlow)
+		flows.GET("/:id/documentation", h.GetFlowDocumentation)
 		flows.POST("/:id/execute", h.ExecuteFlow)
 		flows.POST("/:id/activate", h.ActivateFlow)
 		flows.POST("/:id/deactivate", h.DeactivateFlow)
+
+		// 测试用例
+		flows.GET("/:id/test-cases", h.ListTestCases)
+		flows.POST("/:id/test-cases", h.CreateTestCase)
+		flows.GET("/:id/test-stats", h.GetTestStats)
+		flows.GET("/test-cases/:caseId", h.GetTestCase)
+		flows.PUT("/test-cases/:caseId", h.UpdateTestCase)
+		flows.DELETE("/test-cases/:caseId", h.DeleteTestCase)
+		flows.POST("/test-cases/:caseId/run", h.RunTestCase)
+		flows.GET("/test-cases/:caseId/runs", h.ListTestRuns)
 
 		// 版本管理
 		flows.GET("/:id/versions", h.ListVersions)
@@ -71,6 +86,15 @@ func (h *FlowHandler) RegisterRoutes(r *gin.RouterGroup) {
 		flows.POST("/templates", h.CreateTemplate)
 		flows.POST("/templates/:id/use", h.UseTemplate)
 		flows.DELETE("/templates/:id", h.DeleteTemplate)
+
+		// 节点模板
+		flows.GET("/node-templates", h.ListNodeTemplates)
+		flows.GET("/node-templates/categories", h.GetNodeTemplateCategories)
+		flows.GET("/node-templates/:id", h.GetNodeTemplate)
+		flows.POST("/node-templates", h.CreateNodeTemplate)
+		flows.POST("/node-templates/:id/use", h.UseNodeTemplate)
+		flows.PUT("/node-templates/:id", h.UpdateNodeTemplate)
+		flows.DELETE("/node-templates/:id", h.DeleteNodeTemplate)
 
 		// 执行记录
 		flows.GET("/:id/executions", h.ListExecutions)
@@ -119,8 +143,9 @@ func (h *FlowHandler) RegisterRoutes(r *gin.RouterGroup) {
 func (h *FlowHandler) ListFlows(c *gin.Context) {
 	flowType := flow.FlowType(c.Query("type"))
 	status := flow.FlowStatus(c.Query("status"))
+	search := c.Query("search")
 
-	flows, err := h.service.ListFlows(flowType, status)
+	flows, err := h.service.ListFlows(flowType, status, search)
 	if err != nil {
 		h.logger.Error("failed to list flows", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -238,6 +263,69 @@ func (h *FlowHandler) DeactivateFlow(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, f)
+}
+
+// BatchActivateFlows 批量激活流程
+func (h *FlowHandler) BatchActivateFlows(c *gin.Context) {
+	var req struct {
+		IDs []string `json:"ids" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	success, failed := h.service.BatchUpdateStatus(req.IDs, flow.FlowStatusActive)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success_count": len(success),
+		"failed_count":  len(failed),
+		"success":       success,
+		"failed":        failed,
+	})
+}
+
+// BatchDeactivateFlows 批量停用流程
+func (h *FlowHandler) BatchDeactivateFlows(c *gin.Context) {
+	var req struct {
+		IDs []string `json:"ids" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	success, failed := h.service.BatchUpdateStatus(req.IDs, flow.FlowStatusDisabled)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success_count": len(success),
+		"failed_count":  len(failed),
+		"success":       success,
+		"failed":        failed,
+	})
+}
+
+// BatchDeleteFlows 批量删除流程
+func (h *FlowHandler) BatchDeleteFlows(c *gin.Context) {
+	var req struct {
+		IDs []string `json:"ids" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	success, failed := h.service.BatchDeleteFlows(req.IDs)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success_count": len(success),
+		"failed_count":  len(failed),
+		"success":       success,
+		"failed":        failed,
+	})
 }
 
 // ExportFlow 导出流程
@@ -1126,4 +1214,253 @@ func (h *FlowHandler) PurgeDeadLetters(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "deleted_count": count})
+}
+
+// ========== 节点模板管理 ==========
+
+// ListNodeTemplates 列出节点模板
+func (h *FlowHandler) ListNodeTemplates(c *gin.Context) {
+	category := c.Query("category")
+	nodeType := flow.NodeType(c.Query("node_type"))
+
+	templates, err := h.service.ListNodeTemplates(category, nodeType)
+	if err != nil {
+		h.logger.Error("failed to list node templates", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, templates)
+}
+
+// GetNodeTemplateCategories 获取节点模板分类
+func (h *FlowHandler) GetNodeTemplateCategories(c *gin.Context) {
+	categories, err := h.service.GetNodeTemplateCategories()
+	if err != nil {
+		h.logger.Error("failed to get node template categories", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, categories)
+}
+
+// GetNodeTemplate 获取节点模板
+func (h *FlowHandler) GetNodeTemplate(c *gin.Context) {
+	id := c.Param("id")
+
+	template, err := h.service.GetNodeTemplate(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "template not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, template)
+}
+
+// CreateNodeTemplate 创建节点模板
+func (h *FlowHandler) CreateNodeTemplate(c *gin.Context) {
+	var template flow.NodeTemplate
+	if err := c.ShouldBindJSON(&template); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	created, err := h.service.CreateNodeTemplate(&template)
+	if err != nil {
+		h.logger.Error("failed to create node template", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, created)
+}
+
+// UseNodeTemplate 使用节点模板
+func (h *FlowHandler) UseNodeTemplate(c *gin.Context) {
+	id := c.Param("id")
+
+	template, err := h.service.UseNodeTemplate(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "template not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, template)
+}
+
+// UpdateNodeTemplate 更新节点模板
+func (h *FlowHandler) UpdateNodeTemplate(c *gin.Context) {
+	id := c.Param("id")
+
+	var updates map[string]interface{}
+	if err := c.ShouldBindJSON(&updates); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.service.UpdateNodeTemplate(id, updates); err != nil {
+		h.logger.Error("failed to update node template", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// DeleteNodeTemplate 删除节点模板
+func (h *FlowHandler) DeleteNodeTemplate(c *gin.Context) {
+	id := c.Param("id")
+
+	if err := h.service.DeleteNodeTemplate(id); err != nil {
+		h.logger.Error("failed to delete node template", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// GetFlowDocumentation 获取流程文档
+func (h *FlowHandler) GetFlowDocumentation(c *gin.Context) {
+	id := c.Param("id")
+
+	doc, err := h.service.GenerateDocumentation(id)
+	if err != nil {
+		h.logger.Error("failed to generate documentation", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, doc)
+}
+
+// ========== 测试用例管理 ==========
+
+// ListTestCases 列出测试用例
+func (h *FlowHandler) ListTestCases(c *gin.Context) {
+	flowID := c.Param("id")
+
+	cases, err := h.service.ListTestCases(flowID)
+	if err != nil {
+		h.logger.Error("failed to list test cases", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, cases)
+}
+
+// CreateTestCase 创建测试用例
+func (h *FlowHandler) CreateTestCase(c *gin.Context) {
+	flowID := c.Param("id")
+
+	var tc flow.FlowTestCase
+	if err := c.ShouldBindJSON(&tc); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	tc.FlowID = flowID
+
+	created, err := h.service.CreateTestCase(&tc)
+	if err != nil {
+		h.logger.Error("failed to create test case", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, created)
+}
+
+// GetTestCase 获取测试用例
+func (h *FlowHandler) GetTestCase(c *gin.Context) {
+	caseID := c.Param("caseId")
+
+	tc, err := h.service.GetTestCase(caseID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "test case not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, tc)
+}
+
+// UpdateTestCase 更新测试用例
+func (h *FlowHandler) UpdateTestCase(c *gin.Context) {
+	caseID := c.Param("caseId")
+
+	var updates map[string]interface{}
+	if err := c.ShouldBindJSON(&updates); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.service.UpdateTestCase(caseID, updates); err != nil {
+		h.logger.Error("failed to update test case", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// DeleteTestCase 删除测试用例
+func (h *FlowHandler) DeleteTestCase(c *gin.Context) {
+	caseID := c.Param("caseId")
+
+	if err := h.service.DeleteTestCase(caseID); err != nil {
+		h.logger.Error("failed to delete test case", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// RunTestCase 执行测试用例
+func (h *FlowHandler) RunTestCase(c *gin.Context) {
+	caseID := c.Param("caseId")
+
+	run, err := h.service.RunTestCase(caseID)
+	if err != nil {
+		h.logger.Error("failed to run test case", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, run)
+}
+
+// ListTestRuns 列出测试执行记录
+func (h *FlowHandler) ListTestRuns(c *gin.Context) {
+	caseID := c.Param("caseId")
+	limit := 10
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil {
+			limit = parsed
+		}
+	}
+
+	runs, err := h.service.ListTestRuns(caseID, limit)
+	if err != nil {
+		h.logger.Error("failed to list test runs", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, runs)
+}
+
+// GetTestStats 获取测试统计
+func (h *FlowHandler) GetTestStats(c *gin.Context) {
+	flowID := c.Param("id")
+
+	stats, err := h.service.GetTestStats(flowID)
+	if err != nil {
+		h.logger.Error("failed to get test stats", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
 }
