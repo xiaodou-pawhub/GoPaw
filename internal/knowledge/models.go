@@ -87,6 +87,42 @@ type SearchResult struct {
 	Metadata     Metadata `json:"metadata"`
 }
 
+// DocumentVersion 文档版本
+type DocumentVersion struct {
+	ID         string    `json:"id" db:"id"`
+	DocumentID string    `json:"document_id" db:"document_id"`
+	Version    int       `json:"version" db:"version"`
+	FileHash   string    `json:"file_hash" db:"file_hash"`
+	Content    []byte    `json:"-" db:"content"` // 不返回给前端
+	ChangeType string    `json:"change_type" db:"change_type"` // created/updated/rollback
+	ChangeNote string    `json:"change_note" db:"change_note"`
+	CreatedAt  time.Time `json:"created_at" db:"created_at"`
+	CreatedBy  string    `json:"created_by" db:"created_by"`
+}
+
+// KnowledgeStats 知识库统计
+type KnowledgeStats struct {
+	KnowledgeBaseID string     `json:"knowledge_base_id"`
+	DocumentCount   int        `json:"document_count"`
+	ChunkCount      int        `json:"chunk_count"`
+	TotalTokens     int64      `json:"total_tokens"`
+	TotalSize       int64      `json:"total_size"`
+	ProcessedCount  int        `json:"processed_count"`
+	PendingCount    int        `json:"pending_count"`
+	FailedCount     int        `json:"failed_count"`
+	AvgChunkSize    float64    `json:"avg_chunk_size"`
+	LastUpdated     *time.Time `json:"last_updated,omitempty"`
+}
+
+// QueryStats 查询统计
+type QueryStats struct {
+	KnowledgeBaseID string     `json:"knowledge_base_id"`
+	TotalQueries    int64      `json:"total_queries"`
+	AvgLatencyMs    float64    `json:"avg_latency_ms"`
+	AvgResultCount  float64    `json:"avg_result_count"`
+	LastQueriedAt   *time.Time `json:"last_queried_at,omitempty"`
+}
+
 // CreateKnowledgeBaseRequest 创建知识库请求
 type CreateKnowledgeBaseRequest struct {
 	Name        string `json:"name" binding:"required"`
@@ -203,6 +239,56 @@ func InitSchema(db *sql.DB) error {
 	}
 
 	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_kb_chunks_kb ON knowledge_chunks(knowledge_base_id)`)
+	if err != nil {
+		return err
+	}
+
+	// 文档版本表
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS document_versions (
+			id TEXT PRIMARY KEY,
+			document_id TEXT NOT NULL,
+			version INTEGER NOT NULL,
+			file_hash TEXT NOT NULL,
+			content BLOB,
+			change_type TEXT DEFAULT 'updated',
+			change_note TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_by TEXT,
+			FOREIGN KEY (document_id) REFERENCES knowledge_documents(id) ON DELETE CASCADE
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_doc_versions_doc ON document_versions(document_id)`)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_doc_versions_unique ON document_versions(document_id, version)`)
+	if err != nil {
+		return err
+	}
+
+	// 查询统计表
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS knowledge_query_stats (
+			id TEXT PRIMARY KEY,
+			knowledge_base_id TEXT NOT NULL,
+			query_text TEXT,
+			result_count INTEGER,
+			latency_ms INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_query_stats_kb ON knowledge_query_stats(knowledge_base_id)`)
 	if err != nil {
 		return err
 	}

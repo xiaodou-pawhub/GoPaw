@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/knowledge"
@@ -35,8 +37,17 @@ func (h *KnowledgeHandler) RegisterRoutes(router *gin.RouterGroup) {
 		kb.DELETE("/:id/documents/:docId", h.DeleteDocument)
 		kb.POST("/:id/documents/:docId/retry", h.RetryDocument)
 
+		// 文档版本管理
+		kb.GET("/:id/documents/:docId/versions", h.ListDocumentVersions)
+		kb.POST("/:id/documents/:docId/versions", h.CreateDocumentVersion)
+		kb.POST("/:id/documents/:docId/versions/:version/rollback", h.RollbackDocumentVersion)
+
 		// 搜索
 		kb.POST("/:id/search", h.Search)
+
+		// 查询统计
+		kb.GET("/:id/query-stats", h.GetQueryStats)
+		kb.GET("/:id/query-stats/daily", h.GetDailyQueryStats)
 	}
 }
 
@@ -237,4 +248,97 @@ func getFileTypeFromName(filename string) string {
 	}
 
 	return "txt"
+}
+
+// ========== 版本管理 ==========
+
+// ListDocumentVersions 列出文档版本
+func (h *KnowledgeHandler) ListDocumentVersions(c *gin.Context) {
+	docID := c.Param("docId")
+
+	versions, err := h.service.ListDocumentVersions(c.Request.Context(), docID)
+	if err != nil {
+		api.InternalErrorWithDetails(c, "failed to list versions", err)
+		return
+	}
+
+	api.Success(c, versions)
+}
+
+// CreateDocumentVersion 创建文档版本
+func (h *KnowledgeHandler) CreateDocumentVersion(c *gin.Context) {
+	docID := c.Param("docId")
+
+	var req struct {
+		ChangeNote string `json:"change_note"`
+	}
+	c.ShouldBindJSON(&req)
+
+	version, err := h.service.CreateDocumentVersion(c.Request.Context(), docID, req.ChangeNote, "")
+	if err != nil {
+		api.InternalErrorWithDetails(c, "failed to create version", err)
+		return
+	}
+
+	api.Created(c, version)
+}
+
+// RollbackDocumentVersion 回滚文档版本
+func (h *KnowledgeHandler) RollbackDocumentVersion(c *gin.Context) {
+	docID := c.Param("docId")
+	versionStr := c.Param("version")
+
+	var version int
+	if _, err := fmt.Sscanf(versionStr, "%d", &version); err != nil {
+		api.BadRequest(c, "invalid version number")
+		return
+	}
+
+	doc, err := h.service.RollbackDocumentVersion(c.Request.Context(), docID, version)
+	if err != nil {
+		api.InternalErrorWithDetails(c, "failed to rollback version", err)
+		return
+	}
+
+	api.SuccessWithMessage(c, "rolled back successfully", doc)
+}
+
+// ========== 统计功能 ==========
+
+// GetQueryStats 获取查询统计
+func (h *KnowledgeHandler) GetQueryStats(c *gin.Context) {
+	kbID := c.Param("id")
+	days := 7
+	if d := c.Query("days"); d != "" {
+		if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 {
+			days = parsed
+		}
+	}
+
+	stats, err := h.service.GetQueryStats(c.Request.Context(), kbID, days)
+	if err != nil {
+		api.InternalErrorWithDetails(c, "failed to get query stats", err)
+		return
+	}
+
+	api.Success(c, stats)
+}
+
+// GetDailyQueryStats 获取每日查询统计
+func (h *KnowledgeHandler) GetDailyQueryStats(c *gin.Context) {
+	kbID := c.Param("id")
+	days := 7
+	if d := c.Query("days"); d != "" {
+		if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 {
+			days = parsed
+		}
+	}
+
+	stats, err := h.service.GetDailyQueryStats(c.Request.Context(), kbID, days)
+	if err != nil {
+		api.InternalErrorWithDetails(c, "failed to get daily query stats", err)
+		return
+	}
+
+	api.Success(c, stats)
 }

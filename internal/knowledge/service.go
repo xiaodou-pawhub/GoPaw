@@ -386,3 +386,214 @@ func (s *Service) GetGlobalInjectContent(ctx context.Context) (string, error) {
 
 	return strings.Join(parts, "\n\n---\n\n"), nil
 }
+
+// ========== 版本管理 ==========
+
+// CreateDocumentVersion 创建文档版本
+func (s *Service) CreateDocumentVersion(ctx context.Context, docID, changeNote, createdBy string) (*DocumentVersion, error) {
+	// 获取文档
+	doc, err := s.GetDocument(ctx, docID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 获取下一个版本号
+	var maxVersion int
+	err = s.db.QueryRowContext(ctx,
+		"SELECT COALESCE(MAX(version), 0) FROM document_versions WHERE document_id = ?",
+		docID).Scan(&maxVersion)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	nextVersion := maxVersion + 1
+	versionID := fmt.Sprintf("dv_%d", time.Now().UnixNano())
+
+	version := &DocumentVersion{
+		ID:         versionID,
+		DocumentID: docID,
+		Version:    nextVersion,
+		FileHash:   doc.FileHash,
+		Content:    doc.Content,
+		ChangeType: "updated",
+		ChangeNote: changeNote,
+		CreatedAt:  time.Now(),
+		CreatedBy:  createdBy,
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO document_versions (id, document_id, version, file_hash, content, change_type, change_note, created_at, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, version.ID, version.DocumentID, version.Version, version.FileHash, version.Content, version.ChangeType, version.ChangeNote, version.CreatedAt, version.CreatedBy)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create version: %w", err)
+	}
+
+	return version, nil
+}
+
+// ListDocumentVersions 列出文档版本
+func (s *Service) ListDocumentVersions(ctx context.Context, docID string) ([]DocumentVersion, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, document_id, version, file_hash, change_type, change_note, created_at, created_by
+		FROM document_versions
+		WHERE document_id = ?
+		ORDER BY version DESC
+	`, docID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var versions []DocumentVersion
+	for rows.Next() {
+		var v DocumentVersion
+		var createdBy sql.NullString
+		err := rows.Scan(&v.ID, &v.DocumentID, &v.Version, &v.FileHash, &v.ChangeType, &v.ChangeNote, &v.CreatedAt, &createdBy)
+		if err != nil {
+			continue
+		}
+		if createdBy.Valid {
+			v.CreatedBy = createdBy.String
+		}
+		versions = append(versions, v)
+	}
+
+	return versions, nil
+}
+
+// RollbackDocumentVersion 回滚到指定版本
+func (s *Service) RollbackDocumentVersion(ctx context.Context, docID string, version int) (*Document, error) {
+	// 获取版本内容
+	var content []byte
+	var fileHash string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT content, file_hash FROM document_versions WHERE document_id = ? AND version = ?",
+		docID, version).Scan(&content, &fileHash)
+	if err != nil {
+		return nil, fmt.Errorf("version not found: %w", err)
+	}
+
+	// 更新文档
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE knowledge_documents SET content = ?, file_hash = ?, status = 'pending', error_message = ''
+		WHERE id = ?
+	`, content, fileHash, docID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update document: %w", err)
+	}
+
+	// 创建回滚版本记录
+	_, _ = s.CreateDocumentVersion(ctx, docID, fmt.Sprintf("Rollback to version %d", version), "")
+
+	// 重新处理文档
+	go s.processDocument(context.Background(), docID)
+
+	return s.GetDocument(ctx, docID)
+}
+
+// ========== 统计功能 ==========
+
+// GetKnowledgeStats 获取知识库统计
+func (s *Service) GetKnowledgeStats(ctx context.Context, kbID string) (*KnowledgeStats, error) {
+	stats := &KnowledgeStats{KnowledgeBaseID: kbID}
+
+	// 文档统计
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(*) as total,
+			COALESCE(SUM(file_size), 0) as total_size,
+			COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) as processed,
+			COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as pending,
+			COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed,
+			MAX(updated_at) as last_updated
+		FROM knowledge_documents WHERE knowledge_base_id = ?
+	`, kbID).Scan(&stats.DocumentCount, &stats.TotalSize, &stats.ProcessedCount, &stats.PendingCount, &stats.FailedCount, &stats.LastUpdated)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// 切片统计
+	err = s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(token_count), 0)
+		FROM knowledge_chunks WHERE knowledge_base_id = ?
+	`, kbID).Scan(&stats.ChunkCount, &stats.TotalTokens)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// 平均切片大小
+	if stats.ChunkCount > 0 {
+		stats.AvgChunkSize = float64(stats.TotalTokens) / float64(stats.ChunkCount)
+	}
+
+	return stats, nil
+}
+
+// GetQueryStats 获取查询统计
+func (s *Service) GetQueryStats(ctx context.Context, kbID string, days int) (*QueryStats, error) {
+	stats := &QueryStats{KnowledgeBaseID: kbID}
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(*) as total,
+			COALESCE(AVG(latency_ms), 0) as avg_latency,
+			COALESCE(AVG(result_count), 0) as avg_results,
+			MAX(created_at) as last_queried
+		FROM knowledge_query_stats
+		WHERE knowledge_base_id = ? AND created_at >= datetime('now', '-' || ? || ' days')
+	`, kbID, days).Scan(&stats.TotalQueries, &stats.AvgLatencyMs, &stats.AvgResultCount, &stats.LastQueriedAt)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	return stats, nil
+}
+
+// RecordQuery 记录查询
+func (s *Service) RecordQuery(ctx context.Context, kbID, queryText string, resultCount int, latencyMs int64) error {
+	id := fmt.Sprintf("qs_%d", time.Now().UnixNano())
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO knowledge_query_stats (id, knowledge_base_id, query_text, result_count, latency_ms)
+		VALUES (?, ?, ?, ?, ?)
+	`, id, kbID, queryText, resultCount, latencyMs)
+	return err
+}
+
+// GetDailyQueryStats 获取每日查询统计
+func (s *Service) GetDailyQueryStats(ctx context.Context, kbID string, days int) ([]map[string]interface{}, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			date(created_at) as date,
+			COUNT(*) as queries,
+			AVG(latency_ms) as avg_latency,
+			AVG(result_count) as avg_results
+		FROM knowledge_query_stats
+		WHERE knowledge_base_id = ? AND created_at >= datetime('now', '-' || ? || ' days')
+		GROUP BY date(created_at)
+		ORDER BY date DESC
+	`, kbID, days)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		var date string
+		var queries int64
+		var avgLatency, avgResults float64
+		if err := rows.Scan(&date, &queries, &avgLatency, &avgResults); err != nil {
+			continue
+		}
+		results = append(results, map[string]interface{}{
+			"date":        date,
+			"queries":     queries,
+			"avg_latency": avgLatency,
+			"avg_results": avgResults,
+		})
+	}
+
+	return results, nil
+}
