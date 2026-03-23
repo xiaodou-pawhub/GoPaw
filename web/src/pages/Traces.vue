@@ -153,10 +153,12 @@ async function loadTraces() {
       listTraces({ limit: 100 }),
       getTraceStats()
     ])
-    traces.value = tracesRes.traces
-    stats.value = statsRes
+    traces.value = tracesRes?.traces || []
+    stats.value = statsRes || { total_traces: 0, completed: 0, errors: 0, avg_duration_ms: 0 }
   } catch (err) {
     console.error('Failed to load traces:', err)
+    traces.value = []
+    stats.value = { total_traces: 0, completed: 0, errors: 0, avg_duration_ms: 0 }
   } finally {
     loading.value = false
   }
