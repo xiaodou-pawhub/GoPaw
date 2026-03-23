@@ -29,6 +29,46 @@
         <label>输出变量名 <span class="hint-inline">（可选，默认用节点 ID）</span></label>
         <input v-model="localData.output_var" type="text" placeholder="如：result，后续节点可用 {{result}}" @input="onUpdate" />
       </div>
+
+      <!-- 输入映射 -->
+      <div class="mapping-section">
+        <div class="mapping-header">
+          <label>输入映射</label>
+          <button class="btn-add-small" @click="addInputMapping">+ 添加</button>
+        </div>
+        <p class="mapping-hint">将上游节点的输出映射为本节点的输入变量</p>
+        <div v-if="getInputMappings().length === 0" class="mapping-empty">
+          暂无输入映射，将使用默认输入
+        </div>
+        <div v-else class="mapping-list">
+          <div v-for="(mapping, index) in getInputMappings()" :key="'in_'+index" class="mapping-item">
+            <input v-model="mapping.localName" type="text" class="mapping-name" placeholder="本节点变量名" @input="onUpdate" />
+            <span class="mapping-arrow">←</span>
+            <input v-model="mapping.sourceExpr" type="text" class="mapping-source" placeholder="{{上游变量}}" @input="onUpdate" />
+            <button class="icon-btn icon-danger" @click="removeInputMapping(index)">×</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 输出映射 -->
+      <div class="mapping-section">
+        <div class="mapping-header">
+          <label>输出映射</label>
+          <button class="btn-add-small" @click="addOutputMapping">+ 添加</button>
+        </div>
+        <p class="mapping-hint">将本节点的输出存储为全局变量</p>
+        <div v-if="getOutputMappings().length === 0" class="mapping-empty">
+          暂无输出映射
+        </div>
+        <div v-else class="mapping-list">
+          <div v-for="(mapping, index) in getOutputMappings()" :key="'out_'+index" class="mapping-item">
+            <input v-model="mapping.outputName" type="text" class="mapping-name" placeholder="输出字段名" @input="onUpdate" />
+            <span class="mapping-arrow">→</span>
+            <input v-model="mapping.storeName" type="text" class="mapping-source" placeholder="存储变量名" @input="onUpdate" />
+            <button class="icon-btn icon-danger" @click="removeOutputMapping(index)">×</button>
+          </div>
+        </div>
+      </div>
     </template>
 
     <!-- 人工节点 -->
@@ -59,37 +99,92 @@
           v-model="getConfig().condition_type"
           :options="conditionTypeOptions"
           placeholder="请选择条件类型..."
-          @change="onUpdate"
+          @change="onConditionTypeChange"
         />
       </div>
-      <div v-if="getConfig().condition_type === 'expression'" class="form-group">
-        <label>表达式</label>
-        <input v-model="getConfig().expression" type="text" placeholder="{{score}} > 80" @input="onUpdate" />
-        <span class="hint">支持变量替换和简单比较</span>
-      </div>
-      <div v-if="getConfig().condition_type === 'intent'" class="form-group">
-        <label>意图关键词</label>
-        <input v-model="getConfig().intent" type="text" placeholder="查询,订单" @input="onUpdate" />
-        <span class="hint">多个关键词用逗号分隔</span>
-      </div>
-      <div v-if="getConfig().condition_type === 'llm'" class="form-group">
-        <label>LLM 判断提示</label>
-        <textarea v-model="getConfig().llm_query" rows="3" placeholder="根据用户情绪判断..." @input="onUpdate" />
-      </div>
-      <!-- 分支预览 -->
-      <div v-if="conditionBranches" class="branch-preview">
-        <div class="branch-title">分支走向</div>
-        <div class="branch-item branch-true">
-          <span class="branch-badge true">True</span>
-          <span class="branch-arrow">→</span>
-          <span class="branch-target">{{ conditionBranches.true || '未连接' }}</span>
+
+      <!-- 二分模式：是/否 -->
+      <template v-if="getConfig().condition_type !== 'switch'">
+        <div v-if="getConfig().condition_type === 'expression'" class="form-group">
+          <label>表达式</label>
+          <input v-model="getConfig().expression" type="text" placeholder="{{score}} > 80" @input="onUpdate" />
+          <span class="hint">支持变量替换和简单比较</span>
         </div>
-        <div class="branch-item branch-false">
-          <span class="branch-badge false">False</span>
-          <span class="branch-arrow">→</span>
-          <span class="branch-target">{{ conditionBranches.false || '未连接' }}</span>
+        <div v-if="getConfig().condition_type === 'intent'" class="form-group">
+          <label>意图关键词</label>
+          <input v-model="getConfig().intent" type="text" placeholder="查询,订单" @input="onUpdate" />
+          <span class="hint">多个关键词用逗号分隔</span>
         </div>
-      </div>
+        <div v-if="getConfig().condition_type === 'llm'" class="form-group">
+          <label>LLM 判断提示</label>
+          <textarea v-model="getConfig().llm_query" rows="3" placeholder="根据用户情绪判断..." @input="onUpdate" />
+        </div>
+        <!-- 二分模式分支预览 -->
+        <div v-if="conditionBranches" class="branch-preview">
+          <div class="branch-title">分支走向</div>
+          <div class="branch-item branch-true">
+            <span class="branch-badge true">是</span>
+            <span class="branch-arrow">→</span>
+            <span class="branch-target">{{ conditionBranches.true || '未连接' }}</span>
+          </div>
+          <div class="branch-item branch-false">
+            <span class="branch-badge false">否</span>
+            <span class="branch-arrow">→</span>
+            <span class="branch-target">{{ conditionBranches.false || '未连接' }}</span>
+          </div>
+        </div>
+      </template>
+
+      <!-- Switch 模式：多分支 -->
+      <template v-if="getConfig().condition_type === 'switch'">
+        <div class="branch-list">
+          <div class="branch-list-header">
+            <span>分支配置</span>
+            <button class="btn-add-small" @click="addBranch">+ 添加分支</button>
+          </div>
+          <div v-for="(branch, index) in getBranches()" :key="index" class="branch-config-item">
+            <div class="branch-config-header">
+              <input
+                v-model="branch.label"
+                type="text"
+                class="branch-label-input"
+                placeholder="分支名称"
+                @input="onUpdate"
+              />
+              <button v-if="getBranches().length > 1" class="icon-btn icon-danger" @click="removeBranch(index)">×</button>
+            </div>
+            <div class="branch-condition-row">
+              <Combobox
+                v-model="branch.condition_type"
+                :options="branchConditionTypeOptions"
+                placeholder="条件类型"
+                @change="onUpdate"
+              />
+            </div>
+            <div v-if="branch.condition_type === 'expression'" class="branch-condition-row">
+              <input v-model="branch.expression" type="text" placeholder="{{var}} == 'value'" @input="onUpdate" />
+            </div>
+            <div v-if="branch.condition_type === 'intent'" class="branch-condition-row">
+              <input v-model="branch.intent" type="text" placeholder="关键词1,关键词2" @input="onUpdate" />
+            </div>
+            <div v-if="branch.condition_type === 'llm'" class="branch-condition-row">
+              <textarea v-model="branch.llm_query" rows="2" placeholder="LLM 判断提示..." @input="onUpdate" />
+            </div>
+            <div v-if="branch.condition_type === 'always'" class="branch-condition-row hint">
+              无条件执行（默认分支）
+            </div>
+          </div>
+        </div>
+        <!-- Switch 模式分支预览 -->
+        <div v-if="switchBranches.length > 0" class="branch-preview">
+          <div class="branch-title">分支走向</div>
+          <div v-for="(branch, index) in switchBranches" :key="index" class="branch-item">
+            <span class="branch-badge" :class="getBranchBadgeClass(index)">{{ branch.label }}</span>
+            <span class="branch-arrow">→</span>
+            <span class="branch-target">{{ branch.target || '未连接' }}</span>
+          </div>
+        </div>
+      </template>
     </template>
 
     <!-- 并行节点 -->
@@ -198,6 +293,15 @@ const flowOptions = computed(() => {
 const conditionTypeOptions = [
   { value: 'expression', label: '表达式' },
   { value: 'intent', label: '意图匹配' },
+  { value: 'llm', label: 'LLM 判断' },
+  { value: 'switch', label: '多分支 (Switch)' }
+]
+
+// 分支条件类型选项
+const branchConditionTypeOptions = [
+  { value: 'always', label: '默认（无条件）' },
+  { value: 'expression', label: '表达式' },
+  { value: 'intent', label: '意图匹配' },
   { value: 'llm', label: 'LLM 判断' }
 ]
 
@@ -209,13 +313,81 @@ const conditionBranches = computed(() => {
     const n = (props.nodes || []).find(n => n.id === id)
     return n?.data?.name || id
   }
-  const trueBranch = outEdges.find(e => e.sourceHandle === 'true' || e.label === 'true')
-  const falseBranch = outEdges.find(e => e.sourceHandle === 'false' || e.label === 'false')
+  const trueBranch = outEdges.find(e => e.sourceHandle === 'true' || e.sourceHandle === '是' || e.label === 'true' || e.label === '是')
+  const falseBranch = outEdges.find(e => e.sourceHandle === 'false' || e.sourceHandle === '否' || e.label === 'false' || e.label === '否')
   return {
     true: trueBranch ? getNodeName(trueBranch.target) : null,
     false: falseBranch ? getNodeName(falseBranch.target) : null,
   }
 })
+
+// Switch 模式分支预览
+const switchBranches = computed(() => {
+  if (props.nodeType !== 'condition' || !props.nodeId) return []
+  const branches = getBranches()
+  const outEdges = (props.edges || []).filter(e => e.source === props.nodeId)
+  const getNodeName = (id: string) => {
+    const n = (props.nodes || []).find(n => n.id === id)
+    return n?.data?.name || id
+  }
+  return branches.map((branch, index) => {
+    const edge = outEdges.find(e => e.sourceHandle === branch.label || e.label === branch.label)
+    return {
+      label: branch.label || `分支${index + 1}`,
+      target: edge ? getNodeName(edge.target) : null
+    }
+  })
+})
+
+// 获取分支列表
+function getBranches(): Array<{ label: string; condition_type: string; expression?: string; intent?: string; llm_query?: string }> {
+  const cfg = getConfig()
+  if (!cfg.branches) {
+    // 默认两个分支
+    cfg.branches = [
+      { label: '是', condition_type: 'always' },
+      { label: '否', condition_type: 'always' }
+    ]
+  }
+  return cfg.branches
+}
+
+// 添加分支
+function addBranch() {
+  const branches = getBranches()
+  branches.push({
+    label: `分支${branches.length + 1}`,
+    condition_type: 'always'
+  })
+  onUpdate()
+}
+
+// 删除分支
+function removeBranch(index: number) {
+  getBranches().splice(index, 1)
+  onUpdate()
+}
+
+// 条件类型变更
+function onConditionTypeChange(value: string | number | null) {
+  if (value === 'switch') {
+    // 初始化多分支配置
+    const cfg = getConfig()
+    if (!cfg.branches) {
+      cfg.branches = [
+        { label: '分支1', condition_type: 'always' },
+        { label: '默认', condition_type: 'always' }
+      ]
+    }
+  }
+  onUpdate()
+}
+
+// 获取分支徽章样式
+function getBranchBadgeClass(index: number): string {
+  const colors = ['branch-1', 'branch-2', 'branch-3', 'branch-4', 'branch-5']
+  return colors[index % colors.length]
+}
 
 function getConfig(): Record<string, any> {
   if (!localData.value.config) localData.value.config = {}
@@ -226,6 +398,91 @@ function getOptions(): string[] {
   const cfg = getConfig()
   if (!cfg.options) cfg.options = []
   return cfg.options
+}
+
+// 输入映射相关
+interface InputMapping {
+  localName: string
+  sourceExpr: string
+}
+
+function getInputMappings(): InputMapping[] {
+  if (!localData.value.inputs) localData.value.inputs = {}
+  // 将对象转换为数组便于编辑
+  const mappings: InputMapping[] = []
+  const inputs = localData.value.inputs
+  for (const [localName, sourceExpr] of Object.entries(inputs)) {
+    mappings.push({ localName, sourceExpr: String(sourceExpr) })
+  }
+  return mappings
+}
+
+function addInputMapping() {
+  if (!localData.value.inputs) localData.value.inputs = {}
+  const mappings = getInputMappings()
+  mappings.push({ localName: '', sourceExpr: '' })
+  // 重新构建 inputs 对象
+  localData.value.inputs = {}
+  for (const m of mappings) {
+    if (m.localName) {
+      localData.value.inputs[m.localName] = m.sourceExpr
+    }
+  }
+  onUpdate()
+}
+
+function removeInputMapping(index: number) {
+  const mappings = getInputMappings()
+  mappings.splice(index, 1)
+  // 重新构建 inputs 对象
+  localData.value.inputs = {}
+  for (const m of mappings) {
+    if (m.localName) {
+      localData.value.inputs[m.localName] = m.sourceExpr
+    }
+  }
+  onUpdate()
+}
+
+// 输出映射相关
+interface OutputMapping {
+  outputName: string
+  storeName: string
+}
+
+function getOutputMappings(): OutputMapping[] {
+  if (!localData.value.outputs) localData.value.outputs = {}
+  const mappings: OutputMapping[] = []
+  const outputs = localData.value.outputs
+  for (const [outputName, storeName] of Object.entries(outputs)) {
+    mappings.push({ outputName, storeName: String(storeName) })
+  }
+  return mappings
+}
+
+function addOutputMapping() {
+  if (!localData.value.outputs) localData.value.outputs = {}
+  const mappings = getOutputMappings()
+  mappings.push({ outputName: '', storeName: '' })
+  localData.value.outputs = {}
+  for (const m of mappings) {
+    if (m.outputName) {
+      localData.value.outputs[m.outputName] = m.storeName
+    }
+  }
+  onUpdate()
+}
+
+function removeOutputMapping(index: number) {
+  const mappings = getOutputMappings()
+  mappings.splice(index, 1)
+  localData.value.outputs = {}
+  for (const m of mappings) {
+    if (m.outputName) {
+      localData.value.outputs[m.outputName] = m.storeName
+    }
+  }
+  onUpdate()
 }
 
 watch(() => props.nodeData, (newData) => {
@@ -306,6 +563,11 @@ function removeOption(index: number) {
 .branch-badge { padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
 .branch-badge.true { background: #dcfce7; color: #16a34a; }
 .branch-badge.false { background: #fee2e2; color: #dc2626; }
+.branch-badge.branch-1 { background: #dbeafe; color: #2563eb; }
+.branch-badge.branch-2 { background: #fef3c7; color: #d97706; }
+.branch-badge.branch-3 { background: #f3e8ff; color: #9333ea; }
+.branch-badge.branch-4 { background: #e0f2fe; color: #0891b2; }
+.branch-badge.branch-5 { background: #fce7f3; color: #db2777; }
 .branch-arrow { color: var(--text-muted); }
 .branch-target { color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .divider { height: 1px; background: var(--border); margin: 12px 0; }
@@ -324,4 +586,159 @@ function removeOption(index: number) {
   gap: 4px;
 }
 .btn-danger:hover { background: #fee2e2; }
+
+/* 多分支配置样式 */
+.branch-list { margin-bottom: 12px; }
+.branch-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.btn-add-small {
+  padding: 2px 8px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+.btn-add-small:hover { background: var(--bg-overlay); }
+.branch-config-item {
+  padding: 8px;
+  margin-bottom: 8px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.branch-config-header {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.branch-label-input {
+  flex: 1;
+  padding: 4px 6px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+}
+.branch-condition-row {
+  margin-bottom: 4px;
+}
+.branch-condition-row:last-child { margin-bottom: 0; }
+.branch-condition-row input,
+.branch-condition-row textarea {
+  width: 100%;
+  padding: 4px 6px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+/* 输入输出映射样式 */
+.mapping-section {
+  margin-top: 12px;
+  padding: 10px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.mapping-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.mapping-header label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.mapping-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin: 0 0 8px 0;
+}
+
+.mapping-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 8px;
+}
+
+.mapping-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mapping-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mapping-name,
+.mapping-source {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.mapping-arrow {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.icon-btn:hover {
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+}
+
+.icon-btn.icon-danger {
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+.icon-btn.icon-danger:hover {
+  background: #fee2e2;
+}
+
+.branch-condition-row textarea { resize: vertical; min-height: 40px; }
 </style>

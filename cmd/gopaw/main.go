@@ -612,6 +612,14 @@ func runStart() {
 			if flowService != nil && agentRouter != nil {
 				flowService.SetAgentRouter(agentRouter)
 			}
+			// Set cron service for triggers
+			if flowService != nil && cronService != nil {
+				flowService.SetCronService(cronService)
+			}
+			// Restore waiting executions from database (for Human/Webhook nodes)
+			if err := flowService.RestoreWaitingExecutions(); err != nil {
+				logger.Warn("failed to restore waiting executions", zap.Error(err))
+			}
 			logger.Info("flow service initialized")
 		}
 	}

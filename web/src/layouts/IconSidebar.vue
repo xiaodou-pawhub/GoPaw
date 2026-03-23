@@ -143,6 +143,7 @@ import {
   Brain as BrainIcon,
   Clock,
   ScrollText as ScrollTextIcon,
+  ClipboardList,
 } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 
@@ -165,6 +166,8 @@ const coreItems = [
 // 自动化
 const automationItems = [
   { to: '/flows', label: '流程管理', icon: Network },
+  { to: '/pending-tasks', label: '待办任务', icon: ClipboardList },
+  { to: '/executions', label: '执行历史', icon: ScrollTextIcon },
   { to: '/cron', label: '定时任务', icon: Clock },
 ]
 

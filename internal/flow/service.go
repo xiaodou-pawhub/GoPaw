@@ -19,11 +19,15 @@ import (
 
 // Service 流程服务
 type Service struct {
-	db          *sql.DB
-	engine      *Engine
-	agentMgr    *agent.Manager
-	msgMgr      *message.Manager
-	logger      *zap.Logger
+	db              *sql.DB
+	engine          *Engine
+	agentMgr        *agent.Manager
+	msgMgr          *message.Manager
+	triggerManager  *TriggerManager
+	versionService  *VersionService
+	templateService *TemplateService
+	wsHub           *WebSocketHub
+	logger          *zap.Logger
 }
 
 // NewService 创建流程服务
@@ -46,7 +50,34 @@ func NewService(db *sql.DB, agentMgr *agent.Manager, msgMgr *message.Manager, lo
 	}
 	s.engine = engine
 
+	// 创建版本服务
+	s.versionService = NewVersionService(db, s.logger)
+
+	// 创建模板服务
+	s.templateService = NewTemplateService(db, s.logger)
+
+	// 填充默认模板
+	if err := s.templateService.SeedDefaultTemplates(); err != nil {
+		s.logger.Warn("failed to seed default templates", zap.Error(err))
+	}
+
 	return s, nil
+}
+
+// SetWebSocketHub 设置 WebSocket Hub
+func (s *Service) SetWebSocketHub(hub *WebSocketHub) {
+	s.wsHub = hub
+	s.engine.SetWebSocketHub(hub)
+}
+
+// GetWebSocketHub 获取 WebSocket Hub
+func (s *Service) GetWebSocketHub() *WebSocketHub {
+	return s.wsHub
+}
+
+// SetCronService 设置 CronService（用于触发器）
+func (s *Service) SetCronService(cronService CronServiceInterface) {
+	s.triggerManager = NewTriggerManager(cronService, s.logger)
 }
 
 // SetAgentRouter 设置 Agent Router（用于延迟注入）
@@ -54,6 +85,12 @@ func (s *Service) SetAgentRouter(router *agent.Router) {
 	if s.engine != nil {
 		s.engine.SetAgentRouter(router)
 	}
+}
+
+// RestoreWaitingExecutions 恢复等待中的执行实例
+// 服务启动时调用
+func (s *Service) RestoreWaitingExecutions() error {
+	return s.engine.RestoreWaitingExecutions()
 }
 
 // CreateFlow 创建流程
@@ -104,6 +141,8 @@ func (s *Service) UpdateFlow(id string, req UpdateFlowRequest) (*Flow, error) {
 		return nil, err
 	}
 
+	oldStatus := flow.Status
+
 	// 更新字段
 	if req.Name != "" {
 		flow.Name = req.Name
@@ -139,6 +178,24 @@ func (s *Service) UpdateFlow(id string, req UpdateFlowRequest) (*Flow, error) {
 	`, flow.Name, flow.Description, flow.Type, string(defJSON), string(triggerJSON), flow.Status, time.Now(), id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update flow: %w", err)
+	}
+
+	// 处理触发器注册/注销
+	if s.triggerManager != nil && flow.Status != oldStatus {
+		if flow.Status == FlowStatusActive {
+			// 激活流程：注册触发器
+			if err := s.triggerManager.RegisterTrigger(flow, func() error {
+				_, err := s.Execute(flow.ID, ExecuteRequest{Input: ""})
+				return err
+			}); err != nil {
+				s.logger.Warn("failed to register trigger", zap.Error(err))
+			}
+		} else if oldStatus == FlowStatusActive {
+			// 停用流程：注销触发器
+			if err := s.triggerManager.UnregisterTrigger(flow); err != nil {
+				s.logger.Warn("failed to unregister trigger", zap.Error(err))
+			}
+		}
 	}
 
 	return flow, nil
@@ -252,6 +309,21 @@ func (s *Service) ContinueExecution(executionID string, input string) (*ExecuteR
 	return s.engine.Continue(executionID, input)
 }
 
+// Step 单步执行（调试模式）
+func (s *Service) Step(executionID string) (*ExecuteResponse, error) {
+	return s.engine.Step(executionID)
+}
+
+// SetBreakpoints 设置断点
+func (s *Service) SetBreakpoints(executionID string, breakpoints []string) error {
+	return s.engine.SetBreakpoints(executionID, breakpoints)
+}
+
+// RetryFromNode 从特定节点重试执行
+func (s *Service) RetryFromNode(executionID string, nodeID string) (*ExecuteResponse, error) {
+	return s.engine.RetryFromNode(executionID, nodeID)
+}
+
 // GetExecution 获取执行记录
 func (s *Service) GetExecution(executionID string) (*Execution, error) {
 	return s.engine.GetExecution(executionID)
@@ -260,6 +332,11 @@ func (s *Service) GetExecution(executionID string) (*Execution, error) {
 // ListExecutions 列出执行记录
 func (s *Service) ListExecutions(flowID string, limit int) ([]*Execution, error) {
 	return s.engine.ListExecutions(flowID, limit)
+}
+
+// ListExecutionsByStatus 按状态列出执行记录
+func (s *Service) ListExecutionsByStatus(status ExecutionStatus, limit int) ([]*Execution, error) {
+	return s.engine.ListExecutionsByStatus(status, limit)
 }
 
 // HandleWebhook 处理 Webhook 回调
@@ -314,4 +391,63 @@ func generateID() string {
 	b := make([]byte, 8)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// ========== 版本管理方法 ==========
+
+// CreateVersion 创建流程版本
+func (s *Service) CreateVersion(flowID string, req CreateVersionRequest, createdBy string) (*FlowVersion, error) {
+	return s.versionService.CreateVersion(flowID, req, createdBy)
+}
+
+// ListVersions 列出流程版本
+func (s *Service) ListVersions(flowID string) ([]*FlowVersion, error) {
+	return s.versionService.ListVersions(flowID)
+}
+
+// GetVersion 获取特定版本
+func (s *Service) GetVersion(flowID string, version int) (*FlowVersion, error) {
+	return s.versionService.GetVersion(flowID, version)
+}
+
+// RollbackVersion 回滚到指定版本
+func (s *Service) RollbackVersion(flowID string, version int) (*Flow, error) {
+	return s.versionService.RollbackVersion(flowID, version, s)
+}
+
+// DeleteVersion 删除指定版本
+func (s *Service) DeleteVersion(flowID string, version int) error {
+	return s.versionService.DeleteVersion(flowID, version)
+}
+
+// ========== 模板管理方法 ==========
+
+// ListTemplates 列出模板
+func (s *Service) ListTemplates(category string, publicOnly bool) ([]*FlowTemplate, error) {
+	return s.templateService.ListTemplates(category, publicOnly)
+}
+
+// GetTemplate 获取模板
+func (s *Service) GetTemplate(id string) (*FlowTemplate, error) {
+	return s.templateService.GetTemplate(id)
+}
+
+// CreateTemplate 创建模板
+func (s *Service) CreateTemplate(req CreateTemplateRequest, author string) (*FlowTemplate, error) {
+	return s.templateService.CreateTemplate(req, author)
+}
+
+// UseTemplate 使用模板创建流程
+func (s *Service) UseTemplate(templateID string, req CreateFlowRequest) (*Flow, error) {
+	return s.templateService.UseTemplate(templateID, s, req)
+}
+
+// DeleteTemplate 删除模板
+func (s *Service) DeleteTemplate(id string) error {
+	return s.templateService.DeleteTemplate(id)
+}
+
+// GetTemplateCategories 获取模板分类
+func (s *Service) GetTemplateCategories() []TemplateCategory {
+	return GetCategories()
 }

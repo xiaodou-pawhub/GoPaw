@@ -71,7 +71,9 @@ type Flow struct {
 type FlowDefinition struct {
 	Nodes       []FlowNode           `json:"nodes"`
 	Edges       []FlowEdge           `json:"edges"`
-	Variables   map[string]Variable  `json:"variables,omitempty"`   // 全局变量
+	Variables   map[string]Variable  `json:"variables,omitempty"`   // 全局变量（已废弃，保留兼容）
+	InputVars   map[string]Variable  `json:"input_vars,omitempty"`  // 流程输入变量
+	OutputVars  map[string]Variable  `json:"output_vars,omitempty"` // 流程输出变量
 	StartNodeID string               `json:"start_node_id"`         // 起始节点 ID
 }
 
@@ -104,7 +106,19 @@ type FlowNode struct {
 	Role     string                 `json:"role,omitempty"`      // 角色描述
 	Prompt   string                 `json:"prompt,omitempty"`    // Prompt 模板
 	Config   map[string]interface{} `json:"config,omitempty"`    // 节点配置
+	Inputs   map[string]string      `json:"inputs,omitempty"`    // 输入映射: 本节点变量名 -> 来源表达式
+	Outputs  map[string]string      `json:"outputs,omitempty"`   // 输出映射: 输出名 -> 存储变量名
 	Position Position               `json:"position"`            // 画布位置
+	// 重试配置
+	RetryConfig *RetryConfig        `json:"retry_config,omitempty"` // 重试配置
+}
+
+// RetryConfig 重试配置
+type RetryConfig struct {
+	MaxRetries   int    `json:"max_retries,omitempty"`   // 最大重试次数
+	RetryDelay   int    `json:"retry_delay,omitempty"`   // 重试延迟（毫秒）
+	RetryOn      string `json:"retry_on,omitempty"`      // 重试条件: always, error, timeout
+	FallbackNode string `json:"fallback_node,omitempty"` // 失败后跳转的节点
 }
 
 // Position 画布位置
@@ -177,6 +191,7 @@ type Execution struct {
 	ID           string                 `json:"id" db:"id"`
 	FlowID       string                 `json:"flow_id" db:"flow_id"`
 	Status       ExecutionStatus        `json:"status" db:"status"`
+	Trigger      string                 `json:"trigger" db:"trigger"`           // 触发来源: manual/webhook/cron
 	Input        string                 `json:"input" db:"input"`
 	Output       string                 `json:"output" db:"output"`
 	Variables    map[string]interface{} `json:"variables" db:"variables"`
@@ -186,6 +201,10 @@ type Execution struct {
 	StartedAt    time.Time              `json:"started_at" db:"started_at"`
 	CompletedAt  *time.Time             `json:"completed_at" db:"completed_at"`
 	Error        string                 `json:"error,omitempty" db:"error"`
+	// 调试模式
+	DebugMode    bool                   `json:"debug_mode" db:"debug_mode"`       // 是否调试模式
+	Breakpoints  []string               `json:"breakpoints" db:"breakpoints"`     // 断点节点 ID 列表
+	StepMode     bool                   `json:"step_mode" db:"step_mode"`         // 单步执行模式
 }
 
 // ExecutionStep 执行步骤记录
@@ -222,9 +241,15 @@ type UpdateFlowRequest struct {
 
 // ExecuteRequest 执行请求
 type ExecuteRequest struct {
-	Input     string                 `json:"input"`
-	Variables map[string]interface{} `json:"variables,omitempty"`
-	Context   map[string]interface{} `json:"context,omitempty"` // 额外上下文
+	Input       string                 `json:"input"`
+	Variables   map[string]interface{} `json:"variables,omitempty"`
+	Context     map[string]interface{} `json:"context,omitempty"` // 额外上下文
+	Async       bool                   `json:"async,omitempty"`   // 是否异步执行
+	Trigger     string                 `json:"trigger,omitempty"` // 触发来源: manual/webhook/cron
+	// 调试模式
+	DebugMode   bool                   `json:"debug_mode,omitempty"`   // 是否调试模式
+	Breakpoints []string               `json:"breakpoints,omitempty"`  // 断点节点 ID 列表
+	StepMode    bool                   `json:"step_mode,omitempty"`    // 单步执行模式
 }
 
 // ExecuteResponse 执行响应
@@ -286,6 +311,7 @@ func InitSchema(db *sql.DB) error {
 			id TEXT PRIMARY KEY,
 			flow_id TEXT NOT NULL,
 			status TEXT DEFAULT 'pending',
+			trigger TEXT DEFAULT 'manual',
 			input TEXT,
 			output TEXT,
 			variables TEXT,
@@ -302,12 +328,35 @@ func InitSchema(db *sql.DB) error {
 		return err
 	}
 
+	// 流程版本表
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS flow_versions (
+			id TEXT PRIMARY KEY,
+			flow_id TEXT NOT NULL,
+			version INTEGER NOT NULL,
+			name TEXT,
+			description TEXT,
+			definition TEXT NOT NULL,
+			trigger TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_by TEXT,
+			FOREIGN KEY (flow_id) REFERENCES flows(id) ON DELETE CASCADE
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
 	// 创建索引
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_flows_type ON flows(type)`,
 		`CREATE INDEX IF NOT EXISTS idx_flows_status ON flows(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_exec_flow ON flow_executions(flow_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_exec_status ON flow_executions(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_versions_flow ON flow_versions(flow_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_versions_version ON flow_versions(flow_id, version)`,
+		`CREATE INDEX IF NOT EXISTS idx_templates_category ON flow_templates(category)`,
+		`CREATE INDEX IF NOT EXISTS idx_templates_public ON flow_templates(is_public)`,
 	}
 
 	for _, idx := range indexes {
@@ -315,6 +364,15 @@ func InitSchema(db *sql.DB) error {
 			return err
 		}
 	}
+
+	// 初始化模板表
+	if err := InitTemplateSchema(db); err != nil {
+		return err
+	}
+
+	// 迁移：添加 trigger 字段（如果不存在）
+	// SQLite 不支持 IF NOT EXISTS，使用忽略错误的方式
+	db.Exec(`ALTER TABLE flow_executions ADD COLUMN trigger TEXT DEFAULT 'manual'`)
 
 	return nil
 }

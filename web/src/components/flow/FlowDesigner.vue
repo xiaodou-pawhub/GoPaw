@@ -126,33 +126,62 @@
         </div>
         <div v-else>
           <!-- 无选中节点时显示变量面板 -->
+          <!-- 输入变量 -->
           <div class="panel-title-row">
-            <span class="panel-title">变量</span>
-            <button class="panel-title-btn" @click="addVariable">+ 添加</button>
+            <span class="panel-title">输入变量</span>
+            <button class="panel-title-btn" @click="addInputVariable">+ 添加</button>
           </div>
-          <div v-if="variables.length === 0" class="no-selection">
-            <p>暂无变量，点击"添加"定义流程输入变量</p>
+          <div v-if="inputVariables.length === 0" class="no-selection">
+            <p>暂无输入变量</p>
           </div>
           <div v-else class="var-list">
-            <div v-for="(v, i) in variables" :key="i" class="var-item">
+            <div v-for="(v, i) in inputVariables" :key="'in_'+i" class="var-item">
               <div class="var-header">
-                <input v-model="v.name" class="var-name-input" placeholder="变量名" />
-                <select v-model="v.type" class="var-type-select">
+                <input v-model="v.name" class="var-name-input" placeholder="变量名" @input="onVarChange" />
+                <select v-model="v.type" class="var-type-select" @change="onVarChange">
                   <option value="string">文本</option>
                   <option value="number">数字</option>
                   <option value="boolean">布尔</option>
+                  <option value="object">对象</option>
+                  <option value="array">数组</option>
                 </select>
-                <button class="var-del-btn" @click="removeVariable(i)">×</button>
+                <button class="var-del-btn" @click="removeInputVariable(i)">×</button>
               </div>
-              <input v-model="v.default" class="var-input" placeholder="默认值（可选）" />
-              <input v-model="v.description" class="var-input" placeholder="说明（可选）" />
+              <input v-model="v.default" class="var-input" placeholder="默认值（可选）" @input="onVarChange" />
+              <input v-model="v.description" class="var-input" placeholder="说明（可选）" @input="onVarChange" />
               <label class="var-required">
-                <input v-model="v.required" type="checkbox" /> 必填
+                <input v-model="v.required" type="checkbox" @change="onVarChange" /> 必填
               </label>
             </div>
           </div>
-          <div class="var-hint" v-if="variables.length > 0">
-            在 Prompt 中用 <code>&#123;&#123;变量名&#125;&#125;</code> 引用
+
+          <!-- 输出变量 -->
+          <div class="panel-title-row" style="margin-top: 16px;">
+            <span class="panel-title">输出变量</span>
+            <button class="panel-title-btn" @click="addOutputVariable">+ 添加</button>
+          </div>
+          <div v-if="outputVariables.length === 0" class="no-selection">
+            <p>暂无输出变量</p>
+          </div>
+          <div v-else class="var-list">
+            <div v-for="(v, i) in outputVariables" :key="'out_'+i" class="var-item">
+              <div class="var-header">
+                <input v-model="v.name" class="var-name-input" placeholder="变量名" @input="onVarChange" />
+                <select v-model="v.type" class="var-type-select" @change="onVarChange">
+                  <option value="string">文本</option>
+                  <option value="number">数字</option>
+                  <option value="boolean">布尔</option>
+                  <option value="object">对象</option>
+                  <option value="array">数组</option>
+                </select>
+                <button class="var-del-btn" @click="removeOutputVariable(i)">×</button>
+              </div>
+              <input v-model="v.description" class="var-input" placeholder="说明（可选）" @input="onVarChange" />
+            </div>
+          </div>
+
+          <div class="var-hint" v-if="inputVariables.length > 0">
+            在 Prompt 中用 <code>&#123;&#123;变量名&#125;&#125;</code> 引用输入变量
           </div>
           <div class="panel-divider" />
           <div class="no-selection-hint">
@@ -166,7 +195,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, markRaw, computed } from 'vue'
+import { ref, watch, markRaw, computed, onMounted, onUnmounted } from 'vue'
 import {
   SaveIcon, CheckCircleIcon, Trash2Icon, MousePointerIcon,
   PlayIcon, BotIcon, UserIcon, GitBranchIcon, GitMergeIcon,
@@ -225,18 +254,95 @@ interface NodeTypeInfo {
   category: string   // 分类：basic/control/advanced
 }
 
+interface ExecutionHistory {
+  node_id: string
+  node_type: string
+  status: string
+  output?: any
+  error?: string
+}
+
+// WebSocket 事件
+interface ExecutionEvent {
+  type: string
+  execution_id: string
+  flow_id: string
+  node_id?: string
+  node_name?: string
+  status: string
+  output?: any
+  error?: string
+  timestamp: number
+}
+
 const props = defineProps<{
   definition?: FlowDefinition
   agents?: Agent[]
   flows?: Flow[]
+  flowId?: string
+  executionStatus?: 'idle' | 'running' | 'waiting' | 'completed' | 'failed'
+  executionHistory?: ExecutionHistory[]
+  currentNode?: string
 }>()
 
 const emit = defineEmits<{
   save: [definition: FlowDefinition]
   validate: [definition: FlowDefinition]
+  'execution-event': [event: ExecutionEvent]
 }>()
 
 const { addNodes, addEdges, removeNodes } = useVueFlow()
+
+// WebSocket 连接
+let ws: WebSocket | null = null
+const nodeStatusMap = ref<Record<string, string>>({})
+
+function connectWebSocket() {
+  if (!props.flowId) return
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsUrl = `${protocol}//${window.location.host}/api/ws/flow/${props.flowId}`
+
+  ws = new WebSocket(wsUrl)
+
+  ws.onopen = () => {
+    console.log('WebSocket connected')
+  }
+
+  ws.onmessage = (event) => {
+    try {
+      const data: ExecutionEvent = JSON.parse(event.data)
+      handleExecutionEvent(data)
+    } catch (e) {
+      console.error('Failed to parse WebSocket message:', e)
+    }
+  }
+
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error)
+  }
+
+  ws.onclose = () => {
+    console.log('WebSocket disconnected')
+    // 尝试重连
+    setTimeout(connectWebSocket, 3000)
+  }
+}
+
+function disconnectWebSocket() {
+  if (ws) {
+    ws.close()
+    ws = null
+  }
+}
+
+function handleExecutionEvent(event: ExecutionEvent) {
+  emit('execution-event', event)
+
+  if (event.node_id) {
+    nodeStatusMap.value[event.node_id] = event.status
+  }
+}
 
 // 节点类型配置
 const nodeTypes: NodeTypeInfo[] = [
@@ -281,6 +387,9 @@ interface FlowVariable {
   default: string
   description: string
 }
+const inputVariables = ref<FlowVariable[]>([])
+const outputVariables = ref<FlowVariable[]>([])
+// 兼容旧版本
 const variables = ref<FlowVariable[]>([])
 
 let nodeIdCounter = 1
@@ -299,12 +408,26 @@ watch(() => props.flows, (newFlows) => {
   if (newFlows) availableFlows.value = newFlows
 }, { immediate: true })
 
+// 监听执行状态变化，更新节点样式
+watch([() => props.executionHistory, () => props.currentNode], () => {
+  updateNodeExecutionStatus()
+}, { deep: true })
+
+// WebSocket 生命周期
+onMounted(() => {
+  connectWebSocket()
+})
+
+onUnmounted(() => {
+  disconnectWebSocket()
+})
+
 function loadDefinition(def: FlowDefinition) {
   const nodes: Node[] = def.nodes.map(n => ({
     id: n.id,
     type: n.type,
     position: n.position,
-    data: { ...n }
+    data: { ...n, execStatus: getNodeExecStatus(n.id) }
   }))
   const edges: Edge[] = def.edges.map(e => ({
     id: e.id,
@@ -316,12 +439,33 @@ function loadDefinition(def: FlowDefinition) {
   }))
   elements.value = [...nodes, ...edges]
 
-  // 加载变量
-  if (def.variables) {
+  // 加载输入变量
+  if (def.input_vars) {
+    inputVariables.value = Object.entries(def.input_vars).map(([name, v]: [string, any]) => ({
+      name,
+      type: v.type || 'string',
+      required: v.required || false,
+      default: v.default != null ? String(v.default) : '',
+      description: v.description || ''
+    }))
+  } else if (def.variables) {
+    // 兼容旧版本
     variables.value = Object.entries(def.variables).map(([name, v]: [string, any]) => ({
       name,
       type: v.type || 'string',
       required: v.required || false,
+      default: v.default != null ? String(v.default) : '',
+      description: v.description || ''
+    }))
+    inputVariables.value = variables.value
+  }
+
+  // 加载输出变量
+  if (def.output_vars) {
+    outputVariables.value = Object.entries(def.output_vars).map(([name, v]: [string, any]) => ({
+      name,
+      type: v.type || 'string',
+      required: false,
       default: v.default != null ? String(v.default) : '',
       description: v.description || ''
     }))
@@ -438,11 +582,11 @@ function getDefinition(): FlowDefinition {
     }
   }
 
-  // 构建变量 map
-  const variablesMap: Record<string, unknown> = {}
-  for (const v of variables.value) {
+  // 构建输入变量 map
+  const inputVarsMap: Record<string, unknown> = {}
+  for (const v of inputVariables.value) {
     if (v.name) {
-      variablesMap[v.name] = {
+      inputVarsMap[v.name] = {
         type: v.type,
         required: v.required,
         default: v.default || undefined,
@@ -451,20 +595,83 @@ function getDefinition(): FlowDefinition {
     }
   }
 
+  // 构建输出变量 map
+  const outputVarsMap: Record<string, unknown> = {}
+  for (const v of outputVariables.value) {
+    if (v.name) {
+      outputVarsMap[v.name] = {
+        type: v.type,
+        description: v.description || undefined
+      }
+    }
+  }
+
   return {
     nodes,
     edges,
-    variables: Object.keys(variablesMap).length > 0 ? variablesMap : undefined,
+    input_vars: Object.keys(inputVarsMap).length > 0 ? inputVarsMap : undefined,
+    output_vars: Object.keys(outputVarsMap).length > 0 ? outputVarsMap : undefined,
     start_node_id: startNodeId || (nodes[0]?.id)
   }
 }
 
+function addInputVariable() {
+  inputVariables.value.push({ name: '', type: 'string', required: false, default: '', description: '' })
+}
+
+function removeInputVariable(index: number) {
+  inputVariables.value.splice(index, 1)
+  onVarChange()
+}
+
+function addOutputVariable() {
+  outputVariables.value.push({ name: '', type: 'string', required: false, default: '', description: '' })
+}
+
+function removeOutputVariable(index: number) {
+  outputVariables.value.splice(index, 1)
+  onVarChange()
+}
+
+function onVarChange() {
+  // 变量变更时自动保存
+  saveFlow()
+}
+
+// 获取节点的执行状态
+function getNodeExecStatus(nodeId: string): string {
+  if (!props.executionHistory) return ''
+  const history = props.executionHistory.find(h => h.node_id === nodeId)
+  if (history) return history.status
+  if (props.currentNode === nodeId) return 'running'
+  return ''
+}
+
+// 更新节点执行状态
+function updateNodeExecutionStatus() {
+  elements.value = elements.value.map(el => {
+    if ('position' in el) {
+      const node = el as Node
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          execStatus: getNodeExecStatus(node.id),
+          isCurrent: props.currentNode === node.id
+        }
+      }
+    }
+    return el
+  })
+}
+
+// 兼容旧版本
 function addVariable() {
-  variables.value.push({ name: '', type: 'string', required: false, default: '', description: '' })
+  addInputVariable()
 }
 
 function removeVariable(index: number) {
-  variables.value.splice(index, 1)
+  removeInputVariable(index)
 }
 
 function saveFlow() {

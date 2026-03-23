@@ -59,6 +59,16 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/Flows.vue')
       },
       {
+        path: 'pending-tasks',
+        name: 'PendingTasks',
+        component: () => import('@/pages/PendingTasks.vue')
+      },
+      {
+        path: 'executions',
+        name: 'ExecutionHistory',
+        component: () => import('@/pages/ExecutionHistory.vue')
+      },
+      {
         path: 'queue',
         name: 'Queue',
         component: () => import('@/pages/Queue.vue')
