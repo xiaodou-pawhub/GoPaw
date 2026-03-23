@@ -110,7 +110,7 @@
           <div class="form-field">
             <label>关联 Agent</label>
             <select v-model="formModel.target_id" class="form-select">
-              <option value="">使用默认 Agent</option>
+              <option value="">-- 请选择 Agent --</option>
               <option v-for="agent in agents" :key="agent.id" :value="agent.id">{{ agent.name }}</option>
             </select>
           </div>
@@ -295,6 +295,10 @@ function openModal(type: 'create' | 'edit', job?: CronJob) {
 async function handleSubmit() {
   if (!formModel.name || !formModel.schedule || !formModel.task) {
     toast.error('请填写必填字段')
+    return
+  }
+  if (!formModel.target_id) {
+    toast.error('请选择关联的 Agent')
     return
   }
   if (scheduleError.value) {

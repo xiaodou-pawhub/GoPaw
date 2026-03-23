@@ -130,15 +130,12 @@ import {
   Cpu,
   Bot,
   Store,
-  Zap,
-  GitBranch,
   Network,
   BookOpen,
   Layers,
   BarChart3,
   Activity,
   Server,
-  MessageCircle,
   Users as UsersIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -168,10 +165,7 @@ const coreItems = [
 // 自动化
 const automationItems = [
   { to: '/cron', label: '定时任务', icon: Clock },
-  { to: '/workflows', label: '工作流', icon: GitBranch },
-  { to: '/orchestrations', label: '编排器', icon: Network },
-  { to: '/triggers', label: '触发器', icon: Zap },
-  { to: '/agent-messages', label: 'Agent消息', icon: MessageCircle },
+  { to: '/orchestrations', label: '流程编排', icon: Network },
 ]
 
 // 数据与监控

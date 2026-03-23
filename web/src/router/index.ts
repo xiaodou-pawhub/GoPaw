@@ -54,16 +54,6 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/MCP.vue')
       },
       {
-        path: 'triggers',
-        name: 'Triggers',
-        component: () => import('@/pages/Triggers.vue')
-      },
-      {
-        path: 'agent-messages',
-        name: 'AgentMessages',
-        component: () => import('@/pages/AgentMessages.vue')
-      },
-      {
         path: 'workflows',
         name: 'Workflows',
         component: () => import('@/pages/Workflows.vue')

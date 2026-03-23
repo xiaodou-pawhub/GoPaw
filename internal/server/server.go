@@ -34,7 +34,6 @@ import (
 	"github.com/gopaw/gopaw/internal/skill"
 	"github.com/gopaw/gopaw/internal/tool"
 	"github.com/gopaw/gopaw/internal/trace"
-	"github.com/gopaw/gopaw/internal/trigger"
 	"github.com/gopaw/gopaw/internal/user"
 	"github.com/gopaw/gopaw/internal/workflow"
 	"github.com/gopaw/gopaw/internal/workspace"
@@ -75,8 +74,6 @@ func New(
 	agentMgr *agent.Manager,
 	agentRouter *agent.Router,
 	mcpMgr *mcp.Manager,
-	triggerMgr *trigger.Manager,
-	triggerEngine *trigger.Engine,
 	agentMsgMgr *message.Manager,
 	workflowEngine *workflow.Engine,
 	queueMgr *queue.Manager,
@@ -103,7 +100,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, auditMgr, wp, staticFS)
+	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, auditMgr, wp, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -134,8 +131,6 @@ func (s *Server) registerRoutes(
 	agentMgr *agent.Manager,
 	agentRouter *agent.Router,
 	mcpMgr *mcp.Manager,
-	triggerMgr *trigger.Manager,
-	triggerEngine *trigger.Engine,
 	agentMsgMgr *message.Manager,
 	workflowEngine *workflow.Engine,
 	queueMgr *queue.Manager,
@@ -336,34 +331,6 @@ func (s *Server) registerRoutes(
 			mcpG.GET("/tools", mcpH.GetAllTools)
 			mcpG.POST("/test", mcpH.TestServer)
 		}
-	}
-
-	// /api/triggers — trigger management
-	if triggerMgr != nil && triggerEngine != nil {
-		triggerH := handlers.NewTriggerHandler(triggerMgr, triggerEngine, s.logger)
-		webhookH := handlers.NewWebhookHandler(triggerEngine, s.logger)
-		messageH := handlers.NewMessageHandler(triggerEngine, s.logger)
-
-		triggersG := api.Group("/triggers")
-		{
-			triggersG.GET("", triggerH.ListTriggers)
-			triggersG.POST("", triggerH.CreateTrigger)
-			triggersG.GET("/by-agent/:agent_id", triggerH.ListTriggersByAgent)
-			triggersG.GET("/:id", triggerH.GetTrigger)
-			triggersG.PUT("/:id", triggerH.UpdateTrigger)
-			triggersG.DELETE("/:id", triggerH.DeleteTrigger)
-			triggersG.POST("/:id/enable", triggerH.EnableTrigger)
-			triggersG.POST("/:id/disable", triggerH.DisableTrigger)
-			triggersG.POST("/:id/fire", triggerH.FireTrigger)
-			triggersG.GET("/:id/history", triggerH.GetTriggerHistory)
-			triggersG.POST("/validate-cron", triggerH.ValidateCron)
-		}
-
-		// Webhook endpoint (public, no auth)
-		s.engine.POST("/webhook/:id", webhookH.HandleWebhook)
-
-		// Message endpoint
-		api.POST("/messages", messageH.SendMessage)
 	}
 
 	// /api/agent-messages — agent-to-agent messaging

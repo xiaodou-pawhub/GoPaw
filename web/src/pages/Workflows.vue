@@ -105,9 +105,9 @@
         <div class="modal-fbody">
           <!-- 左：基本信息 -->
           <div class="modal-sidebar">
-            <div class="form-group">
+            <div v-if="dialog.isEdit" class="form-group">
               <label>ID</label>
-              <input v-model="dialog.data.id" type="text" :disabled="dialog.isEdit" required />
+              <input v-model="dialog.data.id" type="text" disabled class="input-mono" />
             </div>
             <div class="form-group">
               <label>名称</label>
@@ -276,11 +276,15 @@ async function loadStats(id: string) {
   catch { /* ignore */ }
 }
 
+function generateWorkflowId() {
+  return 'wf-' + Math.random().toString(36).slice(2, 9) + '-' + Date.now().toString(36)
+}
+
 function openCreateDialog() {
   dialog.isEdit = false
   dialog.activeTab = 'designer'
-  dialog.data = { id: '', name: '', description: '', status: 'draft', definition: { steps: [] } }
-  dialog.definitionText = JSON.stringify({ steps: [{ id: 'step1', name: '第一步', agent: '', action: 'task', input: {} }] }, null, 2)
+  dialog.data = { id: generateWorkflowId(), name: '', description: '', status: 'draft', definition: { steps: [] } }
+  dialog.definitionText = JSON.stringify({ steps: [] }, null, 2)
   dialog.show = true
 }
 
@@ -377,7 +381,7 @@ onMounted(() => { loadWorkflows() })
 </script>
 
 <style scoped>
-.workflows-page { padding: 24px 32px; height: 100%; overflow-y: auto; }
+.workflows-page { padding: 24px 32px; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 
@@ -414,9 +418,9 @@ onMounted(() => { loadWorkflows() })
 .btn-icon-close { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: transparent; border: none; cursor: pointer; color: var(--text-secondary); border-radius: 6px; }
 .btn-icon-close:hover { background: var(--bg-overlay); }
 
-.wf-layout { display: grid; grid-template-columns: 240px 1fr; gap: 16px; }
+.wf-layout { display: grid; grid-template-columns: 240px 1fr; gap: 16px; flex: 1; min-height: 0; overflow: hidden; }
 
-.wf-sidebar { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.wf-sidebar { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; overflow-y: auto; overflow-x: hidden; }
 
 .sidebar-title { padding: 12px 16px; font-size: 11px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); background: var(--bg-overlay); }
 
@@ -438,9 +442,9 @@ onMounted(() => { loadWorkflows() })
 .badge-error   { background: rgba(239,68,68,0.15); color: #ef4444; }
 .badge-neutral { background: var(--bg-overlay); color: var(--text-secondary); border: 1px solid var(--border); }
 
-.wf-detail { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+.wf-detail { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 20px; overflow-y: auto; }
 
-.wf-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text-tertiary); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; min-height: 300px; }
+.wf-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text-tertiary); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; }
 .wf-empty p { font-size: 14px; margin: 0; }
 
 .detail-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }

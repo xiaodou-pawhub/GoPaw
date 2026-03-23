@@ -118,7 +118,8 @@ func (h *AgentHandler) ChatStream(c *gin.Context) {
 		return
 	}
 
-	h.processStream(c, sessionID, content)
+	agentID := c.Query("agent_id")
+	h.processStream(c, sessionID, content, agentID)
 }
 
 // ChatStreamPost handles POST /api/agent/chat/stream using Server-Sent Events.
@@ -132,7 +133,7 @@ func (h *AgentHandler) ChatStreamPost(c *gin.Context) {
 		return
 	}
 
-	h.processStream(c, req.SessionID, req.Content)
+	h.processStream(c, req.SessionID, req.Content, req.AgentID)
 }
 
 // writeSSE marshals v to JSON and writes a single SSE data line to w.
@@ -147,11 +148,20 @@ func writeSSE(w interface {
 
 // processStream is the common logic for streaming responses using Server-Sent Events.
 // Emits structured events: tool_call, tool_result, delta, done, error.
-func (h *AgentHandler) processStream(c *gin.Context, sessionID, content string) {
+func (h *AgentHandler) processStream(c *gin.Context, sessionID, content, agentID string) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
+
+	w := c.Writer
+
+	// Route to the correct agent instance (mirrors non-streaming Chat()).
+	agentInstance, _, err := h.getAgentForSession(sessionID, agentID)
+	if err != nil {
+		writeSSE(w, map[string]any{"type": "error", "error": err.Error()})
+		return
+	}
 
 	agentReq := &types.Request{
 		SessionID: sessionID,
@@ -159,8 +169,6 @@ func (h *AgentHandler) processStream(c *gin.Context, sessionID, content string) 
 		MsgType:   types.MsgTypeText,
 		Channel:   "console",
 	}
-
-	w := c.Writer
 
 	progressFn := func(evt agent.ProgressEvent) {
 		writeSSE(w, evt)
@@ -170,7 +178,7 @@ func (h *AgentHandler) processStream(c *gin.Context, sessionID, content string) 
 		writeSSE(w, map[string]any{"type": "delta", "delta": chunk})
 	}
 
-	_, err := h.agent.ProcessStream(c.Request.Context(), agentReq, progressFn, deltaFn)
+	_, err = agentInstance.ProcessStream(c.Request.Context(), agentReq, progressFn, deltaFn)
 	if err != nil {
 		writeSSE(w, map[string]any{"type": "error", "error": err.Error()})
 		return

@@ -38,7 +38,8 @@
       <!-- 画布 -->
       <div class="canvas-container" @drop="onDrop" @dragover.prevent>
         <VueFlow
-          v-model="(elements as any)"
+          v-model:nodes="nodes"
+          v-model:edges="edges"
           :node-types="(vueFlowNodeTypes as any)"
           :default-edge-options="defaultEdgeOptions"
           :connectable="true"
@@ -73,13 +74,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, markRaw } from 'vue'
 import { SaveIcon, CheckCircleIcon, Trash2Icon, MousePointerIcon } from 'lucide-vue-next'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
-import type { Connection } from '@vue-flow/core'
+import type { Connection, Node, Edge } from '@vue-flow/core'
 import { TaskNode, NotifyNode, QueryNode } from './nodes'
 import NodeProperties from './NodeProperties.vue'
 
@@ -135,14 +136,15 @@ const nodeTypes: NodeType[] = [
   { id: 'query',  name: '查询', color: '#6366f1', abbr: 'Q' },
 ]
 
-const vueFlowNodeTypes: Record<string, unknown> = { task: TaskNode, notify: NotifyNode, query: QueryNode }
+const vueFlowNodeTypes = { task: markRaw(TaskNode), notify: markRaw(NotifyNode), query: markRaw(QueryNode) }
 
 const defaultEdgeOptions = {
   animated: true,
   style: { stroke: '#666', strokeWidth: 2 },
 }
 
-const elements = ref<{ nodes: unknown[]; edges: unknown[] }>({ nodes: [], edges: [] })
+const nodes = ref<Node[]>([])
+const edges = ref<Edge[]>([])
 const selectedNode = ref<unknown>(null)
 
 watch(() => props.workflow, (workflow) => {
@@ -150,8 +152,8 @@ watch(() => props.workflow, (workflow) => {
 }, { immediate: true })
 
 function loadWorkflow(definition: WorkflowDefinition) {
-  const nodes: unknown[] = []
-  const edges: unknown[] = []
+  const newNodes: Node[] = []
+  const newEdges: Edge[] = []
   const gridSize = 200
   const positions = new Map<string, { x: number; y: number }>()
 
@@ -164,13 +166,14 @@ function loadWorkflow(definition: WorkflowDefinition) {
 
   definition.steps.forEach((step) => {
     const pos = positions.get(step.id) || { x: 100, y: 100 }
-    nodes.push({ id: step.id, type: step.action, position: pos, data: { ...step } })
+    newNodes.push({ id: step.id, type: step.action, position: pos, data: { ...step } } as Node)
     step.depends_on?.forEach((depId) => {
-      edges.push({ id: `${depId}-${step.id}`, source: depId, target: step.id, animated: true })
+      newEdges.push({ id: `${depId}-${step.id}`, source: depId, target: step.id, animated: true } as Edge)
     })
   })
 
-  elements.value = { nodes, edges }
+  nodes.value = newNodes
+  edges.value = newEdges
 }
 
 function calculateLevel(step: WorkflowStep, allSteps: WorkflowStep[], visited: Set<string> = new Set()): number {
@@ -187,24 +190,29 @@ function calculateLevel(step: WorkflowStep, allSteps: WorkflowStep[], visited: S
 }
 
 function exportWorkflow(): WorkflowDefinition {
-  const nodes = (elements.value.nodes || []) as Array<{ id: string; type: string; data?: Record<string, unknown> }>
-  const edges = (elements.value.edges || []) as Array<{ source: string; target: string }>
+  const nodeList = nodes.value
+  const edgeList = edges.value
 
-  const steps: WorkflowStep[] = nodes.map((node) => {
-    const dependsOn = edges.filter(e => e.target === node.id).map(e => e.source)
+  type EdgeLike = { source: string; target: string }
+  const edgeSimple = edgeList as EdgeLike[]
+
+  type NodeLike = { id: string; type?: string; data?: Record<string, unknown> }
+  const steps: WorkflowStep[] = (nodeList as NodeLike[]).map((node) => {
+    const dependsOn: string[] = edgeSimple.filter((e) => e.target === node.id).map((e) => e.source)
+    const d = node.data
     return {
       id: node.id,
-      name: (node.data?.name as string) || node.type,
-      action: node.type as 'task' | 'notify' | 'query',
-      agent: (node.data?.agent as string) || '',
-      input: (node.data?.input as Record<string, unknown>) || {},
-      output: (node.data?.output as string[]) || [],
+      name: ((d?.name as string) || node.type) ?? 'step',
+      action: (node.type ?? 'task') as 'task' | 'notify' | 'query',
+      agent: (d?.agent as string) || '',
+      input: (d?.input as Record<string, unknown>) || {},
+      output: (d?.output as string[]) || [],
       depends_on: dependsOn,
-      condition: node.data?.condition as string | undefined,
-      timeout: node.data?.timeout as number | undefined,
-      retry: node.data?.retry as number | undefined,
-      retry_delay: node.data?.retry_delay as number | undefined,
-      priority: node.data?.priority as string | undefined,
+      condition: d?.condition as string | undefined,
+      timeout: d?.timeout as number | undefined,
+      retry: d?.retry as number | undefined,
+      retry_delay: d?.retry_delay as number | undefined,
+      priority: d?.priority as string | undefined,
     }
   })
 
@@ -231,8 +239,8 @@ function onDrop(event: DragEvent) {
   addNodes([newNode])
 }
 
-function onNodeClick(_event: unknown, node: unknown) {
-  selectedNode.value = node
+function onNodeClick(e: { node: unknown }) {
+  selectedNode.value = e.node
 }
 
 function onConnect(connection: Connection) {
@@ -242,10 +250,11 @@ function onConnect(connection: Connection) {
 }
 
 function onNodeUpdate(updatedNode: unknown) {
-  const nodes = (elements.value.nodes || []) as Array<{ id: string }>
-  const index = nodes.findIndex(n => n.id === (updatedNode as { id: string }).id)
+  const id = (updatedNode as { id: string }).id
+  const arr = nodes.value as { id: string }[]
+  const index = arr.findIndex(n => n.id === id)
   if (index !== -1) {
-    nodes[index] = updatedNode as { id: string }
+    arr.splice(index, 1, updatedNode as { id: string })
     selectedNode.value = updatedNode
   }
 }
@@ -367,6 +376,8 @@ function deleteSelectedNode() {
 .canvas-container {
   flex: 1;
   position: relative;
+  height: 100%;
+  min-height: 0;
 }
 
 .properties-panel {

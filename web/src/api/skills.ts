@@ -40,12 +40,14 @@ export async function installSkill(name: string, version = 'latest'): Promise<{ 
   return parseData(res)
 }
 
-/** 导入本地 zip 压缩包 */
-export async function importSkillZip(file: File): Promise<{ ok: boolean; name: string }> {
+/** 导入本地 zip 压缩包。overwrite=true 时覆写已存在的同名技能 */
+export async function importSkillZip(file: File, overwrite = false): Promise<{ ok: boolean; name: string }> {
   const form = new FormData()
   form.append('file', file)
-  const res = await api.post('/skills/import', form, {
+  const url = overwrite ? '/skills/import?overwrite=true' : '/skills/import'
+  const res = await api.post(url, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 90000, // LLM 自动生成 manifest 最多需要 50s，前端给 90s 余量
   })
   return parseData(res)
 }

@@ -46,7 +46,6 @@ import (
 	"github.com/gopaw/gopaw/internal/tray"
 	"github.com/gopaw/gopaw/internal/queue"
 	"github.com/gopaw/gopaw/internal/metrics"
-	"github.com/gopaw/gopaw/internal/trigger"
 	"github.com/gopaw/gopaw/internal/user"
 	"github.com/gopaw/gopaw/internal/workflow"
 	"github.com/gopaw/gopaw/internal/workspace"
@@ -293,56 +292,6 @@ func runStart() {
 
 	// --- Cron System Setup ---
 	cronService := cron.NewCronService(wp.Root, logger)
-	cronService.SetHandler(func(job *cron.CronJob) (string, error) {
-		// Create an isolated session for this execution
-		sessionID := fmt.Sprintf("cron:%s", job.ID)
-
-		logger.Info("cron: executing job",
-			zap.String("job", job.Name),
-			zap.String("task", job.Task),
-			zap.String("target", job.TargetID))
-
-		// Construct a request for the agent
-		// Note: We use the job's TargetID as both UserID and ChatID to ensure tools
-		// like send_to_user route messages back to the correct chat.
-		req := &types.Request{
-			SessionID: sessionID,
-			Channel:   job.Channel,
-			ChatID:    job.TargetID, // Critical: this must be the real ChatID for Feishu
-			UserID:    "cron",       // Virtual user
-			Content:   job.Task,
-		}
-
-		// Run the agent. We use a background context with a timeout to prevent stuck jobs.
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-
-		resp, err := agentInstance.Process(ctx, req)
-		if err != nil {
-			logger.Error("cron: job execution failed", zap.Error(err))
-			return "", err
-		}
-
-		// If the agent produced a final textual answer (and didn't just use tools silently),
-		// deliver it to the user.
-		if resp.Content != "" {
-			msg := &types.Message{
-				Channel:   job.Channel,
-				ChatID:    job.TargetID,
-				Content:   resp.Content,
-				MsgType:   types.MsgTypeText,
-				SessionID: sessionID,
-			}
-			if err := channelMgr.Send(msg); err != nil {
-				logger.Error("cron: failed to send final answer", zap.Error(err))
-				// We don't fail the job execution itself if sending fails, but we log it.
-				// Returning the content so it's recorded in history.
-				return fmt.Sprintf("Executed. Content: %s. Send Error: %v", resp.Content, err), nil
-			}
-		}
-
-		return resp.Content, nil
-	})
 
 	// Inject dependencies into built-in tools
 	for _, t := range toolReg.All() {
@@ -525,13 +474,6 @@ func runStart() {
 		}
 	}
 
-	// Initialize trigger manager and engine
-	triggerMgr, err := trigger.NewManager(store.DB(), logger)
-	if err != nil {
-		logger.Warn("failed to initialize trigger manager", zap.Error(err))
-		triggerMgr = nil
-	}
-
 	// Initialize agent message manager
 	agentMsgMgr, err := message.NewManager(store.DB(), logger)
 	if err != nil {
@@ -610,11 +552,62 @@ func runStart() {
 		}
 	}
 
-	// Initialize trigger engine (after agent router)
-	triggerEngine := trigger.NewEngine(triggerMgr, agentRouter, logger)
-	if triggerEngine != nil {
-		triggerEngine.Start()
-	}
+	// Configure cron handler now that agentRouter is available.
+	cronService.SetHandler(func(job *cron.CronJob) (string, error) {
+		// Use job name as session ID for readability in conversation history.
+		sessionID := sanitizeCronName(job.Name)
+
+		logger.Info("cron: executing job",
+			zap.String("job", job.Name),
+			zap.String("task", job.Task),
+			zap.String("target", job.TargetID))
+
+		// Select agent: prefer the agent that created this job (job.TargetID),
+		// fall back to the default agent instance when not found.
+		runAgent := agentInstance
+		if job.TargetID != "" && agentRouter != nil {
+			if a, routerErr := agentRouter.GetOrCreateAgent(job.TargetID); routerErr == nil {
+				runAgent = a
+			} else {
+				logger.Warn("cron: agent not found, using default",
+					zap.String("target_id", job.TargetID),
+					zap.Error(routerErr))
+			}
+		}
+
+		req := &types.Request{
+			SessionID: sessionID,
+			Channel:   job.Channel,
+			ChatID:    job.TargetID,
+			UserID:    "cron",
+			Content:   job.Task,
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+
+		resp, err := runAgent.Process(ctx, req)
+		if err != nil {
+			logger.Error("cron: job execution failed", zap.Error(err))
+			return "", err
+		}
+
+		if resp.Content != "" {
+			msg := &types.Message{
+				Channel:   job.Channel,
+				ChatID:    job.TargetID,
+				Content:   resp.Content,
+				MsgType:   types.MsgTypeText,
+				SessionID: sessionID,
+			}
+			if err := channelMgr.Send(msg); err != nil {
+				logger.Error("cron: failed to send final answer", zap.Error(err))
+				return fmt.Sprintf("Executed. Content: %s. Send Error: %v", resp.Content, err), nil
+			}
+		}
+
+		return resp.Content, nil
+	})
 
 	// Update workflow engine with agent router
 	if workflowEngine != nil {
@@ -657,7 +650,7 @@ func runStart() {
 		metricsService.Collect()
 	}
 
-	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, triggerMgr, triggerEngine, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, auditMgr, wp, web.FS(), logger)
+	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, workflowEngine, queueMgr, metricsService, knowledgeService, orchestrationEngine, auditMgr, wp, web.FS(), logger)
 	go srv.Start()
 
 	// Auto-open browser in solo mode unless --no-browser is set.
@@ -708,11 +701,6 @@ func runStart() {
 	cancel()
 	shutdownCtx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	srv.Shutdown(shutdownCtx)
-
-	// Stop trigger engine
-	if triggerEngine != nil {
-		triggerEngine.Stop()
-	}
 
 	// Close agent manager and router
 	if agentRouter != nil {
@@ -1007,6 +995,25 @@ func (t *knowledgeListTool) Execute(ctx context.Context, args map[string]interfa
 	return &plugin.ToolResult{
 		LLMOutput: result.String(),
 	}
+}
+
+// sanitizeCronName converts a cron job name into a safe session ID string.
+// Spaces become hyphens; non-alphanumeric characters are dropped; result is lowercased.
+func sanitizeCronName(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteRune('-')
+		}
+	}
+	result := b.String()
+	if result == "" {
+		return "cron-unnamed"
+	}
+	return "cron-" + result
 }
 
 // openBrowser opens the default web browser to the given URL after a short delay

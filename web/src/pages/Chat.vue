@@ -51,6 +51,9 @@
           >
             <MessageSquareIcon :size="16" class="session-icon" />
             <span class="session-name">{{ getSessionDisplayName(session) }}</span>
+            <!-- Background stream indicators -->
+            <LoaderIcon v-if="streamStore.isRunning(session.id) && currentSessionId !== session.id" :size="13" class="session-running-icon" />
+            <span v-else-if="streamStore.needsReload(session.id)" class="session-done-dot" title="新回复" />
             <div class="session-actions">
               <button
                 class="icon-btn-xs"
@@ -328,6 +331,7 @@ import {
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAgentStore } from '@/stores/agent'
+import { useStreamStore } from '@/stores/stream'
 import { toast } from 'vue-sonner'
 import { getSessionMessages, getSessionStats, getSessions, deleteSession, updateSessionName, sendChatStream } from '@/api/agent'
 import type { ChatMessage, SessionStats, SessionInfo } from '@/types'
@@ -342,6 +346,7 @@ import { saveCurrentSession, getCurrentSession } from '@/utils/storage'
 const { t } = useI18n()
 const appStore = useAppStore()
 const agentStore = useAgentStore()
+const streamStore = useStreamStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -566,7 +571,19 @@ function selectSession(id: string) {
 }
 
 async function handleSessionSwitch(id: string) {
-  if (currentSessionId.value === id && messages.value.length > 0) return
+  if (currentSessionId.value === id && messages.value.length > 0) {
+    // If we just came back to this session and it finished in background, clear indicator.
+    if (streamStore.needsReload(id)) {
+      streamStore.markViewed(id)
+      // Reload fresh messages from backend
+      try {
+        const history = await getSessionMessages(id)
+        messages.value = history
+        scrollToBottom()
+      } catch { /* ignore */ }
+    }
+    return
+  }
   if (isCreatingNew.value && currentSessionId.value === id) {
     isCreatingNew.value = false
     return
@@ -576,13 +593,52 @@ async function handleSessionSwitch(id: string) {
     else createNewSession()
     return
   }
-  stopChatStream()
+  // If a stream is currently running for the active session, let it continue in the background.
+  if (isStreaming.value) {
+    const leavingId = currentSessionId.value
+    streamStore.saveBackgroundMessages(leavingId, messages.value)
+    // Detach UI state but don't abort the AbortController
+    isStreaming.value = false
+    isThinking.value = false
+    toolProgress.value = []
+    stopTypewriter()
+    streamingContent.value = ''
+  } else {
+    stopChatStream()
+  }
   messagesLoading.value = true
   currentSessionId.value = id
   loadStats(id)
+  // If this session is currently running in the background, restore the cached messages.
+  const bgMessages = streamStore.getBackgroundMessages(id)
+  if (bgMessages) {
+    messages.value = bgMessages
+    messagesLoading.value = false
+    streamStore.markViewed(id)
+    scrollToBottom()
+    return
+  }
   try {
     const history = await getSessionMessages(id)
     messages.value = history
+    // Check if there's an unsent pending message from a previous session (pre-refresh save).
+    const savedPending = localStorage.getItem(`pending_msg:${id}`)
+    if (savedPending) {
+      const lastMsg = history[history.length - 1]
+      const alreadySaved = lastMsg?.role === 'user' && lastMsg?.content === savedPending
+      if (!alreadySaved) {
+        messages.value.push({
+          id: 'pending-recovered',
+          role: 'user',
+          content: savedPending,
+          time: new Date().toLocaleTimeString()
+        })
+        toast.warning('上次对话可能未完成，已恢复未发送的消息')
+      }
+      localStorage.removeItem(`pending_msg:${id}`)
+    }
+    // Mark as viewed if it had a pending-reload indicator
+    if (streamStore.needsReload(id)) streamStore.markViewed(id)
     scrollToBottom()
   } catch {
     toast.error('加载历史记录失败')
@@ -703,47 +759,87 @@ async function handleSend() {
   typewriterQueue = ''
   abortController.value = new AbortController()
 
+  // Persist the user message so it survives a page refresh before the AI replies.
+  const pendingKey = `pending_msg:${currentSessionId.value}`
+  localStorage.setItem(pendingKey, content)
+
+  // Track this session as running so the session list can show a spinner.
+  const streamSessionId = currentSessionId.value
+  streamStore.startSession(streamSessionId)
+
   try {
     await sendChatStream(
       currentSessionId.value,
       content,
       {
         onToolCall: (toolName) => {
-          toolProgress.value.push({ name: toolName, status: 'calling', startMs: Date.now(), expanded: false })
-          scrollToBottom()
+          if (currentSessionId.value === streamSessionId) {
+            toolProgress.value.push({ name: toolName, status: 'calling', startMs: Date.now(), expanded: false })
+            scrollToBottom()
+          }
         },
         onToolResult: (toolName, result, isError) => {
-          const item = [...toolProgress.value].reverse().find(t => t.name === toolName && t.status === 'calling')
-          if (item) {
-            item.status = isError ? 'error' : 'done'
-            item.elapsedMs = Date.now() - item.startMs
-            item.summary = result.length > 80 ? result.slice(0, 80) + '…' : result
+          if (currentSessionId.value === streamSessionId) {
+            const item = [...toolProgress.value].reverse().find(t => t.name === toolName && t.status === 'calling')
+            if (item) {
+              item.status = isError ? 'error' : 'done'
+              item.elapsedMs = Date.now() - item.startMs
+              item.summary = result.length > 80 ? result.slice(0, 80) + '…' : result
+            }
           }
         },
         onDelta: (delta) => {
-          isThinking.value = false
-          toolProgress.value = []
-          typewriterQueue += delta
-          startTypewriter()
+          if (currentSessionId.value === streamSessionId) {
+            isThinking.value = false
+            toolProgress.value = []
+            typewriterQueue += delta
+            startTypewriter()
+          } else {
+            // Background: accumulate into background messages cache
+            const bgMsgs = streamStore.getBackgroundMessages(streamSessionId) || []
+            const last = bgMsgs[bgMsgs.length - 1]
+            if (last?.role === 'assistant' && last?.id === 'bg-streaming') {
+              last.content += delta
+            } else {
+              bgMsgs.push({ id: 'bg-streaming', role: 'assistant', content: delta, time: new Date().toLocaleTimeString() })
+            }
+            streamStore.saveBackgroundMessages(streamSessionId, bgMsgs)
+          }
         },
         onDone: async () => {
-          await flushTypewriter()
-          if (streamingContent.value) {
-            messages.value.push({
-              id: 'msg-' + Date.now(),
-              role: 'assistant',
-              content: streamingContent.value,
-              time: new Date().toLocaleTimeString()
-            })
-            streamingContent.value = ''
+          localStorage.removeItem(pendingKey)
+          const isForeground = currentSessionId.value === streamSessionId
+          streamStore.finishSession(streamSessionId, isForeground)
+          if (isForeground) {
+            await flushTypewriter()
+            if (streamingContent.value) {
+              messages.value.push({
+                id: 'msg-' + Date.now(),
+                role: 'assistant',
+                content: streamingContent.value,
+                time: new Date().toLocaleTimeString()
+              })
+              streamingContent.value = ''
+            }
+            isStreaming.value = false
+            isThinking.value = false
+            toolProgress.value = []
+            loadSessions()
+            loadStats(currentSessionId.value)
+          } else {
+            // Finalize background message id
+            const bgMsgs = streamStore.getBackgroundMessages(streamSessionId) || []
+            const last = bgMsgs[bgMsgs.length - 1]
+            if (last?.id === 'bg-streaming') last.id = 'msg-' + Date.now()
+            streamStore.saveBackgroundMessages(streamSessionId, bgMsgs)
+            loadSessions()
           }
-          isStreaming.value = false
-          isThinking.value = false
-          toolProgress.value = []
-          loadSessions()
-          loadStats(currentSessionId.value)
         },
         onError: (error) => {
+          localStorage.removeItem(pendingKey)
+          const isForeground = currentSessionId.value === streamSessionId
+          streamStore.finishSession(streamSessionId, isForeground)
+          if (!isForeground) return
           stopTypewriter()
           streamingContent.value = ''
           isStreaming.value = false
@@ -756,6 +852,8 @@ async function handleSend() {
       currentAgentId.value || undefined
     )
   } catch (e: any) {
+    localStorage.removeItem(pendingKey)
+    streamStore.finishSession(streamSessionId, currentSessionId.value === streamSessionId)
     if (e.name !== 'AbortError') toast.error(t('common.error'))
     isStreaming.value = false
     isThinking.value = false
@@ -779,9 +877,12 @@ function handleChatKey(e: KeyboardEvent) {
 }
 
 onMounted(async () => {
+  // 刷新 Agent 列表（store 初始化时可能还没有创建 Agent）
+  agentStore.loadAgents()
+
   // 从存储恢复当前会话
   const storedSessionId = getCurrentSession()
-  
+
   const list = await loadSessions()
   const routeId = route.params.id as string
   
@@ -968,6 +1069,25 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.session-running-icon {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.session-done-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
 }
 
 .session-actions {

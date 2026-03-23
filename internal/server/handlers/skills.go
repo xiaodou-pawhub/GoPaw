@@ -22,7 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const defaultMarketBaseURL = "https://market.gopaw.dev"
+const defaultMarketBaseURL = "https://skills.gopaw.top"
 
 // SkillsHandler handles /api/skills routes.
 type SkillsHandler struct {
@@ -242,6 +242,20 @@ func (h *SkillsHandler) ImportZip(c *gin.Context) {
 
 	// Copy skill root to skills directory.
 	destDir := filepath.Join(h.skillsDir, skillName)
+
+	// Duplicate detection: return 409 unless overwrite=true is passed as query param.
+	overwrite := c.Query("overwrite") == "true"
+	if !overwrite {
+		if _, statErr := os.Stat(destDir); statErr == nil {
+			c.JSON(http.StatusConflict, gin.H{
+				"code":    409,
+				"message": fmt.Sprintf("skill '%s' already exists", skillName),
+				"name":    skillName,
+			})
+			return
+		}
+	}
+
 	if err := copyDir(skillRoot, destDir); err != nil {
 		h.logger.Error("skill copy failed", zap.String("name", skillName), zap.Error(err))
 		api.InternalErrorWithDetails(c, "skill import failed", err)
@@ -370,7 +384,7 @@ Respond ONLY with valid JSON, no explanation, no markdown fences.
 Files:
 ` + strings.Join(parts, "\n\n")
 
-	ctxTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctxTimeout, cancel := context.WithTimeout(ctx, 50*time.Second)
 	defer cancel()
 
 	resp, err := h.llm.Chat(ctxTimeout, llm.ChatRequest{

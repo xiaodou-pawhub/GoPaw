@@ -3,8 +3,8 @@
     <!-- 页面头部 -->
     <div class="page-header">
       <div>
-        <h1 class="page-title">Agent 编排器</h1>
-        <p class="page-subtitle">管理多 Agent 协作编排</p>
+        <h1 class="page-title">流程编排</h1>
+        <p class="page-subtitle">编排多个数字员工协作完成复杂任务</p>
       </div>
       <button class="btn-primary" @click="openCreateDialog">
         <PlusIcon :size="15" /> 新建编排
@@ -216,6 +216,7 @@ import { toast } from 'vue-sonner'
 import { PlusIcon, PlayIcon, PencilIcon, Trash2Icon, EyeIcon, XIcon, GitBranchIcon } from 'lucide-vue-next'
 import { orchestrationApi, type Orchestration, type ExecutionContext } from '@/api/orchestration'
 import OrchestrationDesigner from '@/components/orchestration/OrchestrationDesigner.vue'
+import { listAgents } from '@/api/agents'
 
 const orchestrations = ref<Orchestration[]>([])
 const selectedOrch = ref<Orchestration | null>(null)
@@ -250,12 +251,7 @@ const deleteDialog = reactive({
   orch: null as Orchestration | null,
 })
 
-const availableAgents = ref([
-  { id: 'default', name: '默认 Agent' },
-  { id: 'product_manager', name: '产品经理' },
-  { id: 'developer', name: '开发工程师' },
-  { id: 'tester', name: '测试工程师' },
-])
+const availableAgents = ref<{ id: string; name: string }[]>([])
 
 const definitionText = computed(() => {
   if (!selectedOrch.value) return ''
@@ -264,14 +260,22 @@ const definitionText = computed(() => {
 
 onMounted(() => {
   loadOrchestrations()
+  loadAgents()
 })
 
 async function loadOrchestrations() {
   try {
-    orchestrations.value = await orchestrationApi.list()
+    orchestrations.value = (await orchestrationApi.list()) || []
   } catch (error: any) {
     toast.error('加载编排列表失败: ' + (error.response?.data?.error || error.message || '未知错误'))
   }
+}
+
+async function loadAgents() {
+  try {
+    const res = await listAgents()
+    availableAgents.value = (res.agents || []).map((a: any) => ({ id: a.id, name: a.name }))
+  } catch {}
 }
 
 async function selectOrch(orch: Orchestration) {
@@ -281,7 +285,7 @@ async function selectOrch(orch: Orchestration) {
 
 async function loadExecutions(orchId: string) {
   try {
-    executions.value = await orchestrationApi.listExecutions(orchId)
+    executions.value = (await orchestrationApi.listExecutions(orchId)) || []
   } catch (error: any) {
     toast.error('加载执行记录失败: ' + (error.response?.data?.error || error.message || '未知错误'))
   }

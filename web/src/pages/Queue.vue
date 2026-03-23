@@ -292,7 +292,9 @@ onMounted(() => {
 .queue-page {
   padding: 24px 32px;
   height: 100%;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .page-header {
@@ -363,14 +365,18 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 220px 1fr;
   gap: 16px;
-  min-height: 400px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  width: 100%;
 }
 
 .queue-sidebar {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 8px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .sidebar-title {

@@ -744,6 +744,7 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 	detector := newLoopDetector(5, 3)
 
 	var fullContent strings.Builder
+	reachedMaxSteps := true // will be set to false when we break early
 
 	for step := 0; step < maxSteps; step++ {
 		a.logger.Info("agent: step",
@@ -815,6 +816,7 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 				zap.Int("step", step),
 				zap.String("session", req.SessionID),
 			)
+			reachedMaxSteps = false
 			break
 		}
 
@@ -884,6 +886,26 @@ func (a *ReActAgent) ProcessStream(ctx context.Context, req *types.Request, prog
 				Content:    r.output,
 			})
 		}
+	}
+
+	// Normal completion: loop exited via break (no tool calls on the final step).
+	// Content was already streamed via deltaFn; persist and return without a second LLM call.
+	if !reachedMaxSteps {
+		finalAnswer := fullContent.String()
+		if a.convlog != nil {
+			_ = a.convlog.LogAgentReply(req.SessionID, finalAnswer, nil)
+		}
+		userContentForMemory := req.Content
+		if manifest := buildMediaManifest(req.Files); manifest != "" {
+			userContentForMemory += manifest
+		}
+		if memErr := a.memoryManager.Add(req.SessionID, req.UserID, req.Channel, userContentForMemory, finalAnswer); memErr != nil {
+			a.logger.Warn("agent: failed to save memory", zap.Error(memErr))
+		}
+		if execTrace != nil {
+			a.traceManager.EndTrace(execTrace)
+		}
+		return finalAnswer, nil
 	}
 
 	// Max steps reached - add termination message and get final answer from LLM

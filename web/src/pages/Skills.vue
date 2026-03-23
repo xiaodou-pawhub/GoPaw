@@ -13,9 +13,9 @@
         <template v-if="view === 'installed'">
           <!-- 隐藏文件选择 -->
           <input ref="fileInputRef" type="file" accept=".zip" class="hidden-input" @change="handleFileSelect" />
-          <button class="btn-secondary" @click="triggerImport">
+          <button class="btn-secondary" :disabled="importing" @click="triggerImport">
             <UploadIcon :size="13" />
-            导入 ZIP
+            {{ importing ? '导入中...' : '导入 ZIP' }}
           </button>
           <button class="btn-secondary" :disabled="reloading" @click="handleReload">
             <RefreshCwIcon :size="13" class="reload-icon" :class="{ spinning: reloading }" />
@@ -286,7 +286,7 @@ async function handleFileSelect(e: Event) {
   input.value = '' // reset for re-selection
 
   importing.value = true
-  const tid = toast.loading(`导入 ${file.name}...`)
+  const tid = toast.loading(`正在导入 ${file.name}，AI 分析中（约 30-60 秒）...`)
   try {
     const result = await importSkillZip(file)
     toast.dismiss(tid)
@@ -294,7 +294,28 @@ async function handleFileSelect(e: Event) {
     await loadSkills()
   } catch (err: any) {
     toast.dismiss(tid)
-    toast.error('导入失败：' + (err?.response?.data?.message || err.message || '未知错误'))
+    if (err?.response?.status === 409) {
+      const skillName = err.response.data?.name || file.name
+      const confirmed = window.confirm(`技能 "${skillName}" 已存在，是否覆写？`)
+      if (confirmed) {
+        importing.value = true
+        const tid2 = toast.loading(`正在覆写技能 "${skillName}"...`)
+        try {
+          const result = await importSkillZip(file, true)
+          toast.dismiss(tid2)
+          toast.success(`技能 "${result.name}" 覆写成功`)
+          await loadSkills()
+        } catch (err2: any) {
+          toast.dismiss(tid2)
+          toast.error('覆写失败：' + (err2?.response?.data?.message || err2.message || '未知错误'))
+        } finally {
+          importing.value = false
+        }
+        return
+      }
+    } else {
+      toast.error('导入失败：' + (err?.response?.data?.message || err.message || '未知错误'))
+    }
   } finally {
     importing.value = false
   }

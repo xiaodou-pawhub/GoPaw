@@ -93,7 +93,7 @@ func (s *Service) ListOrchestrations(ctx context.Context) ([]Orchestration, erro
 	}
 	defer rows.Close()
 
-	var orchestrations []Orchestration
+	orchestrations := make([]Orchestration, 0)
 	for rows.Next() {
 		var orch Orchestration
 		var defStr string
@@ -196,7 +196,7 @@ func (s *Service) ListExecutions(ctx context.Context, orchestrationID string) ([
 	}
 	defer rows.Close()
 
-	var executions []OrchestrationExecution
+	executions := make([]OrchestrationExecution, 0)
 	for rows.Next() {
 		var exec OrchestrationExecution
 		var variablesStr string
@@ -234,7 +234,7 @@ func (s *Service) GetExecutionMessages(ctx context.Context, executionID string) 
 	}
 	defer rows.Close()
 
-	var messages []ExecutionMessage
+	messages := make([]ExecutionMessage, 0)
 	for rows.Next() {
 		var msg ExecutionMessage
 		err := rows.Scan(&msg.ID, &msg.ExecutionID, &msg.FromNodeID, &msg.ToNodeID,
