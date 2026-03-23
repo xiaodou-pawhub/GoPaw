@@ -33,6 +33,7 @@ var timeNow = time.Now
 
 // ReActAgent is the core agent implementation using native Function Calling.
 type ReActAgent struct {
+	id             string // agent definition ID, set after creation
 	llmClient      llm.Client
 	toolRegistry   *tool.Registry
 	toolExecutor   *tool.Executor
@@ -259,6 +260,10 @@ type toolCallResult struct {
 
 // executeToolCallsParallel runs all tool calls from one LLM response concurrently.
 func (a *ReActAgent) executeToolCallsParallel(ctx context.Context, calls []llm.ToolCall, detector *loopDetector, channel, chatID, session, user string) []toolCallResult {
+	// Inject agent ID into context so tools (e.g. cron_add) can use it as target_id.
+	if a.id != "" {
+		ctx = context.WithValue(ctx, tool.ContextKeyAgentID, a.id)
+	}
 	results := make([]toolCallResult, len(calls))
 	var mu sync.Mutex
 	var wg sync.WaitGroup

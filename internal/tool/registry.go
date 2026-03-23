@@ -11,6 +11,12 @@ import (
 	"go.uber.org/zap"
 )
 
+// contextKey is an unexported type for context keys in this package.
+type contextKey string
+
+// ContextKeyAgentID is the context key for passing the current agent's ID to tools.
+const ContextKeyAgentID = contextKey("agent_id")
+
 // Registry maintains a thread-safe set of available tools.
 type Registry struct {
 	mu     sync.RWMutex

@@ -322,6 +322,14 @@ func (e *Engine) executeHumanNode(node *FlowNode, exec *Execution) (map[string]i
 	exec.Status = ExecutionStatusWaiting
 	exec.Context["waiting_for"] = node.ID
 
+	// 把 prompt 和快捷选项存入 context，供前端展示
+	if node.Prompt != "" {
+		exec.Context["waiting_node_prompt"] = node.Prompt
+	}
+	if opts, ok := node.Config["options"]; ok {
+		exec.Context["waiting_node_options"] = opts
+	}
+
 	// 保存状态
 	e.saveExecution(exec)
 

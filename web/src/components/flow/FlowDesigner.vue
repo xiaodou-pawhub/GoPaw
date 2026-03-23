@@ -110,19 +110,55 @@
 
       <!-- 属性面板 -->
       <div class="properties-panel">
-        <div class="panel-title">属性</div>
-        <NodeProperties
-          v-if="selectedNode"
-          :node-type="selectedNode.type || ''"
-          :node-data="selectedNode.data"
-          :agents="agents"
-          :flows="availableFlows"
-          @update="onNodeUpdate"
-          @delete="deleteSelectedNode"
-        />
-        <div v-else class="no-selection">
-          <MousePointerIcon :size="24" />
-          <p>选择一个节点以编辑属性</p>
+        <div v-if="selectedNode">
+          <div class="panel-title">属性</div>
+          <NodeProperties
+            :node-type="selectedNode.type || ''"
+            :node-data="selectedNode.data"
+            :node-id="selectedNode.id"
+            :agents="agents"
+            :flows="availableFlows"
+            :edges="(elements.filter(el => !('position' in el)) as any)"
+            :nodes="(elements.filter(el => 'position' in el) as any)"
+            @update="onNodeUpdate"
+            @delete="deleteSelectedNode"
+          />
+        </div>
+        <div v-else>
+          <!-- 无选中节点时显示变量面板 -->
+          <div class="panel-title-row">
+            <span class="panel-title">变量</span>
+            <button class="panel-title-btn" @click="addVariable">+ 添加</button>
+          </div>
+          <div v-if="variables.length === 0" class="no-selection">
+            <p>暂无变量，点击"添加"定义流程输入变量</p>
+          </div>
+          <div v-else class="var-list">
+            <div v-for="(v, i) in variables" :key="i" class="var-item">
+              <div class="var-header">
+                <input v-model="v.name" class="var-name-input" placeholder="变量名" />
+                <select v-model="v.type" class="var-type-select">
+                  <option value="string">文本</option>
+                  <option value="number">数字</option>
+                  <option value="boolean">布尔</option>
+                </select>
+                <button class="var-del-btn" @click="removeVariable(i)">×</button>
+              </div>
+              <input v-model="v.default" class="var-input" placeholder="默认值（可选）" />
+              <input v-model="v.description" class="var-input" placeholder="说明（可选）" />
+              <label class="var-required">
+                <input v-model="v.required" type="checkbox" /> 必填
+              </label>
+            </div>
+          </div>
+          <div class="var-hint" v-if="variables.length > 0">
+            在 Prompt 中用 <code>&#123;&#123;变量名&#125;&#125;</code> 引用
+          </div>
+          <div class="panel-divider" />
+          <div class="no-selection-hint">
+            <MousePointerIcon :size="20" />
+            <p>点击节点编辑属性</p>
+          </div>
         </div>
       </div>
     </div>
@@ -236,6 +272,17 @@ const defaultEdgeOptions = {
 const elements = ref<(Node | Edge)[]>([])
 const selectedNode = ref<Node | null>(null)
 const availableFlows = ref<Flow[]>([])
+
+// 变量面板
+interface FlowVariable {
+  name: string
+  type: string
+  required: boolean
+  default: string
+  description: string
+}
+const variables = ref<FlowVariable[]>([])
+
 let nodeIdCounter = 1
 let edgeIdCounter = 1
 
@@ -264,9 +311,21 @@ function loadDefinition(def: FlowDefinition) {
     source: e.source,
     target: e.target,
     label: e.label,
+    sourceHandle: (e as any).source_handle,
     data: { ...e }
   }))
   elements.value = [...nodes, ...edges]
+
+  // 加载变量
+  if (def.variables) {
+    variables.value = Object.entries(def.variables).map(([name, v]: [string, any]) => ({
+      name,
+      type: v.type || 'string',
+      required: v.required || false,
+      default: v.default != null ? String(v.default) : '',
+      description: v.description || ''
+    }))
+  }
 
   nodeIdCounter = def.nodes.reduce((max, n) => {
     const num = parseInt(n.id.split('_')[1] || '0')
@@ -312,12 +371,22 @@ function onNodeClick(event: NodeMouseEvent) {
 }
 
 function onConnect(connection: Connection) {
+  // 条件节点：自动为连线设置 true/false 标签
+  const allElements = elements.value as any[]
+  const sourceNode = allElements.find((el: any) => 'position' in el && el.id === connection.source)
+  const handleLabel = connection.sourceHandle === 'true' ? 'true'
+    : connection.sourceHandle === 'false' ? 'false'
+    : undefined
+  const autoLabel = sourceNode?.type === 'condition' && handleLabel ? handleLabel : undefined
+
   const newEdge: Edge = {
     id: `edge_${edgeIdCounter++}`,
     source: connection.source!,
     target: connection.target!,
     sourceHandle: connection.sourceHandle,
     targetHandle: connection.targetHandle,
+    label: autoLabel,
+    data: autoLabel ? { condition_branch: autoLabel } : {}
   }
   addEdges([newEdge])
 }
@@ -350,28 +419,52 @@ function getDefinition(): FlowDefinition {
         agent_id: data?.agent_id,
         role: data?.role,
         prompt: data?.prompt,
-        config: data?.config || {},
+        config: { ...(data?.config || {}), output_var: data?.output_var },
         position: el.position
       })
       if (el.type === 'start') startNodeId = el.id as string
     } else {
       // Edge
+      const edgeEl = el as any
       edges.push({
-        id: el.id as string,
-        source: el.source,
-        target: el.target,
-        label: el.label as string,
-        condition: (el.data as any)?.condition,
-        transform: (el.data as any)?.transform
-      })
+        id: edgeEl.id as string,
+        source: edgeEl.source,
+        target: edgeEl.target,
+        label: edgeEl.label as string,
+        condition: edgeEl.data?.condition,
+        transform: edgeEl.data?.transform,
+        source_handle: edgeEl.sourceHandle,
+      } as any)
+    }
+  }
+
+  // 构建变量 map
+  const variablesMap: Record<string, unknown> = {}
+  for (const v of variables.value) {
+    if (v.name) {
+      variablesMap[v.name] = {
+        type: v.type,
+        required: v.required,
+        default: v.default || undefined,
+        description: v.description || undefined
+      }
     }
   }
 
   return {
     nodes,
     edges,
+    variables: Object.keys(variablesMap).length > 0 ? variablesMap : undefined,
     start_node_id: startNodeId || (nodes[0]?.id)
   }
+}
+
+function addVariable() {
+  variables.value.push({ name: '', type: 'string', required: false, default: '', description: '' })
+}
+
+function removeVariable(index: number) {
+  variables.value.splice(index, 1)
 }
 
 function saveFlow() {
@@ -537,4 +630,85 @@ function validateFlow() {
   text-align: center;
 }
 .no-selection p { margin-top: 8px; font-size: 12px; }
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-title-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.var-list { padding: 8px 12px; }
+.var-item {
+  margin-bottom: 12px;
+  padding: 8px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.var-header { display: flex; gap: 4px; margin-bottom: 4px; }
+.var-name-input {
+  flex: 1;
+  padding: 4px 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+}
+.var-type-select {
+  padding: 4px 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  width: 52px;
+}
+.var-del-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+}
+.var-del-btn:hover { background: #fee2e2; color: #ef4444; border-color: #ef4444; }
+.var-input {
+  width: 100%;
+  padding: 4px 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+.var-required { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-muted); }
+.var-hint { padding: 6px 12px 12px; font-size: 11px; color: var(--text-muted); }
+.var-hint code { background: var(--bg-app); padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+.panel-divider { height: 1px; background: var(--border); margin: 8px 0; }
+.no-selection-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  color: var(--text-muted);
+  text-align: center;
+}
+.no-selection-hint p { margin-top: 6px; font-size: 11px; }
 </style>

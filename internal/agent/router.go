@@ -180,6 +180,7 @@ func (r *Router) GetOrCreateAgent(agentID string) (*ReActAgent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create agent instance: %w", err)
 	}
+	instance.id = agentID
 
 	r.mu.Lock()
 	r.instances[agentID] = instance

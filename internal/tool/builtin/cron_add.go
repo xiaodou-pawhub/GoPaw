@@ -69,7 +69,14 @@ func (t *CronAddTool) Execute(ctx context.Context, args map[string]interface{}) 
 		return plugin.ErrorResult("name, schedule, and task are required")
 	}
 
-	job, err := t.service.AddJob(name, schedule, task, t.channel, t.chatID)
+	// Use the agent's ID as target_id so the cron job runs with the correct agent.
+	// Falls back to chatID (platform room ID) if agentID is not injected.
+	targetID := t.chatID
+	if agentID, ok := ctx.Value(tool.ContextKeyAgentID).(string); ok && agentID != "" {
+		targetID = agentID
+	}
+
+	job, err := t.service.AddJob(name, schedule, task, t.channel, targetID)
 	if err != nil {
 		return plugin.ErrorResult(fmt.Sprintf("failed to schedule job: %v", err))
 	}

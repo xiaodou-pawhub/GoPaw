@@ -9,11 +9,11 @@
     <!-- Agent 节点 -->
     <template v-if="nodeType === 'agent'">
       <div class="form-group">
-        <label>Agent</label>
+        <label>数字员工</label>
         <Combobox
           v-model="localData.agent_id"
           :options="agentOptions"
-          placeholder="请选择 Agent..."
+          placeholder="请选择数字员工..."
           @change="onAgentChange"
         />
       </div>
@@ -23,7 +23,11 @@
       </div>
       <div class="form-group">
         <label>Prompt 模板</label>
-        <textarea v-model="localData.prompt" rows="4" placeholder="输入 Prompt 模板，可用 {{变量}}" @input="onUpdate" />
+        <textarea v-model="localData.prompt" rows="4" placeholder="输入 Prompt 模板，可用 {{变量名}}" @input="onUpdate" />
+      </div>
+      <div class="form-group">
+        <label>输出变量名 <span class="hint-inline">（可选，默认用节点 ID）</span></label>
+        <input v-model="localData.output_var" type="text" placeholder="如：result，后续节点可用 {{result}}" @input="onUpdate" />
       </div>
     </template>
 
@@ -71,6 +75,20 @@
       <div v-if="getConfig().condition_type === 'llm'" class="form-group">
         <label>LLM 判断提示</label>
         <textarea v-model="getConfig().llm_query" rows="3" placeholder="根据用户情绪判断..." @input="onUpdate" />
+      </div>
+      <!-- 分支预览 -->
+      <div v-if="conditionBranches" class="branch-preview">
+        <div class="branch-title">分支走向</div>
+        <div class="branch-item branch-true">
+          <span class="branch-badge true">True</span>
+          <span class="branch-arrow">→</span>
+          <span class="branch-target">{{ conditionBranches.true || '未连接' }}</span>
+        </div>
+        <div class="branch-item branch-false">
+          <span class="branch-badge false">False</span>
+          <span class="branch-arrow">→</span>
+          <span class="branch-target">{{ conditionBranches.false || '未连接' }}</span>
+        </div>
       </div>
     </template>
 
@@ -146,12 +164,17 @@ import Combobox from '@/components/common/Combobox.vue'
 
 interface Agent { id: string; name: string }
 interface Flow { id: string; name: string }
+interface EdgeInfo { id: string; source: string; target: string; sourceHandle?: string | null; label?: string }
+interface NodeInfo { id: string; data?: { name?: string }; type?: string }
 
 const props = defineProps<{
   nodeType: string
   nodeData: Record<string, any>
+  nodeId?: string
   agents?: Agent[]
   flows?: Flow[]
+  edges?: EdgeInfo[]
+  nodes?: NodeInfo[]
 }>()
 
 const emit = defineEmits<{
@@ -177,6 +200,22 @@ const conditionTypeOptions = [
   { value: 'intent', label: '意图匹配' },
   { value: 'llm', label: 'LLM 判断' }
 ]
+
+// 条件节点分支预览
+const conditionBranches = computed(() => {
+  if (props.nodeType !== 'condition' || !props.nodeId) return null
+  const outEdges = (props.edges || []).filter(e => e.source === props.nodeId)
+  const getNodeName = (id: string) => {
+    const n = (props.nodes || []).find(n => n.id === id)
+    return n?.data?.name || id
+  }
+  const trueBranch = outEdges.find(e => e.sourceHandle === 'true' || e.label === 'true')
+  const falseBranch = outEdges.find(e => e.sourceHandle === 'false' || e.label === 'false')
+  return {
+    true: trueBranch ? getNodeName(trueBranch.target) : null,
+    false: falseBranch ? getNodeName(falseBranch.target) : null,
+  }
+})
 
 function getConfig(): Record<string, any> {
   if (!localData.value.config) localData.value.config = {}
@@ -260,6 +299,15 @@ function removeOption(index: number) {
   cursor: pointer;
 }
 .btn-add:hover { border-color: var(--accent); color: var(--accent); }
+.hint-inline { font-size: 10px; color: var(--text-muted); font-weight: 400; }
+.branch-preview { margin-bottom: 12px; padding: 10px; background: var(--bg-app); border: 1px solid var(--border); border-radius: 6px; }
+.branch-title { font-size: 11px; font-weight: 500; color: var(--text-secondary); margin-bottom: 8px; }
+.branch-item { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12px; }
+.branch-badge { padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+.branch-badge.true { background: #dcfce7; color: #16a34a; }
+.branch-badge.false { background: #fee2e2; color: #dc2626; }
+.branch-arrow { color: var(--text-muted); }
+.branch-target { color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .divider { height: 1px; background: var(--border); margin: 12px 0; }
 .btn-danger {
   width: 100%;

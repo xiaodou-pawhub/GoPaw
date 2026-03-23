@@ -163,6 +163,19 @@
       </div>
     </div>
 
+    <!-- 执行监控面板 -->
+    <div v-if="executionPanel.show" class="modal-overlay" @click.self="executionPanel.show = false">
+      <div class="execution-panel-wrap">
+        <FlowExecutionPanel
+          :flow-id="executionPanel.flowId"
+          :execution-id="executionPanel.executionId"
+          :flow-name="executionPanel.flowName"
+          @close="executionPanel.show = false"
+          @completed="executionPanel.show = false"
+        />
+      </div>
+    </div>
+
     <!-- 执行对话框 -->
     <div v-if="executeDialog.show" class="modal-overlay" @click.self="executeDialog.show = false">
       <div class="modal">
@@ -192,6 +205,7 @@ import {
   LoaderIcon, GitBranchIcon, XIcon, FileTextIcon, ChevronDownIcon
 } from 'lucide-vue-next'
 import FlowDesigner from '@/components/flow/FlowDesigner.vue'
+import FlowExecutionPanel from '@/components/flow/FlowExecutionPanel.vue'
 
 interface FlowNode { id: string; type: string; name: string; position: { x: number; y: number } }
 interface FlowEdge { id: string; source: string; target: string }
@@ -367,11 +381,26 @@ const dialog = ref<{
 const executeDialog = ref<{
   show: boolean
   flowId: string
+  flowName: string
   input: string
 }>({
   show: false,
   flowId: '',
+  flowName: '',
   input: ''
+})
+
+// 执行监控面板
+const executionPanel = ref<{
+  show: boolean
+  flowId: string
+  flowName: string
+  executionId: string
+}>({
+  show: false,
+  flowId: '',
+  flowName: '',
+  executionId: ''
 })
 
 onMounted(async () => {
@@ -398,7 +427,8 @@ async function loadAgents() {
     const res = await fetch('/api/agents')
     if (res.ok) {
       const data = await res.json()
-      agents.value = Array.isArray(data) ? data : []
+      // API 返回 { code, message, data: [...] } 包装格式
+      agents.value = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : [])
     }
   } catch (e) {
     console.error('Failed to load agents:', e)
@@ -523,7 +553,7 @@ async function deactivateFlow(id: string) {
 }
 
 function executeFlow(flow: Flow) {
-  executeDialog.value = { show: true, flowId: flow.id, input: '' }
+  executeDialog.value = { show: true, flowId: flow.id, flowName: flow.name, input: '' }
 }
 
 async function confirmExecute() {
@@ -535,8 +565,13 @@ async function confirmExecute() {
     })
     if (res.ok) {
       const result = await res.json()
-      alert(`执行已启动，ID: ${result.execution_id}`)
       executeDialog.value.show = false
+      executionPanel.value = {
+        show: true,
+        flowId: executeDialog.value.flowId,
+        flowName: executeDialog.value.flowName,
+        executionId: result.execution_id
+      }
     } else {
       const err = await res.json()
       alert(err.error || '执行失败')
@@ -709,4 +744,5 @@ function formatDate(dateStr: string): string {
 .form-group { margin-bottom: 12px; }
 .form-group label { display: block; font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-bottom: 4px; }
 .form-group textarea { width: 100%; padding: 8px; background: var(--bg-app); border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); font-size: 13px; resize: vertical; }
+.execution-panel-wrap { width: 560px; max-width: 95vw; max-height: 90vh; overflow: hidden; border-radius: 10px; }
 </style>
