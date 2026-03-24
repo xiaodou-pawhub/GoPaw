@@ -1,5 +1,5 @@
 BINARY  := gopaw
-VERSION := 0.2.2
+VERSION := 0.2.3
 LDFLAGS := -ldflags "-X main.appVersion=$(VERSION) -s -w"
 GO      := go
 
@@ -134,7 +134,7 @@ release:
 		exit 1; \
 	fi
 	@echo "Updating VERSION in Makefile..."
-	@sed -i '' 's/VERSION := .*/VERSION := $(v)/' Makefile
+	@sed -i '' 's/VERSION := 0.2.3
 	@echo "Committing version bump..."
 	@git add Makefile
 	@git commit -m "chore: bump version to $(v)"
