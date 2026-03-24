@@ -29,6 +29,7 @@ import (
 	"github.com/gopaw/gopaw/internal/memory"
 	"github.com/gopaw/gopaw/internal/metrics"
 	"github.com/gopaw/gopaw/internal/mode"
+	"github.com/gopaw/gopaw/internal/permission"
 	"github.com/gopaw/gopaw/internal/queue"
 	"github.com/gopaw/gopaw/internal/resource"
 	"github.com/gopaw/gopaw/internal/server/handlers"
@@ -84,6 +85,7 @@ func New(
 	alertSvc *alert.Service,
 	wp *workspace.Paths,
 	resourceSvc *resource.Service,
+	permChecker *permission.Checker,
 	staticFS fs.FS,
 	logger *zap.Logger,
 ) *Server {
@@ -102,7 +104,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, alertSvc, wp, resourceSvc, staticFS)
+	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, alertSvc, wp, resourceSvc, permChecker, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -142,6 +144,7 @@ func (s *Server) registerRoutes(
 	alertSvc *alert.Service,
 	wp *workspace.Paths,
 	resourceSvc *resource.Service,
+	permChecker *permission.Checker,
 	staticFS fs.FS,
 ) {
 	// WebSocket endpoint — protected by WebAuth (cookie must be valid).

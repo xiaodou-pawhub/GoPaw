@@ -47,6 +47,7 @@ import (
 	"github.com/gopaw/gopaw/internal/tray"
 	"github.com/gopaw/gopaw/internal/queue"
 	"github.com/gopaw/gopaw/internal/metrics"
+	"github.com/gopaw/gopaw/internal/permission"
 	"github.com/gopaw/gopaw/internal/resource"
 	"github.com/gopaw/gopaw/internal/user"
 	"github.com/gopaw/gopaw/internal/workspace"
@@ -668,7 +669,14 @@ func runStart() {
 		}
 	}
 
-	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, alertSvc, wp, resourceSvc, web.FS(), logger)
+	// Create permission checker (team mode only)
+	var permChecker *permission.Checker
+	if appMode.IsMultiUser() {
+		permChecker = permission.NewChecker(store.DB(), logger)
+		logger.Info("permission checker initialized")
+	}
+
+	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, alertSvc, wp, resourceSvc, permChecker, web.FS(), logger)
 	go srv.Start()
 
 	// Auto-open browser in solo mode unless --no-browser is set.
