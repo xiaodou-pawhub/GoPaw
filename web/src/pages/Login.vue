@@ -59,9 +59,11 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { EyeIcon, EyeOffIcon, AlertCircleIcon } from 'lucide-vue-next'
-import { loginWithPassword } from '@/api/auth'
+import { loginWithPassword, getMode } from '@/api/auth'
+import { useAppStore } from '@/stores/app'
 
 const router = useRouter()
+const appStore = useAppStore()
 
 const form = ref({ username: '', password: '' })
 const showPassword = ref(false)
@@ -77,6 +79,11 @@ async function handleLogin() {
   try {
     const data = await loginWithPassword(form.value.username, form.value.password)
     localStorage.setItem('access_token', data.access_token)
+    
+    // 登录成功后刷新 mode 信息
+    const modeInfo = await getMode()
+    appStore.setModeInfo(modeInfo)
+    
     router.push('/')
   } catch (err: any) {
     error.value = err.response?.data?.error || '用户名或密码错误'

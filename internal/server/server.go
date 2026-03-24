@@ -448,6 +448,38 @@ func (s *Server) registerRoutes(
 		}
 	}
 
+	// /api/resource-packages — resource package management (team mode only)
+	if m.IsMultiUser() {
+		// Resource handler will be initialized when resource package is implemented
+		// resourceH := handlers.NewResourceHandler(resourceSvc, s.logger)
+		// resourceG := api.Group("/resource-packages")
+		// {
+		// 	resourceG.POST("", resourceH.CreatePackage)
+		// 	resourceG.GET("", resourceH.ListPackages)
+		// 	resourceG.GET("/:id", resourceH.GetPackage)
+		// 	resourceG.PUT("/:id", resourceH.UpdatePackage)
+		// 	resourceG.DELETE("/:id", resourceH.DeletePackage)
+		// 	resourceG.POST("/:id/items", resourceH.AddItem)
+		// 	resourceG.DELETE("/:id/items/:type/:resource_id", resourceH.RemoveItem)
+		// 	resourceG.POST("/:id/grant", resourceH.GrantToUser)
+		// 	resourceG.DELETE("/:id/grant/:user_id", resourceH.RevokeGrant)
+		// }
+		//
+		// // Agent permissions
+		// agentPermG := api.Group("/agents")
+		// {
+		// 	agentPermG.POST("/:id/permissions", resourceH.SetAgentPermission)
+		// 	agentPermG.PUT("/:id/visibility", resourceH.SetAgentVisibility)
+		// 	agentPermG.GET("/:id/permission", resourceH.CheckAgentPermission)
+		// }
+		//
+		// // User packages
+		// userPackageG := api.Group("/users")
+		// {
+		// 	userPackageG.GET("/:id/packages", resourceH.GetUserPackages)
+		// }
+	}
+
 	// DingTalk channel routes (no /api prefix).
 	dingTalkH := handlers.NewDingTalkHandler(channelMgr)
 	s.engine.POST("/dingtalk/event", dingTalkH.Event)

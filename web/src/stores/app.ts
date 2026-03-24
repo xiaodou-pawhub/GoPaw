@@ -37,5 +37,8 @@ export const useAppStore = defineStore('app', () => {
     setModeInfo,
   }
 }, {
-  persist: true
+  persist: {
+    // 只持久化 locale 和 providers，modeInfo 每次启动重新获取
+    pick: ['locale', 'providers']
+  }
 })
