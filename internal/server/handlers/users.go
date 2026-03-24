@@ -12,7 +12,7 @@ import (
 	"github.com/gopaw/gopaw/internal/user"
 )
 
-// UsersHandler manages user accounts (team/cloud mode only).
+// UsersHandler manages user accounts (team mode only).
 type UsersHandler struct {
 	svc *user.Service
 }

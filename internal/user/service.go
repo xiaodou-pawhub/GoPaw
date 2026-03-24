@@ -70,7 +70,7 @@ func (svc *Service) Authenticate(username, password string) (*User, error) {
 }
 
 // EnsureAdminExists creates the default admin user if no users exist.
-// Used on first startup in team/cloud mode.
+// Used on first startup in team mode.
 func (svc *Service) EnsureAdminExists(username, password string) (*User, error) {
 	n, err := svc.store.Count()
 	if err != nil {

@@ -24,7 +24,6 @@ type AppConfig struct {
 	// Mode controls multi-tenancy and authentication behaviour.
 	// solo: single-user, no login required.
 	// team: JWT auth, admin-managed users (up to 50).
-	// cloud: JWT auth + invite codes, open registration.
 	Mode string `mapstructure:"mode"`
 }
 

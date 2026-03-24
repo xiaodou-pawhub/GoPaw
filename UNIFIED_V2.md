@@ -14,7 +14,7 @@
 |------|------|------|
 | `GoPaw` | Server 版，Web UI，主功能库 | 功能最完整，但只支持单用户 token 认证 |
 | `gopaw-desk` | Wails 桌面应用 | 与 GoPaw 功能高度重叠，独立维护成本高 |
-| `gopaw-cloud` | SaaS 多用户版 | 代码与 GoPaw 分叉，难以同步 |
+| （已合并） | 已合并到 GoPaw 主干 |
 
 **合并目标**：以 GoPaw 为主干，在 `feature/unified-v2` 分支上叠加能力，形成一个支持「个人本地 → 小团队 → 未来云服务」的统一项目，**不删除任何现有功能代码**。
 
@@ -25,10 +25,8 @@
 ```
 gopaw start --mode solo    # 个人本地（默认）
 gopaw start --mode team    # 小团队
-gopaw start --mode cloud   # SaaS（Phase 4 实现）
 ```
 
-| 行为 | solo（默认） | team | cloud |
 |------|------------|------|-------|
 | 认证 | **无需登录**，直接访问 | JWT（用户名+密码） | JWT + 邀请码 |
 | 用户 | 单用户概念 | Admin 创建账号 | 开放/受邀注册 |
@@ -73,18 +71,14 @@ go.mod（移除 mattn/go-sqlite3）
 
 ```yaml
 app:
-  mode: solo   # solo | team | cloud
+  mode: solo   # solo | team
 ```
 
 新建 `internal/mode/mode.go`：
 
 ```go
 type Mode string
-const (Solo Mode = "solo"; Team Mode = "team"; Cloud Mode = "cloud")
 
-func (m Mode) RequireAuth() bool   { return m == Team || m == Cloud }
-func (m Mode) IsMultiUser() bool   { return m == Team || m == Cloud }
-func (m Mode) RequireInvite() bool { return m == Cloud }
 ```
 
 ---
@@ -98,7 +92,6 @@ func (m Mode) RequireInvite() bool { return m == Cloud }
 ```
 solo  → 直接通过，无需任何 token
 team  → 检查 JWT Bearer header 或 session cookie
-cloud → 同 team
 ```
 
 #### 系统托盘（可选，-tags tray）
@@ -129,7 +122,7 @@ solo 模式或 `--tray` 启动后，延迟 800ms 自动调用系统 `open` / `xd
 | 端点 | 说明 |
 |------|------|
 | `GET /api/mode` | 公开，返回当前模式和认证要求，供前端初始化判断 |
-| `GET /api/auth/me` | 返回当前登录用户信息（team/cloud 模式） |
+| `GET /api/auth/me` | 返回当前登录用户信息（team 模式） |
 
 ---
 
@@ -164,7 +157,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 复用现有 `internal/auth` 包（已有 `GenerateToken` / `ValidateToken`）。
 
-team/cloud 模式登录流程：
+team 模式登录流程：
 ```
 POST /api/auth/login {username, password}
   → user.Service.Authenticate()
@@ -186,7 +179,7 @@ PUT    /api/users/:id/active  启用/禁用账号（admin）
 
 #### 首次启动初始化
 
-team/cloud 模式启动时，若数据库中无用户，自动创建：
+team 模式启动时，若数据库中无用户，自动创建：
 
 ```
 username: admin
@@ -265,9 +258,8 @@ GoPaw/
 
 | 功能 | 说明 |
 |------|------|
-| 前端登录页 | team/cloud 模式的登录界面（`/login` 路由） |
+| 前端登录页 | team 模式的登录界面（`/login` 路由） |
 | 前端用户管理页 | Admin 管理用户，仅 `isMultiUser` 时侧边栏显示 |
-| cloud 邀请码 | `internal/invite/` 包，注册时校验 |
 | 打包脚本 | macOS DMG：`go build` + `create-dmg` |
 | 移植 collaboration | gopaw-desk 的多 Agent 协作能力 |
 | libsql/Turso 迁移 | 现在是 modernc.org/sqlite，未来可切换到 libsql 支持云端数据库 |
@@ -321,4 +313,4 @@ make docker-build      # 构建镜像
 | `modernc.org/sqlite` | 已有，统一全部使用 | 纯 Go，无 CGo |
 | `github.com/getlantern/systray` | 新增（仅 -tags tray） | 系统托盘 |
 | `golang.org/x/crypto` | 已有，新增使用 | bcrypt 密码哈希 |
-| `github.com/golang-jwt/jwt/v5` | 已有，新增使用 | team/cloud JWT |
+| `github.com/golang-jwt/jwt/v5` | 已有，新增使用 | team JWT |

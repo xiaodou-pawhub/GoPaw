@@ -23,7 +23,7 @@ const (
 // AuthHandler handles login / logout for the Web UI.
 // It supports two modes:
 //   - solo/legacy: accepts a single admin token.
-//   - team/cloud:  accepts username + password, returns a JWT stored in the session cookie.
+//   - team:  accepts username + password, returns a JWT stored in the session cookie.
 type AuthHandler struct {
 	adminToken string
 	mode       mode.Mode
@@ -32,7 +32,7 @@ type AuthHandler struct {
 }
 
 // NewAuthHandler creates an AuthHandler with the resolved admin token.
-// Pass authSvc and userSvc non-nil to enable username+password login for team/cloud mode.
+// Pass authSvc and userSvc non-nil to enable username+password login for team mode.
 func NewAuthHandler(adminToken string, m mode.Mode, authSvc *auth.Service, userSvc *user.Service) *AuthHandler {
 	return &AuthHandler{
 		adminToken: adminToken,
@@ -45,7 +45,7 @@ func NewAuthHandler(adminToken string, m mode.Mode, authSvc *auth.Service, userS
 type loginRequest struct {
 	// Token is used in solo mode (backward compatibility).
 	Token string `json:"token"`
-	// Username and Password are used in team/cloud mode.
+	// Username and Password are used in team mode.
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
@@ -59,7 +59,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	if h.mode.RequireAuth() && h.authSvc != nil && h.userSvc != nil {
-		// Team/cloud mode: username + password authentication.
+		// Team mode: username + password authentication.
 		if req.Username == "" || req.Password == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "username 和 password 不能为空"})
 			return
@@ -122,7 +122,7 @@ func (h *AuthHandler) Status(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// Me handles GET /api/auth/me — returns the current user's profile (team/cloud mode).
+// Me handles GET /api/auth/me — returns the current user's profile (team mode).
 func (h *AuthHandler) Me(c *gin.Context) {
 	if h.userSvc == nil {
 		c.JSON(http.StatusOK, gin.H{"mode": "solo"})

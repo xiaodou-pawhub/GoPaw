@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// contextKeyUserID is the gin context key for the authenticated user ID (team/cloud mode).
+// contextKeyUserID is the gin context key for the authenticated user ID (team mode).
 const contextKeyUserID = "gopaw_user_id"
 const contextKeyUsername = "gopaw_username"
 
@@ -69,7 +69,7 @@ func Recovery(logger *zap.Logger) gin.HandlerFunc {
 // WebAuth returns a middleware that enforces authentication based on the current mode.
 //
 //   - solo:        no authentication — UI is immediately accessible.
-//   - team/cloud:  JWT validation (Bearer header or gopaw_session cookie).
+//   - team:  JWT validation (Bearer header or gopaw_session cookie).
 //     Falls back to admin token cookie for backward compatibility.
 func WebAuth(adminToken string, m mode.Mode, authSvc ...*auth.Service) gin.HandlerFunc {
 	var svc *auth.Service
