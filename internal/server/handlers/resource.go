@@ -213,6 +213,14 @@ func (h *ResourceHandler) RevokeGrant(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// GetPackageGrants handles GET /api/resource-packages/:id/grants.
+func (h *ResourceHandler) GetPackageGrants(c *gin.Context) {
+	// id := c.Param("id")
+	// This would need a store method to get grants for a package
+	// For now, return empty list
+	c.JSON(http.StatusOK, gin.H{"grants": []interface{}{}})
+}
+
 // GetUserPackages handles GET /api/users/:id/packages.
 func (h *ResourceHandler) GetUserPackages(c *gin.Context) {
 	userID := c.Param("id")

@@ -30,6 +30,7 @@ import (
 	"github.com/gopaw/gopaw/internal/metrics"
 	"github.com/gopaw/gopaw/internal/mode"
 	"github.com/gopaw/gopaw/internal/queue"
+	"github.com/gopaw/gopaw/internal/resource"
 	"github.com/gopaw/gopaw/internal/server/handlers"
 	"github.com/gopaw/gopaw/internal/settings"
 	"github.com/gopaw/gopaw/internal/skill"
@@ -82,6 +83,7 @@ func New(
 	auditMgr *audit.Manager,
 	alertSvc *alert.Service,
 	wp *workspace.Paths,
+	resourceSvc *resource.Service,
 	staticFS fs.FS,
 	logger *zap.Logger,
 ) *Server {
@@ -100,7 +102,7 @@ func New(
 		logger:    logger,
 	}
 
-	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, alertSvc, wp, staticFS)
+	s.registerRoutes(adminToken, m, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, alertSvc, wp, resourceSvc, staticFS)
 
 	s.httpSrv = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
@@ -139,6 +141,7 @@ func (s *Server) registerRoutes(
 	auditMgr *audit.Manager,
 	alertSvc *alert.Service,
 	wp *workspace.Paths,
+	resourceSvc *resource.Service,
 	staticFS fs.FS,
 ) {
 	// WebSocket endpoint — protected by WebAuth (cookie must be valid).
@@ -449,35 +452,35 @@ func (s *Server) registerRoutes(
 	}
 
 	// /api/resource-packages — resource package management (team mode only)
-	if m.IsMultiUser() {
-		// Resource handler will be initialized when resource package is implemented
-		// resourceH := handlers.NewResourceHandler(resourceSvc, s.logger)
-		// resourceG := api.Group("/resource-packages")
-		// {
-		// 	resourceG.POST("", resourceH.CreatePackage)
-		// 	resourceG.GET("", resourceH.ListPackages)
-		// 	resourceG.GET("/:id", resourceH.GetPackage)
-		// 	resourceG.PUT("/:id", resourceH.UpdatePackage)
-		// 	resourceG.DELETE("/:id", resourceH.DeletePackage)
-		// 	resourceG.POST("/:id/items", resourceH.AddItem)
-		// 	resourceG.DELETE("/:id/items/:type/:resource_id", resourceH.RemoveItem)
-		// 	resourceG.POST("/:id/grant", resourceH.GrantToUser)
-		// 	resourceG.DELETE("/:id/grant/:user_id", resourceH.RevokeGrant)
-		// }
-		//
-		// // Agent permissions
-		// agentPermG := api.Group("/agents")
-		// {
-		// 	agentPermG.POST("/:id/permissions", resourceH.SetAgentPermission)
-		// 	agentPermG.PUT("/:id/visibility", resourceH.SetAgentVisibility)
-		// 	agentPermG.GET("/:id/permission", resourceH.CheckAgentPermission)
-		// }
-		//
-		// // User packages
-		// userPackageG := api.Group("/users")
-		// {
-		// 	userPackageG.GET("/:id/packages", resourceH.GetUserPackages)
-		// }
+	if resourceSvc != nil && m.IsMultiUser() {
+		resourceH := handlers.NewResourceHandler(resourceSvc, s.logger)
+		resourceG := api.Group("/resource-packages")
+		{
+			resourceG.POST("", resourceH.CreatePackage)
+			resourceG.GET("", resourceH.ListPackages)
+			resourceG.GET("/:id", resourceH.GetPackage)
+			resourceG.PUT("/:id", resourceH.UpdatePackage)
+			resourceG.DELETE("/:id", resourceH.DeletePackage)
+			resourceG.POST("/:id/items", resourceH.AddItem)
+			resourceG.DELETE("/:id/items/:type/:resource_id", resourceH.RemoveItem)
+			resourceG.POST("/:id/grant", resourceH.GrantToUser)
+			resourceG.DELETE("/:id/grant/:user_id", resourceH.RevokeGrant)
+			resourceG.GET("/:id/grants", resourceH.GetPackageGrants)
+		}
+
+		// Agent permissions
+		agentPermG := api.Group("/agents")
+		{
+			agentPermG.POST("/:id/permissions", resourceH.SetAgentPermission)
+			agentPermG.PUT("/:id/visibility", resourceH.SetAgentVisibility)
+			agentPermG.GET("/:id/permission", resourceH.CheckAgentPermission)
+		}
+
+		// User packages
+		userPackageG := api.Group("/users")
+		{
+			userPackageG.GET("/:id/packages", resourceH.GetUserPackages)
+		}
 	}
 
 	// DingTalk channel routes (no /api prefix).

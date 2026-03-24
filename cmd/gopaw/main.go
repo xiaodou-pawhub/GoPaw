@@ -47,6 +47,7 @@ import (
 	"github.com/gopaw/gopaw/internal/tray"
 	"github.com/gopaw/gopaw/internal/queue"
 	"github.com/gopaw/gopaw/internal/metrics"
+	"github.com/gopaw/gopaw/internal/resource"
 	"github.com/gopaw/gopaw/internal/user"
 	"github.com/gopaw/gopaw/internal/workspace"
 	"github.com/gopaw/gopaw/pkg/plugin"
@@ -655,7 +656,19 @@ func runStart() {
 		}
 	}
 
-	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, alertSvc, wp, web.FS(), logger)
+	// Create resource service (team mode only)
+	var resourceSvc *resource.Service
+	if appMode.IsMultiUser() {
+		resourceStore, err := resource.NewStore(store.DB(), logger)
+		if err != nil {
+			logger.Warn("failed to initialize resource store", zap.Error(err))
+		} else {
+			resourceSvc = resource.NewService(resourceStore, logger)
+			logger.Info("resource service initialized")
+		}
+	}
+
+	srv := server.New(cfg, adminToken, appMode, authSvc, userSvc, agentInstance, memMgr, ltmStore, channelMgr, skillMgr, llmClient, cronService, cfgMgr, settingsStore, traceMgr, agentMgr, agentRouter, mcpMgr, agentMsgMgr, queueMgr, metricsService, knowledgeService, flowService, auditMgr, alertSvc, wp, resourceSvc, web.FS(), logger)
 	go srv.Start()
 
 	// Auto-open browser in solo mode unless --no-browser is set.
