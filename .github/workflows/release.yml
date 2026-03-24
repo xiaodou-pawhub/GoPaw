@@ -303,19 +303,38 @@ jobs:
     needs: create-release
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
+      - name: Download binaries artifact
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: gopaw-darwin-amd64
+          path: artifacts/darwin-amd64
+
+      - name: Download darwin-arm64
+        uses: actions/download-artifact@v4
+        with:
+          name: gopaw-darwin-arm64
+          path: artifacts/darwin-arm64
+
+      - name: Download linux-amd64
+        uses: actions/download-artifact@v4
+        with:
+          name: gopaw-linux-amd64
+          path: artifacts/linux-amd64
+
+      - name: Download linux-arm64
+        uses: actions/download-artifact@v4
+        with:
+          name: gopaw-linux-arm64
+          path: artifacts/linux-arm64
 
       - name: Calculate SHA256
         id: sha256
         run: |
           # 查找并计算各平台的 SHA256
-          DARWIN_AMD64=$(find artifacts -name "gopaw-darwin-amd64.tar.gz" -exec sha256sum {} \; | cut -d' ' -f1)
-          DARWIN_ARM64=$(find artifacts -name "gopaw-darwin-arm64.tar.gz" -exec sha256sum {} \; | cut -d' ' -f1)
-          LINUX_AMD64=$(find artifacts -name "gopaw-linux-amd64.tar.gz" -exec sha256sum {} \; | cut -d' ' -f1)
-          LINUX_ARM64=$(find artifacts -name "gopaw-linux-arm64.tar.gz" -exec sha256sum {} \; | cut -d' ' -f1)
+          DARWIN_AMD64=$(find artifacts/darwin-amd64 -name "*.tar.gz" -exec sha256sum {} \; | cut -d' ' -f1)
+          DARWIN_ARM64=$(find artifacts/darwin-arm64 -name "*.tar.gz" -exec sha256sum {} \; | cut -d' ' -f1)
+          LINUX_AMD64=$(find artifacts/linux-amd64 -name "*.tar.gz" -exec sha256sum {} \; | cut -d' ' -f1)
+          LINUX_ARM64=$(find artifacts/linux-arm64 -name "*.tar.gz" -exec sha256sum {} \; | cut -d' ' -f1)
 
           echo "darwin_amd64=$DARWIN_AMD64" >> $GITHUB_OUTPUT
           echo "darwin_arm64=$DARWIN_ARM64" >> $GITHUB_OUTPUT
