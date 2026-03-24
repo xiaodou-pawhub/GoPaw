@@ -469,6 +469,10 @@ onUnmounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
+  max-width: 1600px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .page-header {
@@ -551,6 +555,9 @@ onUnmounted(() => {
   display: flex;
   gap: 24px;
   min-height: 0;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .execution-list {
@@ -631,6 +638,7 @@ onUnmounted(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  max-width: 1000px;
 }
 
 .no-selection {
@@ -646,7 +654,7 @@ onUnmounted(() => {
 .detail-content {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
+  padding: 16px 20px;
 }
 
 .detail-header {
@@ -656,6 +664,7 @@ onUnmounted(() => {
   margin-bottom: 20px;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--border);
+  max-width: 800px;
 }
 
 .detail-title h2 {
@@ -678,6 +687,7 @@ onUnmounted(() => {
 
 .detail-section {
   margin-bottom: 20px;
+  max-width: 800px;
 }
 
 .detail-section h3 {
@@ -716,6 +726,7 @@ onUnmounted(() => {
   border-radius: 8px;
   padding: 12px;
   overflow-x: auto;
+  max-width: 100%;
 }
 
 .code-block pre {
@@ -883,6 +894,7 @@ onUnmounted(() => {
   padding: 4px;
   background: var(--bg-app);
   border-radius: 8px;
+  max-width: 600px;
 }
 
 .tab-btn {
@@ -938,6 +950,7 @@ onUnmounted(() => {
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-bottom: 20px;
+  max-width: 600px;
 }
 
 .stat-item {
@@ -970,6 +983,7 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--text-primary);
   margin: 0 0 12px 0;
+  max-width: 800px;
 }
 
 .trace-step-item {
@@ -978,6 +992,7 @@ onUnmounted(() => {
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 8px;
+  max-width: 800px;
 }
 
 .trace-step-header {

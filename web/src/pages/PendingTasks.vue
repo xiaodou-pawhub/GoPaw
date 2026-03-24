@@ -251,6 +251,10 @@ onUnmounted(() => {
 
 .task-list {
   margin-top: 16px;
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
 }
 
 .loading-state,

@@ -40,7 +40,7 @@
           <div class="data-thead">
             <span>Agent ID</span><span>调用次数</span><span>成功率</span>
           </div>
-          <div v-if="!dashboard?.agent?.top_agents?.length" class="empty-state">暂无数据</div>
+          <div v-if="!dashboard?.agent?.top_agents || !dashboard.agent.top_agents.length" class="empty-state">暂无数据</div>
           <div v-for="row in dashboard?.agent?.top_agents" :key="row.agent_id" class="data-row">
             <span class="mono">{{ row.agent_id }}</span>
             <span>{{ formatNumber(row.call_count) }}</span>
@@ -60,7 +60,7 @@
           <div class="data-thead">
             <span>队列</span><span>待处理</span><span>处理中</span><span>失败</span>
           </div>
-          <div v-if="!dashboard?.queue?.queue_stats?.length" class="empty-state">暂无数据</div>
+          <div v-if="!dashboard?.queue?.queue_stats || !dashboard.queue.queue_stats.length" class="empty-state">暂无数据</div>
           <div v-for="row in dashboard?.queue?.queue_stats" :key="row.queue_name" class="data-row">
             <span>{{ row.queue_name }}</span>
             <span class="badge badge-warning">{{ row.pending_count }}</span>
@@ -78,7 +78,7 @@
         <div class="data-thead">
           <span>工作流</span><span>执行次数</span><span>成功率</span>
         </div>
-        <div v-if="!dashboard?.workflow?.top_workflows?.length" class="empty-state">暂无数据</div>
+        <div v-if="!dashboard?.workflow?.top_workflows || !dashboard.workflow.top_workflows.length" class="empty-state">暂无数据</div>
         <div v-for="row in dashboard?.workflow?.top_workflows" :key="row.workflow_name" class="data-row">
           <span>{{ row.workflow_name }}</span>
           <span>{{ formatNumber(row.execution_count) }}</span>
@@ -94,7 +94,7 @@
     <!-- 最近活动 -->
     <div class="data-card">
       <div class="card-title">最近活动</div>
-      <div v-if="!recentActivity.length" class="empty-state">暂无活动</div>
+      <div v-if="!recentActivity || !recentActivity.length" class="empty-state">暂无活动</div>
       <div v-for="activity in recentActivity" :key="activity.id" class="activity-item">
         <div class="activity-dot" :class="getActivityClass(activity.status)" />
         <div class="activity-icon">
