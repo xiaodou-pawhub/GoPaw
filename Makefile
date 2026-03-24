@@ -146,6 +146,9 @@ release:
 
 # ─── Development ─────────────────────────────────────────────────────────────
 
+# Default mode
+MODE ?= solo
+
 ## dev: [开发·双进程] Vite HMR(6673) + Go API(16688) 同时启动，Ctrl+C 一起退出
 ##   用法：make dev [mode=solo|team]
 dev:
@@ -153,20 +156,20 @@ dev:
 	@printf "$(CYAN)│  GoPaw Dev — HMR 模式                        │$(RESET)\n"
 	@printf "$(CYAN)│  前端 (HMR) : http://localhost:6673          │$(RESET)\n"
 	@printf "$(CYAN)│  后端 API   : http://localhost:16688          │$(RESET)\n"
-	@printf "$(CYAN)│  模式：$(if $(mode),$(mode),solo)                           │$(RESET)\n"
+	@printf "$(CYAN)│  模式：$(MODE)                              │$(RESET)\n"
 	@printf "$(CYAN)│  修改 .go 文件后请手动重启后端               │$(RESET)\n"
 	@printf "$(CYAN)│  Ctrl+C 同时停止两个进程                     │$(RESET)\n"
 	@printf "$(CYAN)└──────────────────────────────────────────────┘$(RESET)\n"
 	@trap 'kill 0' INT TERM EXIT; \
 	 (cd web && bun run dev) & \
-	 $(GO) run -tags dev $(LDFLAGS) ./cmd/gopaw start --mode $(if $(mode),$(mode),solo) --no-browser; \
+	 $(GO) run -tags dev $(LDFLAGS) ./cmd/gopaw start --mode $(MODE) --no-browser; \
 	 wait
 
 ## dev-go: [开发·仅后端] 只启动 Go 后端（另起终端运行 make web-dev）
 ##   用法：make dev-go [mode=solo|team]
 dev-go:
-	@printf "$(YELLOW)Backend only → http://localhost:16688 (mode: $(if $(mode),$(mode),solo))$(RESET)\n"
-	$(GO) run -tags dev $(LDFLAGS) ./cmd/gopaw start --mode $(if $(mode),$(mode),solo) --no-browser
+	@printf "$(YELLOW)Backend only → http://localhost:16688 (mode: $(MODE))$(RESET)\n"
+	$(GO) run -tags dev $(LDFLAGS) ./cmd/gopaw start --mode $(MODE) --no-browser
 
 ## dev-embedded: [开发·单进程] 先构建前端，再以嵌入模式启动 Go → 单进程，无 HMR
 ##   适合：不改前端、调试后端、单进程快速验证
