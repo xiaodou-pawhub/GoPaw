@@ -197,8 +197,13 @@ onUnmounted(() => {
 <style scoped>
 .page-container {
   padding: 24px;
-  max-width: 1200px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  max-width: 1600px;
   margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .page-header {
@@ -216,7 +221,7 @@ onUnmounted(() => {
 
 .page-title {
   font-size: 24px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
   margin: 0;
 }
@@ -284,14 +289,14 @@ onUnmounted(() => {
 
 .task-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
   gap: 16px;
 }
 
 .task-card {
-  background: var(--bg-overlay);
+  background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 16px;
   transition: box-shadow 0.2s;
 }
@@ -304,38 +309,40 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .card-type {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   font-size: 12px;
-  color: #f59e0b;
-  background: #fef3c7;
-  padding: 2px 8px;
-  border-radius: 4px;
+  font-weight: 600;
+  color: #ca8a04;
+  background: rgba(234, 179, 8, 0.15);
+  padding: 4px 10px;
+  border-radius: 6px;
 }
 
 .card-time {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
 }
 
 .card-title {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
-  margin: 0 0 8px 0;
+  margin: 0 0 12px 0;
 }
 
 .card-prompt {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
   padding: 12px;
   background: var(--bg-app);
+  border: 1px solid var(--border);
   border-radius: 8px;
   margin-bottom: 12px;
   font-size: 14px;
@@ -351,7 +358,7 @@ onUnmounted(() => {
 
 .card-meta {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   margin-bottom: 12px;
 }
 
@@ -376,6 +383,7 @@ onUnmounted(() => {
 .option-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
+  background: var(--accent-dim);
 }
 
 .custom-input {
@@ -406,19 +414,19 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 10px 16px;
+  padding: 8px 16px;
   background: var(--accent);
+  color: #fff;
   border: none;
   border-radius: 6px;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition: background 0.2s;
 }
 
-.btn-primary:hover:not(:disabled) {
-  opacity: 0.9;
+.btn-primary:hover {
+  background: var(--accent-hover);
 }
 
 .btn-primary:disabled {
@@ -427,6 +435,31 @@ onUnmounted(() => {
 }
 
 .btn-submit {
-  width: 100%;
+  align-self: flex-end;
+}
+
+.loading-state,
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: var(--text-secondary);
+  gap: 12px;
+}
+
+.empty-state .hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

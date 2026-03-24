@@ -490,7 +490,7 @@ onUnmounted(() => {
 
 .page-title {
   font-size: 24px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
   margin: 0;
 }
@@ -520,12 +520,13 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  background: var(--bg-app);
+  background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
+  transition: background 0.15s;
 }
 
 .btn-secondary:hover {
@@ -546,8 +547,14 @@ onUnmounted(() => {
   border: none;
   border-radius: 6px;
   color: #fff;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
 }
 
 .content-layout {
@@ -561,11 +568,11 @@ onUnmounted(() => {
 }
 
 .execution-list {
-  width: 320px;
+  width: 340px;
   flex-shrink: 0;
-  background: var(--bg-overlay);
+  background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -578,7 +585,7 @@ onUnmounted(() => {
 }
 
 .execution-item {
-  padding: 12px;
+  padding: 14px;
   border-radius: 8px;
   cursor: pointer;
   margin-bottom: 4px;
@@ -597,44 +604,45 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .item-status {
   font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 600;
 }
 
-.item-status.running { background: #dbeafe; color: #2563eb; }
-.item-status.waiting { background: #fef3c7; color: #d97706; }
-.item-status.completed { background: #dcfce7; color: #16a34a; }
-.item-status.failed { background: #fee2e2; color: #dc2626; }
+.item-status.running { background: rgba(59,130,246,0.15); color: #2563eb; }
+.item-status.waiting { background: rgba(234,179,8,0.15); color: #d97706; }
+.item-status.completed { background: rgba(34,197,94,0.15); color: #16a34a; }
+.item-status.failed { background: rgba(239,68,68,0.15); color: #dc2626; }
 
 .item-time {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
 }
 
 .item-title {
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .item-meta {
   display: flex;
   gap: 12px;
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
 }
 
 .execution-detail {
   flex: 1;
-  background: var(--bg-overlay);
+  background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -669,15 +677,16 @@ onUnmounted(() => {
 
 .detail-title h2 {
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
   margin: 0 0 8px 0;
 }
 
 .detail-status {
   font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-weight: 600;
 }
 
 .detail-actions {
@@ -894,7 +903,7 @@ onUnmounted(() => {
   padding: 4px;
   background: var(--bg-app);
   border-radius: 8px;
-  max-width: 600px;
+  max-width: 500px;
 }
 
 .tab-btn {
@@ -905,16 +914,18 @@ onUnmounted(() => {
   border-radius: 6px;
   color: var(--text-secondary);
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .tab-btn:hover {
   color: var(--text-primary);
+  background: var(--bg-overlay);
 }
 
 .tab-btn.active {
-  background: var(--bg-panel);
+  background: var(--bg-elevated);
   color: var(--text-primary);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
@@ -957,20 +968,23 @@ onUnmounted(() => {
   background: var(--bg-app);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 12px;
+  padding: 14px;
   text-align: center;
 }
 
 .stat-label {
   display: block;
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
 }
 
 .stat-value {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
   color: var(--text-primary);
 }
 
