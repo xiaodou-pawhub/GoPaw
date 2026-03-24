@@ -127,6 +127,11 @@ const routes: RouteRecordRaw[] = [
         path: 'alert',
         name: 'Alert',
         component: () => import('@/pages/Alert.vue')
+      },
+      {
+        path: 'resource-packages',
+        name: 'ResourcePackages',
+        component: () => import('@/pages/ResourcePackages.vue')
       }
     ]
   }

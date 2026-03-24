@@ -95,6 +95,7 @@
           <button
             v-for="item in systemItems"
             :key="item.to"
+            v-if="!item.teamOnly || appStore.isMultiUser"
             class="nav-item"
             :class="{ active: isActive(item.to) }"
             :title="isCollapsed ? item.label : ''"
@@ -143,6 +144,7 @@ import {
   Clock,
   ScrollText as ScrollTextIcon,
   ClipboardList,
+  Package as PackageIcon,
 } from 'lucide-vue-next'
 import { useAppStore } from '@/stores/app'
 
@@ -181,6 +183,7 @@ const dataItems = [
 const systemItems = [
   { to: '/logs', label: '系统日志', icon: ScrollTextIcon },
   { to: '/mcp', label: 'MCP 服务', icon: Server },
+  { to: '/resource-packages', label: '资源包', icon: PackageIcon, teamOnly: true },
 ]
 
 function isActive(to: string): boolean {
