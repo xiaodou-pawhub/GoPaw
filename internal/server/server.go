@@ -198,7 +198,7 @@ func (s *Server) registerRoutes(
 	api.GET("/config", cfgH.Get)
 
 	// /api/settings — runtime settings (LLM providers, channel secrets)
-	settingsH := handlers.NewSettingsHandler(settingsStore, channelMgr, s.logger)
+	settingsH := handlers.NewSettingsHandler(settingsStore, channelMgr, permChecker, s.logger)
 	settingsG := api.Group("/settings")
 	{
 		settingsG.GET("/setup-status", settingsH.SetupStatus)
@@ -256,7 +256,7 @@ func (s *Server) registerRoutes(
 	}
 
 	// /api/skills
-	skillsH := handlers.NewSkillsHandler(skillMgr, wp.SkillsDir, llmClient, s.logger)
+	skillsH := handlers.NewSkillsHandler(skillMgr, wp.SkillsDir, llmClient, permChecker, s.logger)
 	skillsG := api.Group("/skills")
 	{
 		skillsG.GET("", skillsH.List)
@@ -410,7 +410,7 @@ func (s *Server) registerRoutes(
 
 	// /api/knowledge — knowledge base management
 	if knowledgeService != nil {
-		knowledgeH := handlers.NewKnowledgeHandler(knowledgeService)
+		knowledgeH := handlers.NewKnowledgeHandler(knowledgeService, permChecker)
 		knowledgeH.RegisterRoutes(api)
 	}
 

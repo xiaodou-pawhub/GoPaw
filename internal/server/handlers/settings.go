@@ -5,6 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/channel"
 	"github.com/gopaw/gopaw/internal/llm"
+	"github.com/gopaw/gopaw/internal/permission"
 	"github.com/gopaw/gopaw/internal/settings"
 	"github.com/gopaw/gopaw/pkg/api"
 	"go.uber.org/zap"
@@ -13,14 +14,15 @@ import (
 // SettingsHandler handles /api/settings routes for runtime configuration
 // (LLM providers and channel secrets).
 type SettingsHandler struct {
-	store      *settings.Store
-	logger     *zap.Logger
-	channelMgr *channel.Manager
+	store       *settings.Store
+	permChecker *permission.Checker
+	logger      *zap.Logger
+	channelMgr  *channel.Manager
 }
 
 // NewSettingsHandler creates a SettingsHandler.
-func NewSettingsHandler(store *settings.Store, channelMgr *channel.Manager, logger *zap.Logger) *SettingsHandler {
-	return &SettingsHandler{store: store, channelMgr: channelMgr, logger: logger}
+func NewSettingsHandler(store *settings.Store, channelMgr *channel.Manager, permChecker *permission.Checker, logger *zap.Logger) *SettingsHandler {
+	return &SettingsHandler{store: store, channelMgr: channelMgr, permChecker: permChecker, logger: logger}
 }
 
 // ── LLM Providers ──────────────────────────────────────────────────────────
@@ -34,7 +36,24 @@ func (h *SettingsHandler) ListProviders(c *gin.Context) {
 		api.InternalErrorWithDetails(c, "failed to list providers", err)
 		return
 	}
-	api.Success(c, gin.H{"providers": list})
+
+	// In team mode, filter providers based on user permissions
+	userID, _ := c.Get("gopaw_user_id")
+	isTeamMode := userID != nil && h.permChecker != nil
+	
+	if isTeamMode {
+		filteredList := make([]settings.ProviderConfig, 0)
+		for _, provider := range list {
+			hasAccess, err := h.permChecker.CanUseResource(c.Request.Context(), userID.(string), "model", provider.ID)
+			if err != nil || !hasAccess {
+				continue
+			}
+			filteredList = append(filteredList, provider)
+		}
+		api.Success(c, gin.H{"providers": filteredList})
+	} else {
+		api.Success(c, gin.H{"providers": list})
+	}
 }
 
 // ToggleProvider handles POST /api/settings/providers/:id/toggle

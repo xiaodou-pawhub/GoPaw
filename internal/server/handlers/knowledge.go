@@ -7,17 +7,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/knowledge"
+	"github.com/gopaw/gopaw/internal/permission"
 	"github.com/gopaw/gopaw/pkg/api"
 )
 
 // KnowledgeHandler 知识库处理器
 type KnowledgeHandler struct {
-	service *knowledge.Service
+	service     *knowledge.Service
+	permChecker *permission.Checker
 }
 
 // NewKnowledgeHandler 创建知识库处理器
-func NewKnowledgeHandler(service *knowledge.Service) *KnowledgeHandler {
-	return &KnowledgeHandler{service: service}
+func NewKnowledgeHandler(service *knowledge.Service, permChecker *permission.Checker) *KnowledgeHandler {
+	return &KnowledgeHandler{service: service, permChecker: permChecker}
 }
 
 // RegisterRoutes 注册路由
@@ -76,7 +78,24 @@ func (h *KnowledgeHandler) ListKnowledgeBases(c *gin.Context) {
 		return
 	}
 
-	api.Success(c, bases)
+	// In team mode, filter knowledge bases based on user permissions
+	userID, _ := c.Get("gopaw_user_id")
+	isTeamMode := userID != nil && h.permChecker != nil
+	
+	if isTeamMode {
+		filteredBases := make([]interface{}, 0)
+		for _, kb := range bases {
+			hasAccess, err := h.permChecker.CanUseResource(c.Request.Context(), userID.(string), "knowledge", kb.ID)
+			if err != nil || !hasAccess {
+				// Skip knowledge bases the user doesn't have access to
+				continue
+			}
+			filteredBases = append(filteredBases, kb)
+		}
+		api.Success(c, filteredBases)
+	} else {
+		api.Success(c, bases)
+	}
 }
 
 // GetKnowledgeBase 获取知识库

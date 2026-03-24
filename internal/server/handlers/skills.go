@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gopaw/gopaw/internal/llm"
+	"github.com/gopaw/gopaw/internal/permission"
 	"github.com/gopaw/gopaw/internal/skill"
 	"github.com/gopaw/gopaw/pkg/api"
 	"go.uber.org/zap"
@@ -26,15 +27,16 @@ const defaultMarketBaseURL = "https://skills.gopaw.top"
 
 // SkillsHandler handles /api/skills routes.
 type SkillsHandler struct {
-	manager   *skill.Manager
-	skillsDir string
-	llm       llm.Client // may be nil if LLM is not configured
-	logger    *zap.Logger
+	manager     *skill.Manager
+	skillsDir   string
+	llm         llm.Client // may be nil if LLM is not configured
+	permChecker *permission.Checker
+	logger      *zap.Logger
 }
 
 // NewSkillsHandler creates a SkillsHandler.
-func NewSkillsHandler(m *skill.Manager, skillsDir string, llmClient llm.Client, logger *zap.Logger) *SkillsHandler {
-	return &SkillsHandler{manager: m, skillsDir: skillsDir, llm: llmClient, logger: logger}
+func NewSkillsHandler(m *skill.Manager, skillsDir string, llmClient llm.Client, permChecker *permission.Checker, logger *zap.Logger) *SkillsHandler {
+	return &SkillsHandler{manager: m, skillsDir: skillsDir, llm: llmClient, permChecker: permChecker, logger: logger}
 }
 
 type skillInfo struct {
@@ -51,7 +53,21 @@ type skillInfo struct {
 func (h *SkillsHandler) List(c *gin.Context) {
 	entries := h.manager.Registry().All()
 	out := make([]skillInfo, 0, len(entries))
+	
+	// In team mode, filter skills based on user permissions
+	userID, _ := c.Get("gopaw_user_id")
+	isTeamMode := userID != nil && h.permChecker != nil
+	
 	for _, e := range entries {
+		// In team mode, check if user has access to this skill
+		if isTeamMode {
+			hasAccess, err := h.permChecker.CanUseResource(c.Request.Context(), userID.(string), "skill", e.Manifest.Name)
+			if err != nil || !hasAccess {
+				// Skip skills the user doesn't have access to
+				continue
+			}
+		}
+		
 		out = append(out, skillInfo{
 			Name:        e.Manifest.Name,
 			DisplayName: e.Manifest.DisplayName,
