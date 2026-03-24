@@ -146,8 +146,8 @@ release:
 
 # ─── Development ─────────────────────────────────────────────────────────────
 
-# Default mode
-MODE ?= solo
+# Default mode (support both MODE and mode for convenience)
+MODE ?= $(or $(mode),solo)
 
 ## dev: [开发·双进程] Vite HMR(6673) + Go API(16688) 同时启动，Ctrl+C 一起退出
 ##   用法：make dev [mode=solo|team]
