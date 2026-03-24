@@ -132,6 +132,11 @@ const routes: RouteRecordRaw[] = [
         path: 'resource-packages',
         name: 'ResourcePackages',
         component: () => import('@/pages/ResourcePackages.vue')
+      },
+      {
+        path: 'resource-packages/:id/grants',
+        name: 'PackageGrants',
+        component: () => import('@/pages/PackageGrants.vue')
       }
     ]
   }
