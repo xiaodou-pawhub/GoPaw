@@ -106,7 +106,7 @@ jobs:
           cp gopaw${{ matrix.suffix }} _release/
           cp config.yaml.example _release/ 2>/dev/null || true
           cp -r docker _release/ 2>/dev/null || true
-          
+
           # Create archive
           if [ "${{ matrix.goos }}" = "windows" ]; then
             cd _release && zip -r ../gopaw-${{ matrix.goos }}-${{ matrix.goarch }}.zip .
@@ -241,9 +241,9 @@ jobs:
           name: GoPaw ${{ github.ref_name }}
           body: |
             ## 🚀 GoPaw ${{ steps.version.outputs.VERSION }}
-            
+
             ### 📦 下载
-            
+
             | 平台 | 架构 | 文件 |
             |------|------|------|
             | Linux | amd64 | gopaw-linux-amd64.tar.gz |
@@ -251,22 +251,98 @@ jobs:
             | Windows | amd64 | gopaw-windows-amd64.zip |
             | macOS | amd64 (Intel) | gopaw-darwin-amd64.tar.gz |
             | macOS | arm64 (M1/M2) | gopaw-darwin-arm64.tar.gz |
-            
+
+            ### 🍎 macOS 用户
+
+            首次运行可能提示"无法验证开发者"，执行以下命令：
+
+            ```bash
+            xattr -cr gopaw
+            ./gopaw start
+            ```
+
+            或使用 Homebrew 安装（推荐）：
+
+            ```bash
+            brew tap xiaodou-pawhub/gopaw
+            brew install gopaw
+            ```
+
             ### 🐳 Docker
-            
+
             ```bash
             docker pull ghcr.io/xiaodou-pawhub/gopaw:${{ steps.version.outputs.VERSION }}
             ```
-            
+
             ### 📝 更新日志
-            
+
             ${{ steps.changelog.outputs.CHANGELOG }}
-            
+
             ### 📖 文档
-            
+
             - [部署文档](https://github.com/xiaodou-pawhub/gopaw/blob/main/docker/DEPLOY.md)
             - [配置示例](https://github.com/xiaodou-pawhub/gopaw/blob/main/config.yaml.example)
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: release/*
           fail_on_unmatched_files: false
+
+  # ============================================
+  # 更新 Homebrew Formula
+  # ============================================
+  update-homebrew:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Calculate SHA256
+        id: sha256
+        run: |
+          # 查找并计算各平台的 SHA256
+          DARWIN_AMD64=$(find artifacts -name "gopaw-darwin-amd64.tar.gz" -exec sha256sum {} \; | cut -d' ' -f1)
+          DARWIN_ARM64=$(find artifacts -name "gopaw-darwin-arm64.tar.gz" -exec sha256sum {} \; | cut -d' ' -f1)
+          LINUX_AMD64=$(find artifacts -name "gopaw-linux-amd64.tar.gz" -exec sha256sum {} \; | cut -d' ' -f1)
+          LINUX_ARM64=$(find artifacts -name "gopaw-linux-arm64.tar.gz" -exec sha256sum {} \; | cut -d' ' -f1)
+
+          echo "darwin_amd64=$DARWIN_AMD64" >> $GITHUB_OUTPUT
+          echo "darwin_arm64=$DARWIN_ARM64" >> $GITHUB_OUTPUT
+          echo "linux_amd64=$LINUX_AMD64" >> $GITHUB_OUTPUT
+          echo "linux_arm64=$LINUX_ARM64" >> $GITHUB_OUTPUT
+
+      - name: Checkout homebrew-gopaw
+        uses: actions/checkout@v4
+        with:
+          repository: xiaodou-pawhub/homebrew-gopaw
+          token: ${{ secrets.HOMEBREW_TOKEN }}
+          path: homebrew-gopaw
+
+      - name: Update formula
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd homebrew-gopaw
+
+          # 更新版本号
+          sed -i "s/version \".*\"/version \"$VERSION\"/" Formula/gopaw.rb
+
+          # 更新 SHA256
+          sed -i "s/PLACEHOLDER_DARWIN_AMD64_SHA256/${{ steps.sha256.outputs.darwin_amd64 }}/" Formula/gopaw.rb
+          sed -i "s/PLACEHOLDER_DARWIN_ARM64_SHA256/${{ steps.sha256.outputs.darwin_arm64 }}/" Formula/gopaw.rb
+          sed -i "s/PLACEHOLDER_LINUX_AMD64_SHA256/${{ steps.sha256.outputs.linux_amd64 }}/" Formula/gopaw.rb
+          sed -i "s/PLACEHOLDER_LINUX_ARM64_SHA256/${{ steps.sha256.outputs.linux_arm64 }}/" Formula/gopaw.rb
+
+          # 显示更新后的内容
+          cat Formula/gopaw.rb
+
+      - name: Commit and push
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd homebrew-gopaw
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/gopaw.rb
+          git commit -m "chore: update to v$VERSION" || echo "No changes to commit"
+          git push
