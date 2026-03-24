@@ -7,23 +7,27 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gopaw/gopaw/internal/audit"
 	"github.com/gopaw/gopaw/internal/resource"
 	"go.uber.org/zap"
 )
 
 // ResourceHandler handles resource package management.
 type ResourceHandler struct {
-	svc    *resource.Service
-	logger *zap.Logger
+	svc      *resource.Service
+	auditMgr *audit.Manager
+	logger   *zap.Logger
 }
 
 // NewResourceHandler creates a new resource handler.
-func NewResourceHandler(svc *resource.Service, logger *zap.Logger) *ResourceHandler {
+func NewResourceHandler(svc *resource.Service, auditMgr *audit.Manager, logger *zap.Logger) *ResourceHandler {
 	return &ResourceHandler{
-		svc:    svc,
-		logger: logger.Named("resource_handler"),
+		svc:      svc,
+		auditMgr: auditMgr,
+		logger:   logger.Named("resource_handler"),
 	}
 }
 
@@ -59,6 +63,22 @@ func (h *ResourceHandler) CreatePackage(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建失败"})
 		return
 	}
+
+	// Log audit
+	h.auditMgr.Log(&audit.Log{
+		Timestamp:    time.Now(),
+		Category:     audit.CategoryPermission,
+		Action:       audit.ActionResourceCreate,
+		UserID:       userID.(string),
+		UserIP:       c.ClientIP(),
+		ResourceType: "resource_package",
+		ResourceID:   pkg.ID,
+		Status:       audit.StatusSuccess,
+		Details: map[string]interface{}{
+			"name":      req.Name,
+			"is_global": req.IsGlobal,
+		},
+	})
 
 	c.JSON(http.StatusCreated, gin.H{"package": pkg})
 }
@@ -195,6 +215,21 @@ func (h *ResourceHandler) GrantToUser(c *gin.Context) {
 		return
 	}
 
+	// Log audit
+	h.auditMgr.Log(&audit.Log{
+		Timestamp:    time.Now(),
+		Category:     audit.CategoryPermission,
+		Action:       audit.ActionResourceGrant,
+		UserID:       grantedBy.(string),
+		UserIP:       c.ClientIP(),
+		ResourceType: "resource_package",
+		ResourceID:   id,
+		Status:       audit.StatusSuccess,
+		Details: map[string]interface{}{
+			"granted_to": req.UserID,
+		},
+	})
+
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -202,6 +237,7 @@ func (h *ResourceHandler) GrantToUser(c *gin.Context) {
 func (h *ResourceHandler) RevokeGrant(c *gin.Context) {
 	id := c.Param("id")
 	userID := c.Param("user_id")
+	grantedBy, _ := c.Get("gopaw_user_id")
 
 	err := h.svc.RevokeUserGrant(c.Request.Context(), userID, id)
 	if err != nil {
@@ -209,6 +245,21 @@ func (h *ResourceHandler) RevokeGrant(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "撤销失败"})
 		return
 	}
+
+	// Log audit
+	h.auditMgr.Log(&audit.Log{
+		Timestamp:    time.Now(),
+		Category:     audit.CategoryPermission,
+		Action:       audit.ActionResourceRevoke,
+		UserID:       grantedBy.(string),
+		UserIP:       c.ClientIP(),
+		ResourceType: "resource_package",
+		ResourceID:   id,
+		Status:       audit.StatusSuccess,
+		Details: map[string]interface{}{
+			"revoked_from": userID,
+		},
+	})
 
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

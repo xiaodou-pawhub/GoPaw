@@ -456,7 +456,7 @@ func (s *Server) registerRoutes(
 
 	// /api/resource-packages — resource package management (team mode only)
 	if resourceSvc != nil && m.IsMultiUser() {
-		resourceH := handlers.NewResourceHandler(resourceSvc, s.logger)
+		resourceH := handlers.NewResourceHandler(resourceSvc, auditMgr, s.logger)
 		resourceG := api.Group("/resource-packages")
 		{
 			resourceG.POST("", resourceH.CreatePackage)

@@ -10,20 +10,23 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/gopaw/gopaw/internal/audit"
 	"go.uber.org/zap"
 )
 
 // Checker provides permission checking for resources.
 type Checker struct {
-	db     *sql.DB
-	logger *zap.Logger
+	db       *sql.DB
+	auditMgr *audit.Manager
+	logger   *zap.Logger
 }
 
 // NewChecker creates a new permission checker.
-func NewChecker(db *sql.DB, logger *zap.Logger) *Checker {
+func NewChecker(db *sql.DB, auditMgr *audit.Manager, logger *zap.Logger) *Checker {
 	return &Checker{
-		db:     db,
-		logger: logger.Named("permission"),
+		db:       db,
+		auditMgr: auditMgr,
+		logger:   logger.Named("permission"),
 	}
 }
 

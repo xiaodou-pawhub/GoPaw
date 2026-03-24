@@ -672,7 +672,7 @@ func runStart() {
 	// Create permission checker (team mode only)
 	var permChecker *permission.Checker
 	if appMode.IsMultiUser() {
-		permChecker = permission.NewChecker(store.DB(), logger)
+		permChecker = permission.NewChecker(store.DB(), auditMgr, logger)
 		logger.Info("permission checker initialized")
 	}
 

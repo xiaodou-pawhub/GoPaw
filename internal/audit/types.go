@@ -22,6 +22,7 @@ const (
 	CategorySystem    Category = "system"    // 系统事件
 	CategoryConfig    Category = "config"    // 配置变更
 	CategoryHTTP      Category = "http"      // HTTP 请求
+	CategoryPermission Category = "permission" // 权限管理
 )
 
 // Action represents the action of an audit event.
@@ -75,6 +76,14 @@ const (
 
 	// HTTP actions
 	ActionHTTPRequest Action = "http_request"
+
+	// Permission actions
+	ActionResourceGrant    Action = "resource_grant"    // 资源授权
+	ActionResourceRevoke   Action = "resource_revoke"   // 撤销授权
+	ActionResourceCreate   Action = "resource_create"   // 创建资源包
+	ActionResourceUpdate   Action = "resource_update"   // 更新资源包
+	ActionResourceDelete   Action = "resource_delete"   // 删除资源包
+	ActionAgentVisibility  Action = "agent_visibility"  // Agent 可见性变更
 )
 
 // Status represents the status of an audit event.
