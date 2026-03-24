@@ -69,6 +69,7 @@ export interface CreateAgentRequest {
   description?: string
   avatar?: string
   config?: AgentConfig
+  visibility?: 'global' | 'private' | 'shared'
 }
 
 export interface UpdateAgentRequest {

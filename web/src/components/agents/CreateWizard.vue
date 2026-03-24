@@ -222,6 +222,14 @@
                 <span class="meta-key">频道</span>
                 <span class="meta-val">{{ enabledChannels ? `${enabledChannels} 个已配置` : '无' }}</span>
               </div>
+              <div class="meta-row">
+                <span class="meta-key">可见性</span>
+                <select v-model="form.visibility" class="visibility-select">
+                  <option value="private">私有（仅创建者可见）</option>
+                  <option value="shared">共享（需授权）</option>
+                  <option value="global">全局（所有用户可见）</option>
+                </select>
+              </div>
             </div>
           </div>
           <p class="confirm-hint">点击"创建数字员工"完成创建</p>
@@ -362,6 +370,7 @@ const form = ref({
   skills: [] as string[],
   mcp_servers: [] as string[],
   knowledge_bases: [] as string[],
+  visibility: 'private' as 'global' | 'private' | 'shared',
 })
 
 // ---- canProceed ----
@@ -413,7 +422,14 @@ async function handleCreate() {
       .map(c => ({ type: c.type, enabled: true, config: { ...c.config } }))
 
     const id = form.value.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString(36)
-    await createAgent({ id, name: form.value.name, description: form.value.description, avatar: form.value.emoji, config })
+    await createAgent({
+      id,
+      name: form.value.name,
+      description: form.value.description,
+      avatar: form.value.emoji,
+      config,
+      visibility: form.value.visibility,
+    })
     toast.success('数字员工创建成功')
     currentStep.value = 4
   } catch (err: any) {
@@ -684,6 +700,16 @@ onMounted(async () => {
 .meta-row { display: flex; gap: 8px; }
 .meta-key { font-size: 12px; color: var(--text-tertiary); min-width: 50px; }
 .meta-val { font-size: 12px; color: var(--text-primary); }
+.visibility-select {
+  flex: 1;
+  padding: 4px 8px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
 .confirm-hint { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
 
 /* Finish */
