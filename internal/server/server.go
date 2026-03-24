@@ -152,9 +152,9 @@ func (s *Server) registerRoutes(
 	// /api/mode — public, returns current deployment mode and auth requirements.
 	s.engine.GET("/api/mode", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"mode":         m.String(),
-			"require_auth": m.RequireAuth(),
-			"multi_user":   m.IsMultiUser(),
+			"mode":         s.mode.String(),
+			"require_auth": s.mode.RequireAuth(),
+			"multi_user":   s.mode.IsMultiUser(),
 		})
 	})
 
