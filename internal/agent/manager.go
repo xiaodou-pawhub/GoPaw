@@ -37,6 +37,8 @@ type Definition struct {
 	ConfigPath  string    `json:"config_path"`
 	IsActive    bool      `json:"is_active"`
 	IsDefault   bool      `json:"is_default"`
+	Visibility  string    `json:"visibility"`  // global, private, shared
+	OwnerID     string    `json:"owner_id,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 	Config      *AgentConfig   `json:"config,omitempty"`
@@ -90,12 +92,16 @@ CREATE TABLE IF NOT EXISTS agents (
     config_path TEXT NOT NULL,
     is_active BOOLEAN DEFAULT 0,
     is_default BOOLEAN DEFAULT 0,
+    visibility TEXT DEFAULT 'private',
+    owner_id TEXT,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_agents_active ON agents(is_active);
 CREATE INDEX IF NOT EXISTS idx_agents_default ON agents(is_default);
+CREATE INDEX IF NOT EXISTS idx_agents_visibility ON agents(visibility);
+CREATE INDEX IF NOT EXISTS idx_agents_owner ON agents(owner_id);
 
 CREATE TABLE IF NOT EXISTS agent_versions (
     id TEXT PRIMARY KEY,
@@ -126,7 +132,7 @@ func (m *Manager) LoadAgents() error {
 
 	// Load from database
 	rows, err := m.db.Query(`
-		SELECT id, name, description, avatar, config_path, is_active, is_default, created_at, updated_at
+		SELECT id, name, description, avatar, config_path, is_active, is_default, visibility, owner_id, created_at, updated_at
 		FROM agents
 		ORDER BY created_at DESC
 	`)
@@ -137,9 +143,11 @@ func (m *Manager) LoadAgents() error {
 
 	for rows.Next() {
 		def := &Definition{}
+		def.Visibility = "private" // Default visibility
 		err := rows.Scan(
 			&def.ID, &def.Name, &def.Description, &def.Avatar,
 			&def.ConfigPath, &def.IsActive, &def.IsDefault,
+			&def.Visibility, &def.OwnerID,
 			&def.CreatedAt, &def.UpdatedAt,
 		)
 		if err != nil {
@@ -264,10 +272,10 @@ func (m *Manager) Create(def *Definition) error {
 
 	// Insert into database
 	_, err := m.db.Exec(`
-		INSERT INTO agents (id, name, description, avatar, config_path, is_active, is_default, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO agents (id, name, description, avatar, config_path, is_active, is_default, visibility, owner_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, def.ID, def.Name, def.Description, def.Avatar, def.ConfigPath,
-		def.IsActive, def.IsDefault, def.CreatedAt, def.UpdatedAt)
+		def.IsActive, def.IsDefault, def.Visibility, def.OwnerID, def.CreatedAt, def.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to insert agent: %w", err)
 	}
@@ -312,10 +320,10 @@ func (m *Manager) Update(id string, def *Definition) error {
 	// Update database
 	_, err := m.db.Exec(`
 		UPDATE agents
-		SET name = ?, description = ?, avatar = ?, config_path = ?, is_active = ?, is_default = ?, updated_at = ?
+		SET name = ?, description = ?, avatar = ?, config_path = ?, is_active = ?, is_default = ?, visibility = ?, owner_id = ?, updated_at = ?
 		WHERE id = ?
 	`, def.Name, def.Description, def.Avatar, def.ConfigPath,
-		def.IsActive, def.IsDefault, def.UpdatedAt, id)
+		def.IsActive, def.IsDefault, def.Visibility, def.OwnerID, def.UpdatedAt, id)
 	if err != nil {
 		return fmt.Errorf("failed to update agent: %w", err)
 	}
